@@ -88,8 +88,8 @@ function Login({onLogin}) {
       setInvite(null);
       setAccepted(true);
     }}>
-      <label>Nové heslo<input name="password" type="password" minLength="12" maxLength="128" autoComplete="new-password" required /></label>
-      <small>Použi aspoň 12 znakov.</small>
+      <label>Nové heslo<input name="password" type="password" minLength="8" maxLength="128" autoComplete="new-password" required /></label>
+      <small>Použi aspoň 8 znakov.</small>
     </Form> : <Form key="login" label="Prihlásiť sa" submit={async data => {
       await api("login", "POST", data);
       await onLogin();
@@ -187,7 +187,7 @@ function Members({superadmin}) {
       }}>
         <label>Meno<input name="name" maxLength="120" required /></label>
         <label>E-mail<input name="email" type="email" maxLength="254" required /></label>
-        <label>Heslo<input name="password" type="password" autoComplete="new-password" minLength="12" maxLength="128" required /></label>
+        <label>Heslo<input name="password" type="password" autoComplete="new-password" minLength="8" maxLength="128" required /></label>
       </Form>
     </section>}
     <section className="card auth-link"><h2>Pozvať člena</h2>

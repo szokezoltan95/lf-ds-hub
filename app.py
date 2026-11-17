@@ -34,7 +34,7 @@ STAFF_ROLES = ("superadmin", "coach")
 Short = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 Email = Annotated[str, StringConstraints(strip_whitespace=True, to_lower=True, max_length=254,
                                         pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")]
-Password = Annotated[str, StringConstraints(min_length=12, max_length=128)]
+Password = Annotated[str, StringConstraints(min_length=8, max_length=128)]
 Body = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
 Note = Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)]
 Code = Annotated[str, StringConstraints(pattern=r"^LF-B[0-9]{2,6}$")]
@@ -80,7 +80,7 @@ async def lifespan(_app):
     try:
         password = TypeAdapter(Password).validate_python(os.environ.get("HUB_ADMIN_PASSWORD", ""))
     except ValueError:
-        raise RuntimeError("Set HUB_ADMIN_PASSWORD to a password of 12–128 characters") from None
+        raise RuntimeError("Set HUB_ADMIN_PASSWORD to a password of 8–128 characters") from None
 
     with connect() as conn:
         conn.execute("SELECT pg_advisory_xact_lock(81364, 1)")

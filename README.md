@@ -4,7 +4,7 @@
 
 ## Lokálny štart
 
-1. Skopíruj `.env.example` do `.env`. Vyplň heslo databázy a `HUB_ADMIN_PASSWORD` (12 až 128 znakov). Použi silné, jedinečné heslá.
+1. Skopíruj `.env.example` do `.env`. Vyplň heslo databázy a `HUB_ADMIN_PASSWORD` (8 až 128 znakov). Použi silné, jedinečné heslá.
 2. Spusti `docker compose -f compose.yml -f compose.local.yml up -d --build`.
 3. Otvor http://localhost:8081/dronesoccer/ a prihlás sa ako `admin` s heslom z `HUB_ADMIN_PASSWORD`. Otváraj presne adresu nastavenú v `HUB_PUBLIC_URL`.
 4. V časti **Členovia** vytvor trénerský účet s menom, e-mailom a heslom.
