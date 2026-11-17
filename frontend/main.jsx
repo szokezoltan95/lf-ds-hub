@@ -94,7 +94,7 @@ function Login({onLogin}) {
       await api("login", "POST", data);
       await onLogin();
     }}>
-      <label>E-mail<input type="email" name="email" autoComplete="username" maxLength="254" required /></label>
+      <label>E-mail alebo prihlasovacie meno<input name="login" autoComplete="username" autoCapitalize="none" maxLength="254" required /></label>
       <label>Heslo<input type="password" name="password" autoComplete="current-password" maxLength="128" required /></label>
     </Form>}
   </section>;
@@ -172,7 +172,7 @@ function TrainingCard({training, admin, refresh}) {
   </article>;
 }
 
-function Members() {
+function Members({superadmin}) {
   const [members, setMembers] = useState([]);
   const [link, setLink] = useState("");
   const [attendance, setAttendance] = useState(null);
@@ -180,6 +180,16 @@ function Members() {
   async function load() { setMembers(await api("members")); }
   useEffect(() => {load().catch(error => setError(error.message));}, []);
   return <>
+    {superadmin && <section className="card"><h2>Vytvoriť trénerský účet</h2>
+      <Form label="Vytvoriť trénera" reset submit={async data => {
+        await api("members/coaches", "POST", data);
+        await load();
+      }}>
+        <label>Meno<input name="name" maxLength="120" required /></label>
+        <label>E-mail<input name="email" type="email" maxLength="254" required /></label>
+        <label>Heslo<input name="password" type="password" autoComplete="new-password" minLength="12" maxLength="128" required /></label>
+      </Form>
+    </section>}
     <section className="card auth-link"><h2>Pozvať člena</h2>
       <Form label="Vytvoriť pozvánku" reset submit={async data => {
         const result = await api("members/invite", "POST", data);
@@ -189,15 +199,16 @@ function Members() {
         <label>Meno<input name="name" maxLength="120" required /></label>
         <label>E-mail<input name="email" type="email" maxLength="254" required /></label>
       </Form>
-      {link && <div className="invite"><label>Odkaz pre člena (platí 7 dní)<input readOnly value={link} onFocus={e => e.target.select()} /></label>
+      {link && <div className="invite"><label>Odkaz na aktiváciu alebo obnovu hesla (platí 7 dní)<input readOnly value={link} onFocus={e => e.target.select()} /></label>
         {navigator.clipboard && <Action run={() => navigator.clipboard.writeText(link)}>Kopírovať odkaz</Action>}
       </div>}
     </section>
     <section className="card"><h2>Zoznam členov</h2>
       {error && <p className="error" role="alert">{error}</p>}
       <ul className="records">{members.map(member => <li key={member.id}>
-        <strong>{member.name}</strong><span>{member.email} · {member.role === "admin" ? "Správca" : !member.active ? "Neaktívny" : member.registered ? "Aktívny" : "Pozvaný"}</span>
-        {member.role !== "admin" && <div className="actions">
+        <strong>{member.name}</strong>
+        <span>{member.email || "admin"} · {{superadmin: "Superadmin", coach: "Tréner", member: "Člen"}[member.role]} · {!member.active ? "Neaktívny" : member.registered ? "Aktívny" : "Pozvaný"}</span>
+        {member.role !== "superadmin" && <div className="actions">
           <Action run={async () => {
             await api("members/" + member.id + "/active", "PUT", {active: !member.active});
             await load();
@@ -207,9 +218,22 @@ function Members() {
             setLink(result.invite_url);
             document.querySelector(".auth-link")?.scrollIntoView();
           }}>Vytvoriť odkaz na obnovu hesla</Action>}
-          <Action run={async () => setAttendance(attendance?.member === member.id ? null : {
+          {member.role === "member" && <Action run={async () => setAttendance(attendance?.member === member.id ? null : {
             member: member.id, rows: await api("members/" + member.id + "/attendance"),
-          })}>Dochádzka</Action>
+          })}>Dochádzka</Action>}
+          {superadmin && member.registered && <Action run={async () => {
+            const role = member.role === "coach" ? "member" : "coach";
+            await api("members/" + member.id + "/role", "PUT", {role});
+            setLink("");
+            await load();
+          }}>{member.role === "coach" ? "Zmeniť na člena" : "Povýšiť na trénera"}</Action>}
+          {superadmin && member.role === "member" && <Action run={async () => {
+            if (!window.confirm("Natrvalo odstrániť účet „" + member.name + "“, jeho dochádzku a súkromné správy?")) return;
+            await api("members/" + member.id, "DELETE");
+            setLink("");
+            setAttendance(null);
+            await load();
+          }}>Natrvalo odstrániť člena</Action>}
         </div>}
         {attendance?.member === member.id && (attendance.rows.length ? <ul>{attendance.rows.map((row, i) =>
           <li key={i}>{date(row.starts_at)} · {row.title} · {row.attended ? "Prítomný" : "Neprítomný"}</li>
@@ -326,7 +350,8 @@ function App() {
   const session = useRef(null);
   const data = snapshot?.owner && snapshot.owner === user ? snapshot.data : empty;
   const [error, setError] = useState("");
-  const admin = user?.role === "admin";
+  const superadmin = user?.role === "superadmin";
+  const admin = superadmin || user?.role === "coach";
   async function loadUser() {
     try {
       const signedIn = await api("me");
@@ -409,7 +434,7 @@ function App() {
         </>}
         {page === "Oznamy" && <Bulletin items={data.announcements} admin={admin} refresh={refresh} />}
         {page === "Správy" && <Messages items={data.messages} user={user} refresh={refresh} />}
-        {page === "Členovia" && admin && <Members />}
+        {page === "Členovia" && admin && <Members superadmin={superadmin} />}
         {page === "Batérie" && <Batteries key={activeBattery} admin={admin} />}
       </>}
     </main>

@@ -18,7 +18,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
-from pydantic import AwareDatetime, BaseModel, Field, StringConstraints
+from pydantic import AliasChoices, AwareDatetime, BaseModel, Field, StringConstraints, TypeAdapter
 
 ROOT = Path(__file__).resolve().parent
 PUBLIC_URL = os.environ.get("HUB_PUBLIC_URL", "http://localhost:8081/dronesoccer/").rstrip("/")
@@ -30,6 +30,7 @@ if (url.scheme not in {"http", "https"} or not url.hostname or url.username or u
 ORIGIN = f"{url.scheme}://{url.netloc}"
 COOKIE = "lf_ds_hub_session"
 CLUB_ZONE = ZoneInfo("Europe/Bratislava")
+STAFF_ROLES = ("superadmin", "coach")
 Short = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 Email = Annotated[str, StringConstraints(strip_whitespace=True, to_lower=True, max_length=254,
                                         pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")]
@@ -70,27 +71,35 @@ def password_hash(password, salt=None):
     return f"{salt}:{result.hex()}"
 
 
-class AdminCredentials(BaseModel):
-    email: Email
-    password: Password
+def matches_password(password, saved):
+    return hmac.compare_digest(saved, password_hash(password, saved.split(":")[0]))
 
 
 @asynccontextmanager
 async def lifespan(_app):
+    try:
+        password = TypeAdapter(Password).validate_python(os.environ.get("HUB_ADMIN_PASSWORD", ""))
+    except ValueError:
+        raise RuntimeError("Set HUB_ADMIN_PASSWORD to a password of 12–128 characters") from None
+
     with connect() as conn:
         conn.execute("SELECT pg_advisory_xact_lock(81364, 1)")
         conn.execute((ROOT / "schema.sql").read_text(), prepare=False)
-        email = os.environ["HUB_ADMIN_EMAIL"].strip().lower()
-        if not conn.execute("SELECT 1 FROM members WHERE role = 'admin'").fetchone():
-            password = os.environ.get("HUB_ADMIN_PASSWORD", "")
-            try:
-                credentials = AdminCredentials(email=email, password=password)
-            except ValueError:
-                raise RuntimeError("Set a valid HUB_ADMIN_EMAIL and a 12–128 character HUB_ADMIN_PASSWORD") from None
-            conn.execute(
-                "INSERT INTO members (email, name, role, password_hash) VALUES (%s, %s, 'admin', %s)",
-                (credentials.email, "Tréner", password_hash(credentials.password)),
-            )
+        account = conn.execute(
+            "SELECT id, password_hash FROM members WHERE role='superadmin' FOR UPDATE"
+        ).fetchone()
+        saved = account["password_hash"] if account else None
+        if not saved or not matches_password(password, saved):
+            hashed = password_hash(password)
+            if account:
+                conn.execute("UPDATE members SET password_hash=%s WHERE id=%s", (hashed, account["id"]))
+                conn.execute("DELETE FROM sessions WHERE member_id=%s", (account["id"],))
+            else:
+                conn.execute(
+                    "INSERT INTO members (name, role, password_hash) VALUES (%s, 'superadmin', %s)",
+                    ("Systémový správca", hashed),
+                )
+            conn.execute("DELETE FROM login_attempts WHERE email='admin'")
     yield
 
 
@@ -136,17 +145,29 @@ def identity(request: Request, conn: DB):
 User = Annotated[dict, Depends(identity, scope="function")]
 
 
-def admin(user: User):
-    if user["role"] != "admin":
-        raise HTTPException(403, "Tento úkon môže vykonať iba správca.")
+def staff(user: User):
+    if user["role"] not in STAFF_ROLES:
+        raise HTTPException(403, "Tento úkon vyžaduje oprávnenie trénera.")
     return user
 
 
-Admin = Annotated[dict, Depends(admin, scope="function")]
+Staff = Annotated[dict, Depends(staff, scope="function")]
+
+
+def superadmin(user: User):
+    if user["role"] != "superadmin":
+        raise HTTPException(403, "Tento úkon môže vykonať iba superadmin.")
+    return user
+
+
+Superadmin = Annotated[dict, Depends(superadmin, scope="function")]
 
 
 class Login(BaseModel):
-    email: Email
+    login: Annotated[str, StringConstraints(strip_whitespace=True, to_lower=True,
+                                           min_length=1, max_length=254)] = Field(
+        validation_alias=AliasChoices("login", "email")
+    )
     password: Annotated[str, StringConstraints(min_length=1, max_length=128)]
 
 
@@ -158,6 +179,14 @@ class Invite(BaseModel):
 class Accept(BaseModel):
     token: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{43}$")]
     password: Password
+
+
+class CoachAccount(Invite):
+    password: Password
+
+
+class AccountRole(BaseModel):
+    role: Literal["coach", "member"]
 
 
 class Active(BaseModel):
@@ -172,26 +201,31 @@ def health(conn: DB):
 
 @api.post("/login")
 def login(data: Login, response: Response, conn: DB):
-    member = conn.execute(
-        "SELECT id, active, password_hash FROM members WHERE email = %s FOR UPDATE", (data.email,)
-    ).fetchone()
+    if data.login == "admin":
+        member = conn.execute(
+            "SELECT id, active, password_hash FROM members WHERE role='superadmin' FOR UPDATE"
+        ).fetchone()
+    else:
+        member = conn.execute(
+            "SELECT id, active, password_hash FROM members WHERE email=%s FOR UPDATE", (data.login,)
+        ).fetchone()
     if not member or not member["active"] or not member["password_hash"]:
-        raise HTTPException(401, "Nesprávny e-mail alebo heslo.")
+        raise HTTPException(401, "Nesprávne prihlasovacie meno alebo heslo.")
     attempts = conn.execute(
         """INSERT INTO login_attempts VALUES (%s, 1, now()) ON CONFLICT (email) DO UPDATE
         SET attempts = CASE WHEN login_attempts.window_started < now() - interval '15 minutes'
         THEN 1 ELSE least(login_attempts.attempts + 1, 11) END,
         window_started = CASE WHEN login_attempts.window_started < now() - interval '15 minutes'
-        THEN now() ELSE login_attempts.window_started END RETURNING attempts""", (data.email,)
+        THEN now() ELSE login_attempts.window_started END RETURNING attempts""", (data.login,)
     ).fetchone()["attempts"]
     if attempts > 10:
         conn.commit()
         raise HTTPException(429, "Skús sa prihlásiť neskôr.")
     saved = member["password_hash"]
-    if not hmac.compare_digest(saved, password_hash(data.password, saved.split(":")[0])):
+    if not matches_password(data.password, saved):
         conn.commit()
-        raise HTTPException(401, "Nesprávny e-mail alebo heslo.")
-    conn.execute("DELETE FROM login_attempts WHERE email = %s", (data.email,))
+        raise HTTPException(401, "Nesprávne prihlasovacie meno alebo heslo.")
+    conn.execute("DELETE FROM login_attempts WHERE email = %s", (data.login,))
     conn.execute("DELETE FROM sessions WHERE expires_at <= now()")
     token = secrets.token_urlsafe(32)
     conn.execute("INSERT INTO sessions VALUES (%s, %s, now() + interval '30 days')",
@@ -215,15 +249,16 @@ def me(user: User):
 
 
 @api.get("/members")
-def members(conn: DB, _admin: Admin):
+def members(conn: DB, user: Staff):
     return conn.execute(
         """SELECT id, email, name, role, active, password_hash IS NOT NULL AS registered
-        FROM members ORDER BY name, id"""
+        FROM members WHERE role = 'member' OR %s ORDER BY name, id""",
+        (user["role"] == "superadmin",)
     ).fetchall()
 
 
 @api.post("/members/invite")
-def invite(data: Invite, conn: DB, _admin: Admin):
+def invite(data: Invite, conn: DB, _staff: Staff):
     token = secrets.token_urlsafe(32)
     member = conn.execute(
         """INSERT INTO members (email, name, role, invite_hash, invite_until)
@@ -238,16 +273,61 @@ def invite(data: Invite, conn: DB, _admin: Admin):
     return {"invite_url": f"{PUBLIC_URL}/#invite={token}"}
 
 
+@api.post("/members/coaches")
+def create_coach(data: CoachAccount, conn: DB, _admin: Superadmin):
+    member = conn.execute(
+        """INSERT INTO members (email, name, role, password_hash)
+        VALUES (%s, %s, 'coach', %s) ON CONFLICT (email) DO NOTHING RETURNING id""",
+        (data.email, data.name, password_hash(data.password)),
+    ).fetchone()
+    if not member:
+        raise HTTPException(409, "Tento e-mail už patrí existujúcemu účtu.")
+    return {"ok": True}
+
+
+@api.put("/members/{member_id}/role")
+def set_role(member_id: int, data: AccountRole, conn: DB, _admin: Superadmin):
+    member = conn.execute(
+        """SELECT role FROM members WHERE id=%s AND role IN ('member', 'coach')
+        AND password_hash IS NOT NULL FOR UPDATE""", (member_id,),
+    ).fetchone()
+    if not member:
+        raise HTTPException(404, "Aktivovaný účet sa nenašiel.")
+    if member["role"] != data.role:
+        conn.execute(
+            """UPDATE members SET role=%s, invite_hash=NULL, invite_until=NULL
+            WHERE id=%s""", (data.role, member_id),
+        )
+        conn.execute("DELETE FROM sessions WHERE member_id=%s", (member_id,))
+    return {"ok": True}
+
+
+@api.delete("/members/{member_id}")
+def delete_member(member_id: int, conn: DB, _admin: Superadmin):
+    member = conn.execute(
+        "SELECT email FROM members WHERE id=%s AND role='member' FOR UPDATE", (member_id,),
+    ).fetchone()
+    if not member:
+        raise HTTPException(404, "Člen sa nenašiel.")
+    conn.execute("DELETE FROM participation WHERE member_id=%s", (member_id,))
+    conn.execute("DELETE FROM messages WHERE sender_id=%s OR recipient_id=%s", (member_id, member_id))
+    conn.execute("UPDATE battery_events SET actor_id=NULL WHERE actor_id=%s", (member_id,))
+    conn.execute("DELETE FROM login_attempts WHERE email=%s", (member["email"],))
+    conn.execute("DELETE FROM members WHERE id=%s", (member_id,))
+    return {"ok": True}
+
+
 @api.post("/members/{member_id}/reset")
-def reset_member_password(member_id: int, conn: DB, _admin: Admin):
+def reset_member_password(member_id: int, conn: DB, user: Staff):
     token = secrets.token_urlsafe(32)
     member = conn.execute(
         """UPDATE members SET invite_hash=%s, invite_until=now() + interval '7 days'
-        WHERE id=%s AND active AND role='member' AND password_hash IS NOT NULL RETURNING id""",
-        (digest(token), member_id),
+        WHERE id=%s AND active AND (role='member' OR (role='coach' AND %s))
+        AND password_hash IS NOT NULL RETURNING id""",
+        (digest(token), member_id, user["role"] == "superadmin"),
     ).fetchone()
     if not member:
-        raise HTTPException(404, "Aktívny členský účet sa nenašiel.")
+        raise HTTPException(404, "Aktívny účet sa nenašiel.")
     return {"invite_url": f"{PUBLIC_URL}/#invite={token}&reset=1"}
 
 
@@ -268,10 +348,11 @@ def accept(data: Accept, conn: DB):
 
 
 @api.put("/members/{member_id}/active")
-def set_active(member_id: int, data: Active, conn: DB, _admin: Admin):
+def set_active(member_id: int, data: Active, conn: DB, user: Staff):
     member = conn.execute(
-        "UPDATE members SET active = %s WHERE id = %s AND role = 'member' RETURNING id",
-        (data.active, member_id)
+        """UPDATE members SET active=%s WHERE id=%s
+        AND (role='member' OR (role='coach' AND %s)) RETURNING id""",
+        (data.active, member_id, user["role"] == "superadmin"),
     ).fetchone()
     if not member:
         raise HTTPException(404, "Člen sa nenašiel.")
@@ -315,7 +396,7 @@ def trainings(conn: DB, user: User):
 
 
 @api.post("/trainings")
-def create_training(data: Training, conn: DB, _admin: Admin):
+def create_training(data: Training, conn: DB, _staff: Staff):
     series = uuid4() if data.weeks > 1 else None
     start = data.starts_at.astimezone(CLUB_ZONE)
     starts = [start + timedelta(weeks=week) for week in range(data.weeks)]
@@ -343,7 +424,7 @@ def lock_training(conn, training_id):
 
 
 @api.put("/trainings/{training_id}")
-def edit_training(training_id: int, data: TrainingEdit, conn: DB, _admin: Admin):
+def edit_training(training_id: int, data: TrainingEdit, conn: DB, _staff: Staff):
     training = lock_training(conn, training_id)
     if training["cancelled"]:
         raise HTTPException(409, "Tréning bol zrušený.")
@@ -364,7 +445,7 @@ def edit_training(training_id: int, data: TrainingEdit, conn: DB, _admin: Admin)
 
 
 @api.post("/trainings/{training_id}/cancel")
-def cancel_training(training_id: int, conn: DB, _admin: Admin):
+def cancel_training(training_id: int, conn: DB, _staff: Staff):
     training = lock_training(conn, training_id)
     if not training["cancelled"]:
         conn.execute("UPDATE trainings SET cancelled=true WHERE id=%s", (training_id,))
@@ -396,7 +477,7 @@ def rsvp(training_id: int, data: RSVP, conn: DB, user: User):
 
 
 @api.get("/trainings/{training_id}/roster")
-def roster(training_id: int, conn: DB, _admin: Admin):
+def roster(training_id: int, conn: DB, _staff: Staff):
     if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
         raise HTTPException(404, "Tréning sa nenašiel.")
     return conn.execute(
@@ -409,7 +490,7 @@ def roster(training_id: int, conn: DB, _admin: Admin):
 
 
 @api.put("/trainings/{training_id}/attendance/{member_id}")
-def attendance(training_id: int, member_id: int, data: Attendance, conn: DB, _admin: Admin):
+def attendance(training_id: int, member_id: int, data: Attendance, conn: DB, _staff: Staff):
     training = lock_training(conn, training_id)
     if training["cancelled"] or training["starts_at"] > datetime.now(timezone.utc):
         raise HTTPException(409, "Dochádzku možno zapísať od začiatku tréningu.")
@@ -424,7 +505,7 @@ def attendance(training_id: int, member_id: int, data: Attendance, conn: DB, _ad
 
 
 @api.get("/members/{member_id}/attendance")
-def member_attendance(member_id: int, conn: DB, _admin: Admin):
+def member_attendance(member_id: int, conn: DB, _staff: Staff):
     return conn.execute(
         """SELECT t.title, t.starts_at, p.attended FROM participation p
         JOIN trainings t ON t.id=p.training_id
@@ -449,16 +530,16 @@ def announcements(conn: DB, _user: User):
 
 
 @api.post("/announcements")
-def announce(data: Announcement, conn: DB, _admin: Admin):
+def announce(data: Announcement, conn: DB, _staff: Staff):
     conn.execute("INSERT INTO announcements (title, body) VALUES (%s,%s)", (data.title, data.body))
     return {"ok": True}
 
 
 @api.get("/contacts")
 def contacts(conn: DB, user: User):
-    role = "member" if user["role"] == "admin" else "admin"
-    return conn.execute("SELECT id, name FROM members WHERE active AND role=%s AND password_hash IS NOT NULL ORDER BY name",
-                        (role,)).fetchall()
+    roles = ["member"] if user["role"] in STAFF_ROLES else list(STAFF_ROLES)
+    return conn.execute("SELECT id, name FROM members WHERE active AND role=ANY(%s) AND password_hash IS NOT NULL ORDER BY name",
+                        (roles,)).fetchall()
 
 
 @api.get("/messages")
@@ -473,9 +554,9 @@ def messages(conn: DB, user: User, before: int | None = None):
 
 @api.post("/messages")
 def send_message(data: Message, conn: DB, user: User):
-    role = "member" if user["role"] == "admin" else "admin"
-    target = conn.execute("SELECT id FROM members WHERE id=%s AND active AND role=%s AND password_hash IS NOT NULL",
-                          (data.recipient_id, role)).fetchone()
+    roles = ["member"] if user["role"] in STAFF_ROLES else list(STAFF_ROLES)
+    target = conn.execute("SELECT id FROM members WHERE id=%s AND active AND role=ANY(%s) AND password_hash IS NOT NULL",
+                          (data.recipient_id, roles)).fetchone()
     if not target:
         raise HTTPException(404, "Adresát sa nenašiel.")
     conn.execute("INSERT INTO messages (sender_id, recipient_id, body) VALUES (%s,%s,%s)",
@@ -510,7 +591,7 @@ def batteries(conn: DB, _user: User):
 
 
 @api.post("/batteries")
-def add_battery(data: Battery, conn: DB, _admin: Admin):
+def add_battery(data: Battery, conn: DB, _staff: Staff):
     result = conn.execute("INSERT INTO batteries VALUES (%s,%s) ON CONFLICT DO NOTHING",
                           (data.code, data.label))
     if not result.rowcount:
@@ -521,7 +602,8 @@ def add_battery(data: Battery, conn: DB, _admin: Admin):
 @api.get("/batteries/{code}/events")
 def events(code: Code, conn: DB, _user: User):
     return conn.execute(
-        """SELECT e.*, m.name FROM battery_events e JOIN members m ON m.id=e.actor_id
+        """SELECT e.*, COALESCE(m.name, 'Odstránený účet') AS name
+        FROM battery_events e LEFT JOIN members m ON m.id=e.actor_id
         WHERE code=%s ORDER BY e.id DESC LIMIT 100""", (code,)
     ).fetchall()
 
@@ -535,15 +617,15 @@ def add_event(code: Code, data: BatteryEvent, conn: DB, user: User):
     status = last["action"] if last else None
     if status == "retired" or (status == "damaged" and data.action not in {"damaged", "retired"}):
         raise HTTPException(409, "Batéria je poškodená alebo vyradená.")
-    if data.action == "retired" and user["role"] != "admin":
-        raise HTTPException(403, "Batériu môže vyradiť iba správca.")
+    if data.action == "retired" and user["role"] not in STAFF_ROLES:
+        raise HTTPException(403, "Batériu môže vyradiť iba tréner alebo superadmin.")
     conn.execute("INSERT INTO battery_events (code, actor_id, action, note) VALUES (%s,%s,%s,%s)",
                  (code, user["id"], data.action, data.note))
     return {"ok": True}
 
 
 @api.get("/batteries/{code}/label.svg")
-def label(code: Code, conn: DB, _admin: Admin):
+def label(code: Code, conn: DB, _staff: Staff):
     if not conn.execute("SELECT 1 FROM batteries WHERE code=%s", (code,)).fetchone():
         raise HTTPException(404, "Batéria sa nenašla.")
     qr = qrcode.make(f"{PUBLIC_URL}/#battery={code}", image_factory=qrcode.image.svg.SvgPathImage)

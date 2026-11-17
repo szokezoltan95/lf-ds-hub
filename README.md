@@ -4,12 +4,23 @@
 
 ## Lokálny štart
 
-1. Skopíruj `.env.example` do `.env`. Vyplň heslo databázy, e-mail správcu a jeho úvodné heslo (aspoň 12 znakov). Použi silné, jedinečné heslá.
+1. Skopíruj `.env.example` do `.env`. Vyplň heslo databázy a `HUB_ADMIN_PASSWORD` (12 až 128 znakov). Použi silné, jedinečné heslá.
 2. Spusti `docker compose -f compose.yml -f compose.local.yml up -d --build`.
-3. Otvor http://localhost:8081/dronesoccer/ a prihlás sa ako správca. Otváraj presne adresu nastavenú v `HUB_PUBLIC_URL`.
-4. V časti **Členovia** vytvor pozvánku a pošli členovi vygenerovaný odkaz. Rovnakým spôsobom môžeš vytvoriť odkaz na obnovu hesla. Odkaz funguje raz a najviac sedem dní.
+3. Otvor http://localhost:8081/dronesoccer/ a prihlás sa ako `admin` s heslom z `HUB_ADMIN_PASSWORD`. Otváraj presne adresu nastavenú v `HUB_PUBLIC_URL`.
+4. V časti **Členovia** vytvor trénerský účet s menom, e-mailom a heslom.
+5. Pre člena vytvor pozvánku a pošli členovi vygenerovaný odkaz. Rovnakým spôsobom môžeš vytvoriť odkaz na obnovu hesla. Odkaz funguje raz a najviac sedem dní.
 
-Úvodné heslo vytvorí účet len pri prvom spustení s prázdnou databázou. Po jeho vytvorení odstráň hodnotu `HUB_ADMIN_PASSWORD` z `.env` a obnov kontajner hubu.
+Systémový účet `admin` nemá e-mail. Hodnotu `HUB_ADMIN_PASSWORD` ponechaj v
+`.env`. Po zmene hesla znovu vytvor kontajner hubu. Existujúce relácie systémového
+účtu sa pri zmene hesla ukončia.
+
+Tréneri sa prihlasujú e-mailom. Spravujú členské účty, tréningy, dochádzku,
+oznamy, správy a batérie. Trénerské účty, zmeny rolí a trvalé odstránenie
+člena spravuje superadmin.
+
+Pri aktualizácii nastav `HUB_ADMIN_PASSWORD` ešte pred zostavením. Položku
+`HUB_ADMIN_EMAIL` môžeš odstrániť. Pôvodný správca s e-mailom sa automaticky
+zmení na trénera, zachová si heslo aj históriu a musí sa znovu prihlásiť.
 
 ## Server THRUST
 
