@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from "react";
 import {createRoot} from "react-dom/client";
-import {Drone, Menu, X, House, CalendarDays, MessageCircle, Megaphone, Users, Battery, ShieldCheck,
+import {Drone, Menu, X, House, CalendarDays, MessageCircle, Megaphone, Users, Battery, ShieldCheck, Construction,
   LogOut, Bell, Plus, ChevronLeft, ChevronRight, MapPin, Clock, Check, CircleHelp,
   Search, ScanLine, QrCode, ClipboardCheck, Pin, FileText, Download, ArrowUpRight, Settings2, Send, CheckCheck, Pencil} from "lucide-react";
 import "@fontsource/dm-sans/latin-400.css";
@@ -958,10 +958,6 @@ function ClubScanner({user,initialEvent,refresh}) {
         {!eventsLoading && !eventId && <p className="small muted">Ak sa nedá jednoznačne určiť prebiehajúca udalosť, vyber ju ručne. Batérie možno skenovať aj bez výberu udalosti.</p>}
       </div>}
       {!running && <button className="primary scan-open-camera" disabled={busy || (mode==="attendance" && eventsLoading)} onClick={next}><ScanLine size={20} />Otvoriť kameru</button>}
-      {running && <div className={"scan-camera-stage "+(mode==="attendance"?"attendance-camera":"battery-camera")}>
-        <CameraScanner running={running} onDecode={decode} onError={message=>{setRunning(false);setError(message);}} />
-        <button className="scan-stop" onClick={()=>setRunning(false)}>Zastaviť skener</button>
-      </div>}
       <details className="scan-manual"><summary>Zadať kód ručne alebo cez USB skener</summary>
         <Form label={busy ? "Spracúva sa…" : "Spracovať kód"} submit={async()=>{if(busy)return;locked.current=false;await decode(manual);}}>
           <label className="section-space">Kód<input value={manual} onChange={event=>setManual(event.target.value)} placeholder={mode==="attendance"?"LF-M:…":"LF-B01"} maxLength="2048" autoComplete="off" autoCapitalize="none" spellCheck="false" required disabled={busy} /></label>
@@ -969,6 +965,12 @@ function ClubScanner({user,initialEvent,refresh}) {
       </details>
       {error && <p className="error" role="alert">{error}</p>}
     </section>
+    {running && <Modal title={mode==="attendance" ? "Skenovať dochádzku" : "Skenovať batérie"} close={()=>setRunning(false)}>
+      <div className={"scan-camera-stage "+(mode==="attendance"?"attendance-camera":"battery-camera")}>
+        <CameraScanner running={running} onDecode={decode} onError={message=>{setRunning(false);setError(message);}} />
+      </div>
+      <button className="primary scan-stop-modal" onClick={()=>setRunning(false)}>Zastaviť skener</button>
+    </Modal>}
     {toast && <div className="scan-success-toast" role="status"><Check size={16}/>{toast}</div>}
     {pendingMember && <Modal title={pendingMember.name} close={()=>setPendingMember(null)}>
       <p>Vyber udalosť pre zápis dochádzky alebo vytvor novú udalosť.</p>
@@ -1320,6 +1322,10 @@ function App() {
     {user && <aside className="sidebar">{menuContent}</aside>}
     {user && menu && <Drawer close={closeMenu}>{menuContent}</Drawer>}
     <main className={currentPage === "messages" && user ? "content messages-page" : "content"}>
+      <aside className="development-banner" aria-label="Aplikácia vo vývoji">
+        <Construction size={22} aria-hidden="true" />
+        <div><strong>Aplikácia je v skúšobnej prevádzke</strong><p>Nie všetky funkcie sú zatiaľ dostupné. Funkcie aj vzhľad aplikácie priebežne dopĺňame a upravujeme.</p></div>
+      </aside>
       {error && <div className="error-banner" role="alert">{error}<Action run={refresh}>Skúsiť znova</Action></div>}
       {user === undefined ? <Empty>Načítava sa…</Empty> : !user ? <Login onLogin={loadUser} /> : <>
         {currentPage !== "home" && <div className="page-heading"><div><p className="eyebrow">Drone Soccer LF TUKE</p><h1>{title}</h1></div></div>}
