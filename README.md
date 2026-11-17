@@ -80,3 +80,15 @@ celú jej históriu. Odobratý používateľ stratí prístup k skupine okamžit
 Manifest PWA odkazuje na modré ikony `icon-blue-192.png` a
 `icon-blue-512.png`. Ich zdrojom je `frontend/public/app-icon.svg`, ktorý
 používa rovnaký symbol dronu a fakultnú modrú ako hlavička aplikácie.
+
+## Inštalácia PWA
+
+Aplikácia sa inštaluje pod názvom **DroneSoccer LF**. V menu a profile je
+tlačidlo na inštaláciu. Keď prehliadač sprístupní inštalačný dialóg,
+na domovskej stránke sa zobrazí aj ponuka. Kliknutie otvorí dialóg prehliadača,
+ktorý používateľ potvrdí. Po zrušení sa ponuka na domovskej stránke skryje
+do ďalšieho načítania stránky.
+
+Aplikácia rozlišuje iOS/iPadOS, Android a desktopové systémy. Pri nedostupnom
+dialógu zobrazí návod podľa zariadenia. Na iPhone sa používa Zdieľať a Pridať
+na plochu. V samostatnom okne nainštalovanej aplikácie je ponuka skrytá.

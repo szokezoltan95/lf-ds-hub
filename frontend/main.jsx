@@ -8,6 +8,7 @@ import "@fontsource/dm-sans/latin-ext-400.css";
 import "@fontsource/dm-sans/latin-600.css";
 import "@fontsource/dm-sans/latin-ext-600.css";
 import "./style.css";
+import {usePwaInstall, promptInstallation, installationPlatform} from "./install.js";
 
 const base = new URL("./", location.href);
 const labels = {yes: "Prídem", no: "Neprídem", maybe: "Ešte neviem"};
@@ -700,7 +701,22 @@ function Documents({staff}) {
   </>;
 }
 
-function Profile({user, reloadUser}) {
+function InstallPanel({installation, install, compact = false}) {
+  if (installation.installed) return compact ? null : <section className="card">
+    <p className="meta"><CheckCheck size={18} />Aplikácia je nainštalovaná.</p>
+  </section>;
+  if (compact) return <button className="install-menu-button" disabled={installation.busy} onClick={install}>
+    <Download size={18} />{installation.busy ? "Otvára sa…" : "Nainštalovať aplikáciu"}
+  </button>;
+  return <section className="card install-card"><span className="quick-icon"><Download size={23} /></span>
+    <div className="grow"><h2>DroneSoccer LF na tvojej ploche</h2><p className="muted small">Otváraj klub priamo cez ikonu aplikácie.</p>
+      <button className="primary" disabled={installation.busy} onClick={install}><Download size={17} />
+        {installation.busy ? "Otvára sa…" : installation.available ? "Nainštalovať aplikáciu" : "Ako nainštalovať"}
+      </button></div>
+  </section>;
+}
+
+function Profile({user, reloadUser, installation, install}) {
   const [attendance, setAttendance] = useState([]);
   const [edit, setEdit] = useState(null);
   const [error, setError] = useState("");
@@ -718,7 +734,7 @@ function Profile({user, reloadUser}) {
       {attendance.length ? <><p className="big-number">{attended}<span> / {attendance.length}</span></p><p className="muted">navštívených udalostí so zaznamenanou dochádzkou</p>
         <ul className="records">{attendance.map(row => <li key={row.id}><div className="grow"><strong>{row.title}</strong><span className="meta">{date(row.starts_at)}</span></div><span className="badge">{row.attended ? "Prítomný" : "Neprítomný"}</span></li>)}</ul></> : <p className="muted">Tréner zatiaľ nezapísal dochádzku.</p>}
     </section>}
-    <details className="card"><summary>Pridať aplikáciu na plochu</summary><p>Na iPhone otvor portál v Safari a vyber Zdieľať → Pridať na plochu. Zapni Otvoriť ako webovú aplikáciu, ak sa zobrazí.</p><p>Na Androide otvor menu prehliadača a vyber Inštalovať aplikáciu alebo Pridať na plochu.</p></details>
+    <InstallPanel installation={installation} install={install} />
     {edit && <Modal title={edit === "profile" ? "Upraviť profil" : "Zmeniť heslo"} close={() => setEdit(null)}>
       <Form label="Uložiť" submit={async data => {
         await api(edit === "profile" ? "me" : "me/password", "PUT", data);
@@ -785,6 +801,11 @@ function Drawer({close, children}) {
 }
 
 function App() {
+  const installation = usePwaInstall();
+  const platform = installationPlatform();
+  const [installHelp, setInstallHelp] = useState(false);
+  const [installError, setInstallError] = useState("");
+  const [installHidden, setInstallHidden] = useState(false);
   const [user, setUser] = useState(undefined);
   const [page, setPage] = useState(() => hash().has("battery") ? "equipment" : hash().get("page") || "home");
   const [menu, setMenu] = useState(false);
@@ -805,6 +826,18 @@ function App() {
   const allowedPages = [...visibleNavigation.map(([key]) => key), "profile"];
   const currentPage = allowedPages.includes(page) ? page : "home";
   const title = currentPage === "profile" ? "Môj profil" : visibleNavigation.find(([key]) => key === currentPage)?.[1];
+  async function install() {
+    setInstallError("");
+    if (!installation.available) {setInstallHelp(true); return;}
+    try {
+      const outcome = await promptInstallation();
+      if (outcome === "dismissed") setInstallHidden(true);
+      if (outcome === "unavailable") setInstallHelp(true);
+    } catch {
+      setInstallError("Inštalačný dialóg sa nepodarilo otvoriť. Použi menu prehliadača.");
+      setInstallHelp(true);
+    }
+  }
   async function loadUser() {
     try {
       const account = await api("me"); session.current = account; setUser(account);
@@ -870,6 +903,7 @@ function App() {
     <button key={key} className={currentPage === key ? "active" : ""} aria-current={currentPage === key ? "page" : undefined} onClick={() => navigate(key)}>
       <Icon size={20} /><span>{label}</span>{key === "messages" && unread > 0 && <span className="counter">{unread}</span>}
     </button>)}</nav><div className="menu-footer"><button className="person-link" aria-label="Môj profil" onClick={() => navigate("profile")}><Avatar name={user?.name || "Používateľ"} /><span className="grow"><strong>{user?.name}</strong><span className="meta">{roles[user?.role]}</span></span><Settings2 size={18} /></button>
+      <InstallPanel compact installation={installation} install={install} />
       <Action className="logout-button" run={logout}><LogOut size={18} />Odhlásiť sa</Action></div></>;
   return <div className={user ? "app" : "signed-out"}>
     <header className="topbar">
@@ -883,12 +917,16 @@ function App() {
     {user && menu && <Drawer close={closeMenu}>{menuContent}</Drawer>}
     <main className={currentPage === "messages" && user ? "content messages-page" : "content"}>
       {error && <div className="error-banner" role="alert">{error}<Action run={refresh}>Skúsiť znova</Action></div>}
-      {user === undefined ? <Empty>Načítava sa…</Empty> : !user ? <Login onLogin={loadUser} /> : <>
+      {user === undefined ? <Empty>Načítava sa…</Empty> : !user ? <><Login onLogin={loadUser} />{installation.available && !installation.installed && <div className="auth-install"><InstallPanel installation={installation} install={install} /></div>}</> : <>
         {currentPage !== "home" && <div className="page-heading"><div><p className="eyebrow">Drone Soccer LF TUKE</p><h1>{title}</h1></div></div>}
         {loading ? <Empty>Načítava sa…</Empty> : <>
           {currentPage === "home" && <>
             {staff && <div className="toolbar end home-action"><button className="primary" onClick={() => setCreateTraining(true)}><Plus size={18} />Naplánovať udalosť</button></div>}
             <Home user={user} {...data} refresh={refresh} navigate={navigate} openTraining={setTrainingId} />
+            {installation.available && !installation.installed && !installHidden && <div className="install-promotion">
+              <InstallPanel installation={installation} install={install} />
+              <button className="icon-button" aria-label="Skryť ponuku inštalácie" onClick={() => setInstallHidden(true)}><X size={18} /></button>
+            </div>}
           </>}
           {currentPage === "calendar" && <Calendar trainings={data.trainings} staff={staff} places={data.places} refresh={refresh} openTraining={setTrainingId} />}
           {currentPage === "messages" && <Messages key={user.id + ":" + contact} user={user} conversations={data.conversations} refresh={refresh} initialContact={contact} />}
@@ -897,10 +935,23 @@ function App() {
           {currentPage === "management" && superadmin && <Members key="management" userId={user.id} superadmin management onMessage={messageMember} />}
           {currentPage === "equipment" && <Batteries key={user.id + ":" + activeBattery} staff={staff} initialCode={activeBattery} />}
           {currentPage === "documents" && <Documents staff={staff} />}
-          {currentPage === "profile" && <Profile user={user} reloadUser={loadUser} />}
+          {currentPage === "profile" && <Profile user={user} reloadUser={loadUser} installation={installation} install={install} />}
         </>}
       </>}
     </main>
+    {installHelp && !installation.installed && <Modal title="Inštalácia DroneSoccer LF" close={() => setInstallHelp(false)}>
+      {installError && <p className="error" role="alert">{installError}</p>}
+      {platform === "ios" ? <ol className="install-steps"><li>Otvor túto stránku v Safari.</li>
+        <li>Otvor <strong>Zdieľať</strong> v menu prehliadača.</li>
+        <li>Vyber <strong>Pridať na plochu</strong>.</li>
+        <li>Zapni <strong>Otvoriť ako webovú aplikáciu</strong>, ak sa zobrazí, a potvrď <strong>Pridať</strong>.</li>
+      </ol> : platform === "android" ? <ol className="install-steps">
+        <li>Otvor menu prehliadača vpravo hore.</li>
+        <li>Vyber <strong>Inštalovať aplikáciu</strong> alebo <strong>Pridať na plochu</strong>.</li>
+        <li>Potvrď inštaláciu DroneSoccer LF.</li>
+      </ol> : <><p>V adresnom riadku alebo menu prehliadača vyhľadaj možnosť <strong>Inštalovať aplikáciu</strong>.</p>
+        <p>Ak túto možnosť prehliadač ponúka, potvrď inštaláciu DroneSoccer LF.</p></>}
+    </Modal>}
     {user && training && <TrainingDetail key={training.id} training={training} staff={staff} places={data.places} refresh={refresh} close={() => setTrainingId(null)} />}
     {user && createTraining && <Modal title="Nová udalosť" close={() => setCreateTraining(false)}><TrainingForm places={data.places} done={async () => {setCreateTraining(false); await refresh();}} /></Modal>}
     {user && notifications && <Modal title="Oznámenia" close={() => setNotifications(false)}>
