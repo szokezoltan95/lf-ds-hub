@@ -1,0 +1,9 @@
+services:
+  hub:
+    networks:
+      default:
+      thrust_hub_proxy:
+        aliases: [lf-ds-hub]
+networks:
+  thrust_hub_proxy:
+    external: true

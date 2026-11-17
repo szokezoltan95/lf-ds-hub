@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hub
+      POSTGRES_USER: hub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - hub-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "hub", "-d", "hub"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  hub:
+    build: .
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      HUB_PUBLIC_URL: ${HUB_PUBLIC_URL:?Set HUB_PUBLIC_URL in .env}
+      HUB_ADMIN_EMAIL: ${HUB_ADMIN_EMAIL:?Set HUB_ADMIN_EMAIL in .env}
+      HUB_ADMIN_PASSWORD: ${HUB_ADMIN_PASSWORD:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, urllib.request; from urllib.parse import urlsplit; urllib.request.urlopen('http://127.0.0.1:8000'+urlsplit(os.environ['HUB_PUBLIC_URL']).path.rstrip('/')+'/api/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+volumes:
+  hub-data:

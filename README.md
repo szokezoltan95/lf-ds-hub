@@ -7,7 +7,7 @@
 1. Skopíruj `.env.example` do `.env`. Vyplň heslo databázy, e-mail správcu a jeho úvodné heslo (aspoň 12 znakov). Použi silné, jedinečné heslá.
 2. Spusti `docker compose -f compose.yml -f compose.local.yml up -d --build`.
 3. Otvor http://localhost:8081/dronesoccer/ a prihlás sa ako správca. Otváraj presne adresu nastavenú v `HUB_PUBLIC_URL`.
-4. V časti **Členovia** vytvor pozvánku a pošli členovi vygenerovaný odkaz. Odkaz funguje raz a najviac sedem dní.
+4. V časti **Členovia** vytvor pozvánku a pošli členovi vygenerovaný odkaz. Rovnakým spôsobom môžeš vytvoriť odkaz na obnovu hesla. Odkaz funguje raz a najviac sedem dní.
 
 Úvodné heslo vytvorí účet len pri prvom spustení s prázdnou databázou. Po jeho vytvorení odstráň hodnotu `HUB_ADMIN_PASSWORD` z `.env` a obnov kontajner hubu.
 
