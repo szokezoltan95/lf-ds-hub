@@ -18,7 +18,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
-from pydantic import AliasChoices, AwareDatetime, BaseModel, Field, StringConstraints, TypeAdapter
+from pydantic import AliasChoices, AwareDatetime, BaseModel, Field, StringConstraints, TypeAdapter, model_validator
 
 ROOT = Path(__file__).resolve().parent
 PUBLIC_URL = os.environ.get("HUB_PUBLIC_URL", "http://localhost:8081/dronesoccer/").rstrip("/")
@@ -248,11 +248,58 @@ def me(user: User):
     return user
 
 
+class Profile(BaseModel):
+    name: Short
+
+
+class ChangePassword(BaseModel):
+    current_password: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    password: Password
+
+
+@api.put("/me")
+def update_profile(data: Profile, conn: DB, user: User):
+    conn.execute("UPDATE members SET name=%s WHERE id=%s", (data.name, user["id"]))
+    return {"ok": True}
+
+
+@api.put("/me/password")
+def change_password(data: ChangePassword, request: Request, conn: DB, user: User):
+    if user["role"] == "superadmin":
+        raise HTTPException(409, "Heslo systémového správcu sa nastavuje na serveri.")
+    account = conn.execute(
+        "SELECT password_hash FROM members WHERE id=%s FOR UPDATE", (user["id"],)
+    ).fetchone()
+    if not matches_password(data.current_password, account["password_hash"]):
+        raise HTTPException(400, "Aktuálne heslo nie je správne.")
+    conn.execute(
+        "UPDATE members SET password_hash=%s WHERE id=%s",
+        (password_hash(data.password), user["id"]),
+    )
+    conn.execute(
+        "DELETE FROM sessions WHERE member_id=%s AND token_hash<>%s",
+        (user["id"], digest(request.cookies.get(COOKIE, ""))),
+    )
+    return {"ok": True}
+
+
+@api.get("/me/attendance")
+def own_attendance(conn: DB, user: User):
+    return conn.execute(
+        """SELECT t.id, t.title, t.starts_at, p.attended FROM participation p
+        JOIN trainings t ON t.id=p.training_id WHERE p.member_id=%s
+        AND p.attended IS NOT NULL ORDER BY t.starts_at DESC""", (user["id"],),
+    ).fetchall()
+
+
 @api.get("/members")
 def members(conn: DB, user: Staff):
     return conn.execute(
-        """SELECT id, email, name, role, active, password_hash IS NOT NULL AS registered
-        FROM members WHERE role = 'member' OR %s ORDER BY name, id""",
+        """SELECT m.id, m.email, m.name, m.role, m.active,
+        m.password_hash IS NOT NULL AS registered,
+        (SELECT count(*) FROM participation WHERE member_id=m.id AND attended=true) AS attended_count,
+        (SELECT count(*) FROM participation WHERE member_id=m.id AND attended IS NOT NULL) AS recorded_count
+        FROM members m WHERE role = 'member' OR %s ORDER BY name, id""",
         (user["role"] == "superadmin",)
     ).fetchall()
 
@@ -369,6 +416,14 @@ class Training(BaseModel):
     location: Short
     instructions: Note = ""
     weeks: int = Field(1, ge=1, le=26)
+    kind: Literal["training", "match", "meeting"] = "training"
+    ends_at: AwareDatetime | None = None
+
+    @model_validator(mode="after")
+    def validate_end(self):
+        if self.ends_at is not None and self.ends_at <= self.starts_at:
+            raise ValueError("Koniec musí nasledovať po začiatku.")
+        return self
 
 
 class TrainingEdit(Training):
@@ -387,7 +442,16 @@ class Attendance(BaseModel):
 @api.get("/trainings")
 def trainings(conn: DB, user: User):
     return conn.execute(
-        """SELECT t.*, p.response, p.note, p.attended FROM trainings t
+        """SELECT t.*, p.response, p.note, p.attended,
+        (SELECT json_build_object(
+            'yes', count(*) FILTER (WHERE r.response='yes'),
+            'no', count(*) FILTER (WHERE r.response='no'),
+            'maybe', count(*) FILTER (WHERE r.response='maybe'),
+            'unanswered', count(*) FILTER (WHERE r.response IS NULL),
+            'attendance_pending', count(*) FILTER (WHERE r.attended IS NULL))
+         FROM members m LEFT JOIN participation r ON r.member_id=m.id AND r.training_id=t.id
+         WHERE m.role='member' AND m.active AND m.password_hash IS NOT NULL) AS counts
+        FROM trainings t
         LEFT JOIN participation p ON p.training_id = t.id AND p.member_id = %s
         ORDER BY (t.starts_at >= now()) DESC,
         CASE WHEN t.starts_at >= now() THEN t.starts_at END,
@@ -408,9 +472,10 @@ def create_training(data: Training, conn: DB, _staff: Staff):
         raise HTTPException(422, "Séria obsahuje nejednoznačný termín pri zmene času.")
     with conn.cursor() as cursor:
         cursor.executemany(
-            """INSERT INTO trainings (title, starts_at, location, instructions, series_id)
-            VALUES (%s, %s, %s, %s, %s)""",
-            [(data.title, stamp, data.location, data.instructions, series) for stamp in starts],
+            """INSERT INTO trainings (title, starts_at, location, instructions, series_id, kind, ends_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            [(data.title, stamp, data.location, data.instructions, series, data.kind,
+              stamp.astimezone(timezone.utc) + (data.ends_at - data.starts_at) if data.ends_at else None) for stamp in starts],
         )
     return {"ok": True}
 
@@ -429,8 +494,9 @@ def edit_training(training_id: int, data: TrainingEdit, conn: DB, _staff: Staff)
     if training["cancelled"]:
         raise HTTPException(409, "Tréning bol zrušený.")
     conn.execute(
-        "UPDATE trainings SET title=%s, starts_at=%s, location=%s, instructions=%s WHERE id=%s",
-        (data.title, data.starts_at, data.location, data.instructions, training_id)
+        """UPDATE trainings SET title=%s, starts_at=%s, location=%s, instructions=%s,
+        kind=%s, ends_at=%s, updated_at=now() WHERE id=%s""",
+        (data.title, data.starts_at, data.location, data.instructions, data.kind, data.ends_at, training_id)
     )
     if training["starts_at"] != data.starts_at or training["location"] != data.location:
         if training["starts_at"] > datetime.now(timezone.utc):
@@ -483,7 +549,7 @@ def roster(training_id: int, conn: DB, _staff: Staff):
     return conn.execute(
         """SELECT m.id, m.name, p.response, p.note, p.attended FROM members m
         LEFT JOIN participation p ON p.member_id=m.id AND p.training_id=%s
-        WHERE m.role='member' AND ((m.active AND m.password_hash IS NOT NULL) OR p.member_id IS NOT NULL)
+        WHERE (m.role='member' AND m.active AND m.password_hash IS NOT NULL) OR p.member_id IS NOT NULL
         ORDER BY m.name, m.id""",
         (training_id,)
     ).fetchall()
@@ -494,13 +560,43 @@ def attendance(training_id: int, member_id: int, data: Attendance, conn: DB, _st
     training = lock_training(conn, training_id)
     if training["cancelled"] or training["starts_at"] > datetime.now(timezone.utc):
         raise HTTPException(409, "Dochádzku možno zapísať od začiatku tréningu.")
-    if not conn.execute("SELECT 1 FROM members WHERE id=%s AND role='member'", (member_id,)).fetchone():
+    if not conn.execute(
+        "SELECT 1 FROM members WHERE id=%s AND (role='member' OR EXISTS (SELECT 1 FROM participation WHERE member_id=%s AND training_id=%s))",
+        (member_id, member_id, training_id),
+    ).fetchone():
         raise HTTPException(404, "Člen sa nenašiel.")
     conn.execute(
         """INSERT INTO participation (training_id, member_id, attended) VALUES (%s,%s,%s)
         ON CONFLICT (training_id, member_id) DO UPDATE SET attended=excluded.attended""",
         (training_id, member_id, data.attended),
     )
+    return {"ok": True}
+
+
+class BulkAttendance(BaseModel):
+    member_ids: Annotated[list[int], Field(min_length=1, max_length=500)]
+    attended: bool
+
+
+@api.put("/trainings/{training_id}/attendance")
+def bulk_attendance(training_id: int, data: BulkAttendance, conn: DB, _staff: Staff):
+    training = lock_training(conn, training_id)
+    if training["cancelled"] or training["starts_at"] > datetime.now(timezone.utc):
+        raise HTTPException(409, "Dochádzku možno zapísať od začiatku tréningu.")
+    ids = set(data.member_ids)
+    allowed = conn.execute(
+        """SELECT id FROM members WHERE id=ANY(%s) AND
+        (role='member' OR EXISTS (SELECT 1 FROM participation WHERE member_id=members.id AND training_id=%s))""",
+        (list(ids), training_id),
+    ).fetchall()
+    if len(allowed) != len(ids):
+        raise HTTPException(404, "Niektorý člen sa nenašiel.")
+    with conn.cursor() as cursor:
+        cursor.executemany(
+            """INSERT INTO participation (training_id, member_id, attended) VALUES (%s,%s,%s)
+            ON CONFLICT (training_id, member_id) DO UPDATE SET attended=excluded.attended""",
+            [(training_id, member_id, data.attended) for member_id in ids],
+        )
     return {"ok": True}
 
 
@@ -517,6 +613,7 @@ def member_attendance(member_id: int, conn: DB, _staff: Staff):
 class Announcement(BaseModel):
     title: Short
     body: Body
+    pinned: bool = False
 
 
 class Message(BaseModel):
@@ -525,14 +622,122 @@ class Message(BaseModel):
 
 
 @api.get("/announcements")
-def announcements(conn: DB, _user: User):
-    return conn.execute("SELECT * FROM announcements ORDER BY id DESC LIMIT 100").fetchall()
+def announcements(conn: DB, user: User):
+    return conn.execute(
+        """SELECT a.*, EXISTS (
+            SELECT 1 FROM announcement_reads r WHERE r.announcement_id=a.id AND r.member_id=%s
+        ) AS is_read FROM announcements a ORDER BY a.pinned DESC, a.id DESC LIMIT 100""",
+        (user["id"],),
+    ).fetchall()
 
 
 @api.post("/announcements")
 def announce(data: Announcement, conn: DB, _staff: Staff):
-    conn.execute("INSERT INTO announcements (title, body) VALUES (%s,%s)", (data.title, data.body))
+    conn.execute("INSERT INTO announcements (title, body, pinned) VALUES (%s,%s,%s)",
+                 (data.title, data.body, data.pinned))
     return {"ok": True}
+
+
+class Pin(BaseModel):
+    pinned: bool
+
+
+@api.put("/announcements/{announcement_id}/pin")
+def pin_announcement(announcement_id: int, data: Pin, conn: DB, _staff: Staff):
+    if not conn.execute(
+        "UPDATE announcements SET pinned=%s WHERE id=%s RETURNING id",
+        (data.pinned, announcement_id),
+    ).fetchone():
+        raise HTTPException(404, "Oznam sa nenašiel.")
+    return {"ok": True}
+
+
+@api.post("/announcements/{announcement_id}/read")
+def read_announcement(announcement_id: int, conn: DB, user: User):
+    if not conn.execute("SELECT 1 FROM announcements WHERE id=%s", (announcement_id,)).fetchone():
+        raise HTTPException(404, "Oznam sa nenašiel.")
+    conn.execute(
+        "INSERT INTO announcement_reads VALUES (%s,%s) ON CONFLICT DO NOTHING",
+        (announcement_id, user["id"]),
+    )
+    return {"ok": True}
+
+
+class Place(BaseModel):
+    name: Short
+
+
+@api.get("/places")
+def places(conn: DB, _user: User):
+    return conn.execute("SELECT * FROM places ORDER BY name").fetchall()
+
+
+@api.post("/places")
+def add_place(data: Place, conn: DB, _staff: Staff):
+    conn.execute("INSERT INTO places (name) VALUES (%s) ON CONFLICT DO NOTHING", (data.name,))
+    return {"ok": True}
+
+
+@api.get("/documents")
+def documents(conn: DB, _user: User):
+    return conn.execute(
+        "SELECT id, title, filename, created_at FROM documents ORDER BY id DESC"
+    ).fetchall()
+
+
+@api.post("/documents")
+async def upload_document(request: Request, conn: DB, _staff: Staff):
+    # Read in bounded chunks even when Content-Length is missing.
+    content = bytearray()
+    async for chunk in request.stream():
+        content.extend(chunk)
+        if len(content) > 5 * 1024 * 1024:
+            raise HTTPException(413, "Dokument môže mať najviac 5 MB.")
+    if not content.startswith(b"%PDF-"):
+        raise HTTPException(422, "Vyber dokument vo formáte PDF.")
+    title = request.headers.get("x-document-title", "")
+    try:
+        title = TypeAdapter(Short).validate_python(bytes.fromhex(title).decode("utf-8"))
+    except (ValueError, UnicodeError):
+        raise HTTPException(422, "Vyplň názov dokumentu.") from None
+    conn.execute(
+        "INSERT INTO documents (title, filename, content) VALUES (%s,%s,%s)",
+        (title, "dokument.pdf", bytes(content)),
+    )
+    return {"ok": True}
+
+
+@api.get("/documents/{document_id}/download")
+def download_document(document_id: int, conn: DB, _user: User):
+    document = conn.execute("SELECT content FROM documents WHERE id=%s", (document_id,)).fetchone()
+    if not document:
+        raise HTTPException(404, "Dokument sa nenašiel.")
+    return Response(bytes(document["content"]), media_type="application/pdf",
+                    headers={"Content-Disposition": 'attachment; filename="dokument.pdf"'})
+
+
+@api.delete("/documents/{document_id}")
+def delete_document(document_id: int, conn: DB, _staff: Staff):
+    conn.execute("DELETE FROM documents WHERE id=%s", (document_id,))
+    return {"ok": True}
+
+
+@api.get("/conversations")
+def conversations(conn: DB, user: User):
+    return conn.execute(
+        """WITH inbox AS (
+            SELECT p.*, CASE WHEN sender_id=%s THEN recipient_id ELSE sender_id END AS contact_id
+            FROM messages p WHERE sender_id=%s OR recipient_id=%s
+        ), recent AS (
+            SELECT DISTINCT ON (contact_id) contact_id, body, created_at, id
+            FROM inbox ORDER BY contact_id, id DESC
+        )
+        SELECT r.*, m.name, m.active,
+        (SELECT count(*) FROM messages WHERE sender_id=r.contact_id AND recipient_id=%s
+         AND read_at IS NULL) AS unread
+        FROM recent r JOIN members m ON m.id=r.contact_id ORDER BY r.id DESC""",
+        (user["id"], user["id"], user["id"], user["id"]),
+    ).fetchall()
 
 
 @api.get("/contacts")
@@ -543,12 +748,14 @@ def contacts(conn: DB, user: User):
 
 
 @api.get("/messages")
-def messages(conn: DB, user: User, before: int | None = None):
+def messages(conn: DB, user: User, before: int | None = None, contact_id: int | None = None):
     return conn.execute(
         """SELECT p.*, s.name AS sender, r.name AS recipient FROM messages p
         JOIN members s ON s.id=p.sender_id JOIN members r ON r.id=p.recipient_id
         WHERE (sender_id=%s OR recipient_id=%s) AND p.id < %s
-        ORDER BY p.id DESC LIMIT 200""", (user["id"], user["id"], before or 9223372036854775807)
+        AND (%s::bigint IS NULL OR sender_id=%s OR recipient_id=%s)
+        ORDER BY p.id DESC LIMIT 200""",
+        (user["id"], user["id"], before or 9223372036854775807, contact_id, contact_id, contact_id)
     ).fetchall()
 
 

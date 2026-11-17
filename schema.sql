@@ -90,3 +90,27 @@ END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS members_one_superadmin_idx
 ON members (role) WHERE role = 'superadmin';
+
+ALTER TABLE trainings ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'training'
+    CHECK (kind IN ('training', 'match', 'meeting'));
+ALTER TABLE trainings ADD COLUMN IF NOT EXISTS ends_at timestamptz
+    CHECK (ends_at > starts_at);
+ALTER TABLE trainings ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE announcements ADD COLUMN IF NOT EXISTS pinned boolean NOT NULL DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS places (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name text NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS announcement_reads (
+    announcement_id bigint NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+    member_id bigint NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    PRIMARY KEY (announcement_id, member_id)
+);
+CREATE TABLE IF NOT EXISTS documents (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    title text NOT NULL,
+    filename text NOT NULL,
+    content bytea NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);

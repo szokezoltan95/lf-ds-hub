@@ -39,3 +39,27 @@ docker compose exec -T db pg_dump -U hub -d hub -Fc > hub-backup.dump
 ```
 
 Záloha obsahuje členské údaje. Over obnovu do oddelenej databázy pred použitím v prevádzke.
+
+## Mobilné rozhranie
+
+Navigácia je na telefóne vo vysúvacom menu. Na širokej obrazovke je bočný panel
+trvalo otvorený. Domovská stránka zobrazuje najbližšie udalosti, odpovede na
+účasť, nové správy a pripnutý oznam. Kalendár má zoznam aj mesačný pohľad.
+
+Tréner vytvára udalosti s typom, začiatkom, voliteľným koncom, uloženým miestom
+a týždenným opakovaním. Detail udalosti obsahuje informácie, odpovede a hromadný
+zápis dochádzky. Členovia majú vyhľadávanie, filtre a profily. Správy sú
+usporiadané podľa konverzácií. Vlastný profil obsahuje úpravu mena, zmenu hesla
+a osobnú dochádzku. Heslo systémového účtu sa nastavuje v prostredí servera.
+
+Klubové PDF dokumenty sú dostupné po prihlásení. Tréner ich môže nahrať
+(najviac 5 MB) a odstrániť. Obsah sa ukladá do PostgreSQL a je súčasťou zálohy
+databázy. Pri aktualizácii z pôvodnej verzie obnov aj frontend THRUST-webdb,
+aby Nginx prijímal nahrávanie dokumentov do 5 MB:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.https.yml up -d --no-deps --force-recreate frontend
+```
+
+Príkaz spusti v adresári aktualizovaného THRUST-webdb. Zmeny databázovej schémy
+hubu sa aplikujú automaticky pri jeho štarte.
