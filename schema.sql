@@ -149,3 +149,6 @@ CREATE TABLE IF NOT EXISTS chat_group_reads (
     last_message_id bigint NOT NULL DEFAULT 0,
     PRIMARY KEY (group_id, member_id)
 );
+
+ALTER TABLE members ADD COLUMN IF NOT EXISTS pwa_show_card boolean NOT NULL DEFAULT true;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS pwa_show_popup boolean NOT NULL DEFAULT true;

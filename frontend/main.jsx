@@ -701,13 +701,10 @@ function Documents({staff}) {
   </>;
 }
 
-function InstallPanel({installation, install, compact = false}) {
-  if (installation.installed) return compact ? null : <section className="card">
+function InstallPanel({installation, install}) {
+  if (installation.installed) return <section className="card">
     <p className="meta"><CheckCheck size={18} />Aplikácia je nainštalovaná.</p>
   </section>;
-  if (compact) return <button className="install-menu-button" disabled={installation.busy} onClick={install}>
-    <Download size={18} />{installation.busy ? "Otvára sa…" : "Nainštalovať aplikáciu"}
-  </button>;
   return <section className="card install-card"><span className="quick-icon"><Download size={23} /></span>
     <div className="grow"><h2>DroneSoccer LF na tvojej ploche</h2><p className="muted small">Otváraj klub priamo cez ikonu aplikácie.</p>
       <button className="primary" disabled={installation.busy} onClick={install}><Download size={17} />
@@ -716,7 +713,7 @@ function InstallPanel({installation, install, compact = false}) {
   </section>;
 }
 
-function Profile({user, reloadUser, installation, install}) {
+function Profile({user, reloadUser, installation, install, saveInstallPreferences}) {
   const [attendance, setAttendance] = useState([]);
   const [edit, setEdit] = useState(null);
   const [error, setError] = useState("");
@@ -734,6 +731,15 @@ function Profile({user, reloadUser, installation, install}) {
       {attendance.length ? <><p className="big-number">{attended}<span> / {attendance.length}</span></p><p className="muted">navštívených udalostí so zaznamenanou dochádzkou</p>
         <ul className="records">{attendance.map(row => <li key={row.id}><div className="grow"><strong>{row.title}</strong><span className="meta">{date(row.starts_at)}</span></div><span className="badge">{row.attended ? "Prítomný" : "Neprítomný"}</span></li>)}</ul></> : <p className="muted">Tréner zatiaľ nezapísal dochádzku.</p>}
     </section>}
+    <section className="card install-settings"><h2>Nastavenia inštalácie</h2>
+      <Form key={String(user.pwa_show_card) + ":" + user.pwa_show_popup} label="Uložiť nastavenia" submit={async data => {
+        await saveInstallPreferences({pwa_show_card: data.card === "on", pwa_show_popup: data.popup === "on"});
+        setSaved("Nastavenia inštalácie boli uložené.");
+      }}>
+        <label className="checkbox"><input type="checkbox" name="card" defaultChecked={user.pwa_show_card !== false} />Zobrazovať kartu na domovskej stránke</label>
+        <label className="checkbox"><input type="checkbox" name="popup" defaultChecked={user.pwa_show_popup !== false} />Ponúkať inštaláciu po prihlásení</label>
+      </Form>
+    </section>
     <InstallPanel installation={installation} install={install} />
     {edit && <Modal title={edit === "profile" ? "Upraviť profil" : "Zmeniť heslo"} close={() => setEdit(null)}>
       <Form label="Uložiť" submit={async data => {
@@ -806,6 +812,8 @@ function App() {
   const [installHelp, setInstallHelp] = useState(false);
   const [installError, setInstallError] = useState("");
   const [installHidden, setInstallHidden] = useState(false);
+  const [installPopup, setInstallPopup] = useState(false);
+  const loginPromotionShown = useRef(null);
   const [user, setUser] = useState(undefined);
   const [page, setPage] = useState(() => hash().has("battery") ? "equipment" : hash().get("page") || "home");
   const [menu, setMenu] = useState(false);
@@ -825,9 +833,10 @@ function App() {
   const visibleNavigation = navigation.filter(([key]) => (key !== "members" || staff) && (key !== "management" || superadmin) && (key !== "messages" || !superadmin));
   const allowedPages = [...visibleNavigation.map(([key]) => key), "profile"];
   const currentPage = allowedPages.includes(page) ? page : "home";
-  const title = currentPage === "profile" ? "Môj profil" : visibleNavigation.find(([key]) => key === currentPage)?.[1];
+  const title = currentPage === "profile" ? "Môj profil a nastavenia" : visibleNavigation.find(([key]) => key === currentPage)?.[1];
   async function install() {
     setInstallError("");
+    setInstallPopup(false);
     if (!installation.available) {setInstallHelp(true); return;}
     try {
       const outcome = await promptInstallation();
@@ -837,6 +846,22 @@ function App() {
       setInstallError("Inštalačný dialóg sa nepodarilo otvoriť. Použi menu prehliadača.");
       setInstallHelp(true);
     }
+  }
+  async function saveInstallPreferences(preferences) {
+    const owner = session.current;
+    if (!owner) return;
+    const saved = await api("me/install-preferences", "PUT", preferences);
+    if (session.current !== owner) return;
+    const updated = {...owner, ...saved};
+    session.current = updated;
+    setSnapshot(previous => previous?.owner === owner ? {...previous, owner: updated} : previous);
+    setUser(updated);
+    if (!saved.pwa_show_popup) setInstallPopup(false);
+  }
+  async function stopInstallPromotions() {
+    await saveInstallPreferences({pwa_show_card: false, pwa_show_popup: false});
+    setInstallHidden(true);
+    setInstallPopup(false);
   }
   async function loadUser() {
     try {
@@ -876,6 +901,8 @@ function App() {
     await api("logout", "POST"); session.current = null; setSnapshot(null); setUser(null);
     setTrainingId(null); setMenu(false); setNotifications(false); setCreateTraining(false); setContact(null); history.replaceState({}, "", base);
     setPage("home");
+    setInstallHelp(false); setInstallPopup(false); setInstallHidden(false);
+    loginPromotionShown.current = null;
   }
   useEffect(() => {loadUser();}, []);
   useEffect(() => {
@@ -896,14 +923,24 @@ function App() {
     addEventListener("visibilitychange", focus);
     return () => {clearInterval(timer); removeEventListener("visibilitychange", focus);};
   }, [user]);
+  useEffect(() => {
+    if (!user) {
+      loginPromotionShown.current = null;
+      setInstallPopup(false);
+      setInstallHidden(false);
+      return;
+    }
+    if (loading || loginPromotionShown.current === user.id) return;
+    loginPromotionShown.current = user.id;
+    if (!installation.installed && user.pwa_show_popup !== false) setInstallPopup(true);
+  }, [user?.id, user?.pwa_show_popup, loading, installation.installed]);
   const unread = data.conversations.reduce((sum, row) => sum + row.unread, 0);
   const unreadNotices = data.announcements.filter(item => !item.is_read).length;
   const training = data.trainings.find(t => t.id === trainingId);
   const menuContent = <><nav aria-label="Hlavná navigácia">{visibleNavigation.map(([key, label, Icon]) =>
     <button key={key} className={currentPage === key ? "active" : ""} aria-current={currentPage === key ? "page" : undefined} onClick={() => navigate(key)}>
       <Icon size={20} /><span>{label}</span>{key === "messages" && unread > 0 && <span className="counter">{unread}</span>}
-    </button>)}</nav><div className="menu-footer"><button className="person-link" aria-label="Môj profil" onClick={() => navigate("profile")}><Avatar name={user?.name || "Používateľ"} /><span className="grow"><strong>{user?.name}</strong><span className="meta">{roles[user?.role]}</span></span><Settings2 size={18} /></button>
-      <InstallPanel compact installation={installation} install={install} />
+    </button>)}</nav><div className="menu-footer"><button className="person-link" aria-label="Môj profil" onClick={() => navigate("profile")}><Avatar name={user?.name || "Používateľ"} /><span className="grow"><strong>{user?.name}</strong><span className="meta">Profil a nastavenia</span></span><Settings2 size={18} /></button>
       <Action className="logout-button" run={logout}><LogOut size={18} />Odhlásiť sa</Action></div></>;
   return <div className={user ? "app" : "signed-out"}>
     <header className="topbar">
@@ -917,16 +954,17 @@ function App() {
     {user && menu && <Drawer close={closeMenu}>{menuContent}</Drawer>}
     <main className={currentPage === "messages" && user ? "content messages-page" : "content"}>
       {error && <div className="error-banner" role="alert">{error}<Action run={refresh}>Skúsiť znova</Action></div>}
-      {user === undefined ? <Empty>Načítava sa…</Empty> : !user ? <><Login onLogin={loadUser} />{installation.available && !installation.installed && <div className="auth-install"><InstallPanel installation={installation} install={install} /></div>}</> : <>
+      {user === undefined ? <Empty>Načítava sa…</Empty> : !user ? <Login onLogin={loadUser} /> : <>
         {currentPage !== "home" && <div className="page-heading"><div><p className="eyebrow">Drone Soccer LF TUKE</p><h1>{title}</h1></div></div>}
         {loading ? <Empty>Načítava sa…</Empty> : <>
           {currentPage === "home" && <>
+            {!installation.installed && user.pwa_show_card !== false && !installHidden && <div className="install-promotion">
+              <InstallPanel installation={installation} install={install} />
+              <button className="icon-button" aria-label="Skryť kartu teraz" onClick={() => setInstallHidden(true)}><X size={18} /></button>
+              <Action className="text-button install-opt-out" run={stopInstallPromotions}>Už nezobrazovať</Action>
+            </div>}
             {staff && <div className="toolbar end home-action"><button className="primary" onClick={() => setCreateTraining(true)}><Plus size={18} />Naplánovať udalosť</button></div>}
             <Home user={user} {...data} refresh={refresh} navigate={navigate} openTraining={setTrainingId} />
-            {installation.available && !installation.installed && !installHidden && <div className="install-promotion">
-              <InstallPanel installation={installation} install={install} />
-              <button className="icon-button" aria-label="Skryť ponuku inštalácie" onClick={() => setInstallHidden(true)}><X size={18} /></button>
-            </div>}
           </>}
           {currentPage === "calendar" && <Calendar trainings={data.trainings} staff={staff} places={data.places} refresh={refresh} openTraining={setTrainingId} />}
           {currentPage === "messages" && <Messages key={user.id + ":" + contact} user={user} conversations={data.conversations} refresh={refresh} initialContact={contact} />}
@@ -935,10 +973,20 @@ function App() {
           {currentPage === "management" && superadmin && <Members key="management" userId={user.id} superadmin management onMessage={messageMember} />}
           {currentPage === "equipment" && <Batteries key={user.id + ":" + activeBattery} staff={staff} initialCode={activeBattery} />}
           {currentPage === "documents" && <Documents staff={staff} />}
-          {currentPage === "profile" && <Profile user={user} reloadUser={loadUser} installation={installation} install={install} />}
+          {currentPage === "profile" && <Profile user={user} reloadUser={loadUser} installation={installation} install={install} saveInstallPreferences={saveInstallPreferences} />}
         </>}
       </>}
     </main>
+    {user && installPopup && user.pwa_show_popup !== false && !installation.installed && <Modal title="Maj klub vždy poruke" close={() => setInstallPopup(false)}>
+      <InstallPanel installation={installation} install={install} />
+      <div className="install-popup-actions">
+        <button onClick={() => setInstallPopup(false)}>Teraz nie</button>
+        <Action className="text-button" run={async () => {
+          await saveInstallPreferences({pwa_show_card: user.pwa_show_card !== false, pwa_show_popup: false});
+        }}>Vypnúť popup po prihlásení</Action>
+        <Action className="text-button" run={stopInstallPromotions}>Už mi to neponúkať</Action>
+      </div>
+    </Modal>}
     {installHelp && !installation.installed && <Modal title="Inštalácia DroneSoccer LF" close={() => setInstallHelp(false)}>
       {installError && <p className="error" role="alert">{installError}</p>}
       {platform === "ios" ? <ol className="install-steps"><li>Otvor túto stránku v Safari.</li>

@@ -291,10 +291,14 @@ details p {font-size: 13px; margin-top: 12px;}
 .install-card h2 {font-size: 16px; margin-bottom: 6px;}
 .install-card p {margin-bottom: 14px;}
 .install-card button {font-size: 13px;}
-.install-menu-button {border: 0; padding-left: 0; color: #146588; justify-content: start; font-size: 12px; margin-bottom: 4px;}
 .install-promotion {position: relative; margin-top: 16px; max-width: 620px;}
 .install-promotion .install-card {padding-right: 48px;}
 .install-promotion > .icon-button {position: absolute; top: 6px; right: 5px; background: transparent;}
-.auth-install {max-width: 420px; margin: -3vh auto 0;}
 .install-steps {padding-left: 22px; margin: 0;}
 .install-steps li {padding: 8px 0 8px 5px;}
+.install-promotion {margin-top: 0; margin-bottom: 24px; max-width: none;}
+.install-promotion > .card {margin-bottom: 0;}
+.install-opt-out {position: absolute; right: 16px; bottom: 12px; font-size: 11px;}
+.install-promotion .install-card {padding-bottom: 45px;}
+.install-popup-actions {display: flex; flex-direction: column; align-items: start; gap: 8px;}
+.install-settings form {margin-bottom: 0;}

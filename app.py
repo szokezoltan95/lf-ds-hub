@@ -133,7 +133,7 @@ async def invalid_request(_request, _error):
 def identity(request: Request, conn: DB):
     token = request.cookies.get(COOKIE, "")
     member = conn.execute(
-        """SELECT m.id, m.name, m.email, m.role FROM sessions s
+        """SELECT m.id, m.name, m.email, m.role, m.pwa_show_card, m.pwa_show_popup FROM sessions s
         JOIN members m ON m.id = s.member_id
         WHERE s.token_hash = %s AND s.expires_at > now() AND m.active""", (digest(token),)
     ).fetchone()
@@ -246,6 +246,20 @@ def logout(request: Request, response: Response, conn: DB):
 @api.get("/me")
 def me(user: User):
     return user
+
+
+class InstallPreferences(BaseModel):
+    pwa_show_card: bool
+    pwa_show_popup: bool
+
+
+@api.put("/me/install-preferences")
+def update_install_preferences(data: InstallPreferences, conn: DB, user: User):
+    conn.execute(
+        "UPDATE members SET pwa_show_card=%s, pwa_show_popup=%s WHERE id=%s",
+        (data.pwa_show_card, data.pwa_show_popup, user["id"]),
+    )
+    return data
 
 
 class Profile(BaseModel):

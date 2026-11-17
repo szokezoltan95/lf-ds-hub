@@ -83,11 +83,17 @@ používa rovnaký symbol dronu a fakultnú modrú ako hlavička aplikácie.
 
 ## Inštalácia PWA
 
-Aplikácia sa inštaluje pod názvom **DroneSoccer LF**. V menu a profile je
-tlačidlo na inštaláciu. Keď prehliadač sprístupní inštalačný dialóg,
-na domovskej stránke sa zobrazí aj ponuka. Kliknutie otvorí dialóg prehliadača,
-ktorý používateľ potvrdí. Po zrušení sa ponuka na domovskej stránke skryje
-do ďalšieho načítania stránky.
+Aplikácia sa inštaluje pod názvom **DroneSoccer LF**. Karta s inštaláciou je
+nad privítaním na domovskej stránke. Po prihlásení sa zobrazí aj popup.
+Krížik skryje kartu dočasne. Voľba **Už nezobrazovať** vypne kartu aj popup.
+Samostatne možno vypnúť iba popup po prihlásení.
+
+Voľby sa ukladajú k používateľskému účtu v databáze. Po vypnutí oboch ponúk
+zostane inštalácia dostupná v **Profil a nastavenia**. Na rovnakom mieste
+možno kartu a popup nezávisle znovu zapnúť.
+
+Keď prehliadač sprístupní inštalačný dialóg, kliknutie otvorí tento dialóg
+na potvrdenie. Pri nedostupnom dialógu aplikácia zobrazí návod.
 
 Aplikácia rozlišuje iOS/iPadOS, Android a desktopové systémy. Pri nedostupnom
 dialógu zobrazí návod podľa zariadenia. Na iPhone sa používa Zdieľať a Pridať
