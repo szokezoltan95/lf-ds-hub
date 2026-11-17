@@ -98,3 +98,57 @@ na potvrdenie. Pri nedostupnom dialógu aplikácia zobrazí návod.
 Aplikácia rozlišuje iOS/iPadOS, Android a desktopové systémy. Pri nedostupnom
 dialógu zobrazí návod podľa zariadenia. Na iPhone sa používa Zdieľať a Pridať
 na plochu. V samostatnom okne nainštalovanej aplikácie je ponuka skrytá.
+
+## Oznamy a upozornenia
+
+Tréneri a superadmin môžu oznamy vytvárať, upravovať, pripínať a natrvalo mazať.
+Adresáti sú celý tím, iba tréneri alebo konkrétni aktívni členovia a tréneri.
+Člen vidí len jemu určené oznamy; tréneri a superadmin majú prístup na ich správu.
+Prílohy PDF, PNG a JPEG sa ukladajú do databázy, najviac 5 súborov a spolu 5 MB
+na oznam. Každé stiahnutie kontroluje oprávnenie, verejné odkazy na súbory nie sú dostupné.
+Pri úprave sa vynulujú potvrdenia prečítania. Nový oznam má možnosť push zapnutú,
+pri úprave je predvolene vypnutá. Vymazanie oznamu neposiela upozornenie.
+
+V **Profil a nastavenia → Upozornenia** sú tri nezávislé prepínače pre správy,
+kalendár a manuálne oznamy. Výber platí pre účet na všetkých zariadeniach a
+nemení dostupnosť obsahu ani zvonček v aplikácii. Každé zariadenie treba osobitne
+prihlásiť tlačidlom **Zapnúť push na tomto zariadení** a potvrdiť systémový dialóg.
+Po odhlásení sa odber na danom zariadení zruší; po ďalšom prihlásení ho možno znova
+zapnúť. Na iPhone/iPade je potrebná aplikácia na ploche a iOS/iPadOS 16.4 alebo novší.
+Tri kategórie sa nastavujú v hube; samostatné natívne Android kanály Web Push API nevytvára.
+
+Push dostávajú prihlásené zariadenia adresátov podľa ich výberu. Správy informujú
+ostatných účastníkov konverzácie. Kalendár informuje o vytvorení, zmene a zrušení
+udalosti. Systémový superadmin klubový push neprijíma. Kliknutie otvorí príslušný
+obsah. Zobrazenie znovu kontroluje platnú reláciu, aktuálne oprávnenia a výber
+upozornení. Pri vypršanej relácii treba používateľa znova prihlásiť.
+
+VAPID kľúče sa vytvoria automaticky a zostávajú v databáze aj pri novom builde.
+Nie sú potrebné nové premenné v `.env`, vlastný Firebase projekt ani nový kontajner.
+Server potrebuje odchádzajúce HTTPS pripojenie na push služby prehliadačov
+(Google, Mozilla, Apple alebo Microsoft). Doručovanie používa databázovú frontu,
+pri dočasnej chybe opakuje pokus najviac trikrát a odstraňuje zaniknuté odbery.
+Fronta má platnosť 24 hodín. Rozpracované prílohy sa automaticky čistia po 24 hodinách.
+Doručenie závisí aj od prehliadača, pripojenia a nastavení zariadenia.
+
+## Vymazanie udalosti
+
+**Zrušiť udalosť** ju ponechá v kalendári a vytvorí oznam aj kalendárový push.
+**Vymazať bez upozornenia** natrvalo odstráni jednu udalosť, jej prihlášky, dochádzku,
+prepojené automatické oznamy aj čakajúce push. Iné výskyty týždennej série ostávajú.
+Vymazať môže autor alebo superadmin, aj keď je udalosť už zrušená. Staršie udalosti
+nemajú uloženého autora, preto ich môže vymazať ktorýkoľvek tréner. Migrácia
+pripojí pôvodné automatické oznamy iba pri jednoznačnej zhode názvu, termínu a miesta.
+Nejednoznačné staré oznamy možno odstrániť samostatne v sekcii Oznamy.
+Upozornenie, ktoré už bolo doručené na telefón, sa nedá spoľahlivo spätne odvolať.
+
+## Overenie zmien
+
+Integračné testy používajú samostatnú prázdnu PostgreSQL databázu a simulovaný
+transport push, vrátane skutočného šifrovania a podpisovania. Nikdy nepoužívaj
+produkčnú databázu: testy vyprázdňujú svoje tabuľky.
+
+```sh
+python -m pip install -r requirements.txt httpx
+HUB_DATABASE_URL=postgresql://hub:password@localhost/hub_test HUB_DIST=frontend/dist python -m unittest discover -s tests -v
+```

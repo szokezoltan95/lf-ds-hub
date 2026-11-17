@@ -302,3 +302,8 @@ details p {font-size: 13px; margin-top: 12px;}
 .install-promotion .install-card {padding-bottom: 45px;}
 .install-popup-actions {display: flex; flex-direction: column; align-items: start; gap: 8px;}
 .install-settings form {margin-bottom: 0;}
+
+.recipient-picker {max-height:16rem;overflow:auto;border:1px solid var(--line, #d9e4ea);border-radius:12px;padding:12px;}
+.attachment-list {list-style:none;padding:0;display:grid;gap:8px;}
+.attachment-list a {display:inline-flex;align-items:center;gap:8px;overflow-wrap:anywhere;}
+.push-settings h3 {margin-top:24px;}

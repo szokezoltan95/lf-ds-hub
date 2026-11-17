@@ -152,3 +152,77 @@ CREATE TABLE IF NOT EXISTS chat_group_reads (
 
 ALTER TABLE members ADD COLUMN IF NOT EXISTS pwa_show_card boolean NOT NULL DEFAULT true;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS pwa_show_popup boolean NOT NULL DEFAULT true;
+
+-- Calendar ownership and cascading removal of automatic notices.
+ALTER TABLE trainings ADD COLUMN IF NOT EXISTS created_by bigint REFERENCES members(id) ON DELETE SET NULL;
+ALTER TABLE participation DROP CONSTRAINT IF EXISTS participation_training_id_fkey;
+ALTER TABLE participation ADD CONSTRAINT participation_training_id_fkey
+    FOREIGN KEY (training_id) REFERENCES trainings(id) ON DELETE CASCADE;
+ALTER TABLE announcements ADD COLUMN IF NOT EXISTS event_id bigint REFERENCES trainings(id) ON DELETE CASCADE;
+ALTER TABLE announcements ADD COLUMN IF NOT EXISTS audience text NOT NULL DEFAULT 'team'
+    CHECK (audience IN ('team', 'coaches', 'selected'));
+ALTER TABLE announcements ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+CREATE TABLE IF NOT EXISTS announcement_recipients (
+    announcement_id bigint NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+    member_id bigint NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    PRIMARY KEY (announcement_id, member_id)
+);
+CREATE TABLE IF NOT EXISTS announcement_attachments (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    announcement_id bigint NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+    filename text NOT NULL,
+    media_type text NOT NULL,
+    content bytea NOT NULL
+);
+-- Recover only unambiguous original automatic notices, never guess from a title alone.
+WITH matches AS (
+    SELECT a.id, min(t.id) AS event_id FROM announcements a JOIN trainings t ON
+    (a.title = 'Zrušený tréning: ' || t.title AND a.body = 'Termín ' ||
+      to_char(t.starts_at AT TIME ZONE 'Europe/Bratislava', 'DD.MM.YYYY HH24:MI') || ' · ' || t.location || ' bol zrušený.')
+    OR (a.title = 'Zmena tréningu: ' || t.title AND a.body = 'Nový termín: ' ||
+      to_char(t.starts_at AT TIME ZONE 'Europe/Bratislava', 'DD.MM.YYYY HH24:MI') || ' · ' || t.location)
+    WHERE a.event_id IS NULL GROUP BY a.id HAVING count(*)=1
+)
+UPDATE announcements a SET event_id=m.event_id FROM matches m WHERE a.id=m.id;
+UPDATE announcements SET title=regexp_replace(title, '^Zrušený tréning: ', 'Zrušená udalosť: ')
+    WHERE event_id IS NOT NULL AND title LIKE 'Zrušený tréning: %';
+UPDATE announcements SET title=regexp_replace(title, '^Zmena tréningu: ', 'Zmena udalosti: ')
+    WHERE event_id IS NOT NULL AND title LIKE 'Zmena tréningu: %';
+ALTER TABLE members ADD COLUMN IF NOT EXISTS push_messages boolean NOT NULL DEFAULT true;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS push_calendar boolean NOT NULL DEFAULT true;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS push_announcements boolean NOT NULL DEFAULT true;
+CREATE TABLE IF NOT EXISTS push_keys (
+    id integer PRIMARY KEY CHECK (id=1), private_key text NOT NULL, public_key text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    member_id bigint NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    endpoint text NOT NULL UNIQUE, p256dh text NOT NULL, auth text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS push_notifications (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    member_id bigint NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    channel text NOT NULL CHECK (channel IN ('messages','calendar','announcements')),
+    title text NOT NULL, path text NOT NULL,
+    event_id bigint REFERENCES trainings(id) ON DELETE CASCADE,
+    announcement_id bigint REFERENCES announcements(id) ON DELETE CASCADE,
+    message_id bigint REFERENCES messages(id) ON DELETE CASCADE,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS push_deliveries (
+    notification_id bigint NOT NULL REFERENCES push_notifications(id) ON DELETE CASCADE,
+    subscription_id bigint NOT NULL REFERENCES push_subscriptions(id) ON DELETE CASCADE,
+    attempts integer NOT NULL DEFAULT 0, next_attempt timestamptz NOT NULL DEFAULT now(),
+    done boolean NOT NULL DEFAULT false,
+    PRIMARY KEY(notification_id, subscription_id)
+);
+CREATE INDEX IF NOT EXISTS push_pending_idx ON push_deliveries(next_attempt) WHERE NOT done;
+
+CREATE TABLE IF NOT EXISTS announcement_drafts (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    member_id bigint NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE announcement_attachments ALTER COLUMN announcement_id DROP NOT NULL;
+ALTER TABLE announcement_attachments ADD COLUMN IF NOT EXISTS draft_id bigint
+    REFERENCES announcement_drafts(id) ON DELETE CASCADE;

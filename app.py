@@ -1,4 +1,9 @@
+import base64
+import binascii
 import hashlib
+from threading import Event, Thread
+import push_service
+
 import hmac
 import os
 import secrets
@@ -100,7 +105,15 @@ async def lifespan(_app):
                     ("Systémový správca", hashed),
                 )
             conn.execute("DELETE FROM login_attempts WHERE email='admin'")
-    yield
+        push_service.initialize(conn)
+    stop = Event()
+    worker = Thread(target=push_service.worker, args=(connect, stop, PUBLIC_URL), daemon=True)
+    worker.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        worker.join(timeout=12)
 
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None, redirect_slashes=False)
@@ -133,7 +146,7 @@ async def invalid_request(_request, _error):
 def identity(request: Request, conn: DB):
     token = request.cookies.get(COOKIE, "")
     member = conn.execute(
-        """SELECT m.id, m.name, m.email, m.role, m.pwa_show_card, m.pwa_show_popup FROM sessions s
+        """SELECT m.id, m.name, m.email, m.role, m.pwa_show_card, m.pwa_show_popup, m.push_messages, m.push_calendar, m.push_announcements FROM sessions s
         JOIN members m ON m.id = s.member_id
         WHERE s.token_hash = %s AND s.expires_at > now() AND m.active""", (digest(token),)
     ).fetchone()
@@ -456,6 +469,7 @@ class Attendance(BaseModel):
 def trainings(conn: DB, user: User):
     return conn.execute(
         """SELECT t.*, p.response, p.note, p.attended,
+        (%s OR t.created_by=%s OR t.created_by IS NULL) AS can_delete,
         (SELECT json_build_object(
             'yes', count(*) FILTER (WHERE r.response='yes'),
             'no', count(*) FILTER (WHERE r.response='no'),
@@ -468,12 +482,12 @@ def trainings(conn: DB, user: User):
         LEFT JOIN participation p ON p.training_id = t.id AND p.member_id = %s
         ORDER BY (t.starts_at >= now()) DESC,
         CASE WHEN t.starts_at >= now() THEN t.starts_at END,
-        t.starts_at DESC LIMIT 300""", (user["id"],)
+        t.starts_at DESC LIMIT 300""", (user["role"] == "superadmin", user["id"], user["id"]),
     ).fetchall()
 
 
 @api.post("/trainings")
-def create_training(data: Training, conn: DB, _staff: Staff):
+def create_training(data: Training, conn: DB, user: Staff):
     series = uuid4() if data.weeks > 1 else None
     start = data.starts_at.astimezone(CLUB_ZONE)
     starts = [start + timedelta(weeks=week) for week in range(data.weeks)]
@@ -483,13 +497,15 @@ def create_training(data: Training, conn: DB, _staff: Staff):
         for stamp in starts
     ):
         raise HTTPException(422, "Séria obsahuje nejednoznačný termín pri zmene času.")
-    with conn.cursor() as cursor:
-        cursor.executemany(
-            """INSERT INTO trainings (title, starts_at, location, instructions, series_id, kind, ends_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-            [(data.title, stamp, data.location, data.instructions, series, data.kind,
-              stamp.astimezone(timezone.utc) + (data.ends_at - data.starts_at) if data.ends_at else None) for stamp in starts],
-        )
+    for stamp in starts:
+        event = conn.execute(
+            """INSERT INTO trainings (title, starts_at, location, instructions, series_id, kind, ends_at, created_by)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+            (data.title, stamp, data.location, data.instructions, series, data.kind,
+             stamp.astimezone(timezone.utc) + (data.ends_at-data.starts_at) if data.ends_at else None, user["id"]),
+        ).fetchone()
+        push_service.enqueue(conn, None, "calendar", "Nová udalosť: " + data.title,
+                             f"#page=calendar&event={event['id']}", event_id=event['id'], exclude=user['id'])
     return {"ok": True}
 
 
@@ -497,7 +513,7 @@ def lock_training(conn, training_id):
     training = conn.execute("SELECT * FROM trainings WHERE id = %s FOR UPDATE",
                             (training_id,)).fetchone()
     if not training:
-        raise HTTPException(404, "Tréning sa nenašiel.")
+        raise HTTPException(404, "Udalosť sa nenašla.")
     return training
 
 
@@ -505,21 +521,25 @@ def lock_training(conn, training_id):
 def edit_training(training_id: int, data: TrainingEdit, conn: DB, _staff: Staff):
     training = lock_training(conn, training_id)
     if training["cancelled"]:
-        raise HTTPException(409, "Tréning bol zrušený.")
+        raise HTTPException(409, "Udalosť bola zrušená.")
     conn.execute(
         """UPDATE trainings SET title=%s, starts_at=%s, location=%s, instructions=%s,
         kind=%s, ends_at=%s, updated_at=now() WHERE id=%s""",
         (data.title, data.starts_at, data.location, data.instructions, data.kind, data.ends_at, training_id)
     )
-    if training["starts_at"] != data.starts_at or training["location"] != data.location:
-        if training["starts_at"] > datetime.now(timezone.utc):
+    schedule_changed = training["starts_at"] != data.starts_at or training["location"] != data.location
+    if any(training[field] != getattr(data, field) for field in
+           ("title", "starts_at", "location", "instructions", "kind", "ends_at")):
+        if schedule_changed and training["starts_at"] > datetime.now(timezone.utc):
             conn.execute("UPDATE participation SET response=NULL, note='' WHERE training_id=%s",
                          (training_id,))
         conn.execute(
-            "INSERT INTO announcements (title, body) VALUES (%s,%s)",
-            (f"Zmena tréningu: {data.title}",
-             f"Nový termín: {club_date(data.starts_at)} · {data.location}"),
+            "INSERT INTO announcements (title, body, event_id) VALUES (%s,%s,%s) RETURNING id",
+            (f"Zmena udalosti: {data.title}",
+             f"Nový termín: {club_date(data.starts_at)} · {data.location}", training_id),
         )
+        push_service.enqueue(conn, None, "calendar", "Zmena udalosti: " + data.title,
+                             f"#page=calendar&event={training_id}", event_id=training_id)
     return {"ok": True}
 
 
@@ -529,10 +549,21 @@ def cancel_training(training_id: int, conn: DB, _staff: Staff):
     if not training["cancelled"]:
         conn.execute("UPDATE trainings SET cancelled=true WHERE id=%s", (training_id,))
         conn.execute(
-            "INSERT INTO announcements (title, body) VALUES (%s,%s)",
-            (f"Zrušený tréning: {training['title']}",
-             f"Termín {club_date(training['starts_at'])} · {training['location']} bol zrušený."),
+            "INSERT INTO announcements (title, body, event_id) VALUES (%s,%s,%s)",
+            (f"Zrušená udalosť: {training['title']}",
+             f"Termín {club_date(training['starts_at'])} · {training['location']} bol zrušený.", training_id),
         )
+        push_service.enqueue(conn, None, "calendar", "Zrušená udalosť: " + training["title"],
+                             f"#page=calendar&event={training_id}", event_id=training_id)
+    return {"ok": True}
+
+
+@api.delete("/trainings/{training_id}")
+def delete_training(training_id: int, conn: DB, user: Staff):
+    training = lock_training(conn, training_id)
+    if user["role"] != "superadmin" and training["created_by"] not in (None, user["id"]):
+        raise HTTPException(403, "Vymazať môžeš iba vlastnú udalosť.")
+    conn.execute("DELETE FROM trainings WHERE id=%s", (training_id,))
     return {"ok": True}
 
 
@@ -546,7 +577,7 @@ def rsvp(training_id: int, data: RSVP, conn: DB, user: User):
         raise HTTPException(403, "Účasť potvrdzujú členovia.")
     training = lock_training(conn, training_id)
     if training["cancelled"] or training["starts_at"] <= datetime.now(timezone.utc):
-        raise HTTPException(409, "Na tento tréning sa už nedá prihlásiť.")
+        raise HTTPException(409, "Na túto udalosť sa už nedá prihlásiť.")
     conn.execute(
         """INSERT INTO participation (training_id, member_id, response, note) VALUES (%s,%s,%s,%s)
         ON CONFLICT (training_id, member_id) DO UPDATE SET response=excluded.response, note=excluded.note""",
@@ -558,7 +589,7 @@ def rsvp(training_id: int, data: RSVP, conn: DB, user: User):
 @api.get("/trainings/{training_id}/roster")
 def roster(training_id: int, conn: DB, _staff: Staff):
     if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
-        raise HTTPException(404, "Tréning sa nenašiel.")
+        raise HTTPException(404, "Udalosť sa nenašla.")
     return conn.execute(
         """SELECT m.id, m.name, p.response, p.note, p.attended FROM members m
         LEFT JOIN participation p ON p.member_id=m.id AND p.training_id=%s
@@ -572,7 +603,7 @@ def roster(training_id: int, conn: DB, _staff: Staff):
 def attendance(training_id: int, member_id: int, data: Attendance, conn: DB, _staff: Staff):
     training = lock_training(conn, training_id)
     if training["cancelled"] or training["starts_at"] > datetime.now(timezone.utc):
-        raise HTTPException(409, "Dochádzku možno zapísať od začiatku tréningu.")
+        raise HTTPException(409, "Dochádzku možno zapísať od začiatku udalosti.")
     if not conn.execute(
         "SELECT 1 FROM members WHERE id=%s AND (role='member' OR EXISTS (SELECT 1 FROM participation WHERE member_id=%s AND training_id=%s))",
         (member_id, member_id, training_id),
@@ -595,7 +626,7 @@ class BulkAttendance(BaseModel):
 def bulk_attendance(training_id: int, data: BulkAttendance, conn: DB, _staff: Staff):
     training = lock_training(conn, training_id)
     if training["cancelled"] or training["starts_at"] > datetime.now(timezone.utc):
-        raise HTTPException(409, "Dochádzku možno zapísať od začiatku tréningu.")
+        raise HTTPException(409, "Dochádzku možno zapísať od začiatku udalosti.")
     ids = set(data.member_ids)
     allowed = conn.execute(
         """SELECT id FROM members WHERE id=ANY(%s) AND
@@ -627,6 +658,86 @@ class Announcement(BaseModel):
     title: Short
     body: Body
     pinned: bool = False
+    audience: Literal["team", "coaches", "selected"] = "team"
+    recipient_ids: Annotated[list[int], Field(max_length=1000)] = []
+    notify: bool = True
+    keep_attachment_ids: Annotated[list[int], Field(max_length=5)] = []
+    draft_id: int | None = None
+
+
+def notice_access(conn, announcement_id, user, *, lock=False):
+    notice = conn.execute("SELECT * FROM announcements WHERE id=%s" + (" FOR UPDATE" if lock else ""),
+                          (announcement_id,)).fetchone()
+    if not notice:
+        raise HTTPException(404, "Oznam sa nenašiel.")
+    allowed = user["role"] in STAFF_ROLES or notice["audience"] == "team" or (notice["audience"] == "selected" and conn.execute(
+        "SELECT 1 FROM announcement_recipients WHERE announcement_id=%s AND member_id=%s",
+        (announcement_id,user["id"]),
+    ).fetchone())
+    if not allowed:
+        raise HTTPException(404, "Oznam sa nenašiel.")
+    return notice
+
+
+def notice_recipients(conn, data):
+    if data.audience == "selected":
+        ids = list(set(data.recipient_ids))
+        valid = conn.execute(
+            "SELECT id FROM members WHERE id=ANY(%s) AND active AND role IN ('member','coach')",
+            (ids,),
+        ).fetchall()
+        if not ids or len(valid) != len(ids):
+            raise HTTPException(422, "Vyber aktívnych členov alebo trénerov.")
+        return ids
+    return [r["id"] for r in conn.execute(
+        "SELECT id FROM members WHERE active AND role IN ('member','coach') AND (%s='team' OR role='coach')",
+        (data.audience,),
+    ).fetchall()]
+
+
+def save_notice(conn, data, user, announcement_id=None):
+    if announcement_id is not None:
+        old = notice_access(conn, announcement_id, user, lock=True)
+        if old["event_id"] is not None:
+            # Keep automatic calendar notices in their own notification category.
+            channel = "calendar"
+        else:
+            channel = "announcements"
+    else:
+        channel = "announcements"
+    ids = notice_recipients(conn, data)
+    if announcement_id is None:
+        announcement_id = conn.execute(
+            "INSERT INTO announcements(title,body,pinned,audience) VALUES (%s,%s,%s,%s) RETURNING id",
+            (data.title,data.body,data.pinned,data.audience),
+        ).fetchone()["id"]
+    else:
+        conn.execute("UPDATE announcements SET title=%s,body=%s,pinned=%s,audience=%s,updated_at=now() WHERE id=%s",
+                     (data.title,data.body,data.pinned,data.audience,announcement_id))
+        conn.execute("DELETE FROM announcement_recipients WHERE announcement_id=%s", (announcement_id,))
+        # Revoke queued/late push for the previous version and its old audience.
+        conn.execute("DELETE FROM push_notifications WHERE announcement_id=%s", (announcement_id,))
+        conn.execute("DELETE FROM announcement_reads WHERE announcement_id=%s", (announcement_id,))
+    for member_id in ids:
+        conn.execute("INSERT INTO announcement_recipients VALUES (%s,%s)", (announcement_id,member_id))
+    conn.execute("DELETE FROM announcement_attachments WHERE announcement_id=%s AND NOT (id=ANY(%s))",
+                 (announcement_id,data.keep_attachment_ids))
+    if data.draft_id is not None:
+        draft = conn.execute("SELECT * FROM announcement_drafts WHERE id=%s AND member_id=%s FOR UPDATE",
+                              (data.draft_id,user["id"])).fetchone()
+        if not draft:
+            raise HTTPException(422, "Prílohy už nie sú dostupné, pridaj ich znova.")
+        conn.execute("UPDATE announcement_attachments SET announcement_id=%s, draft_id=NULL WHERE draft_id=%s",
+                     (announcement_id,data.draft_id))
+        conn.execute("DELETE FROM announcement_drafts WHERE id=%s", (data.draft_id,))
+    sizes = conn.execute("SELECT count(*) AS n,coalesce(sum(octet_length(content)),0) AS size FROM announcement_attachments WHERE announcement_id=%s",
+                          (announcement_id,)).fetchone()
+    if sizes["n"]>5 or sizes["size"]>5*1024*1024:
+        raise HTTPException(413, "Najviac 5 príloh, spolu najviac 5 MB.")
+    if data.notify:
+        push_service.enqueue(conn, ids, channel, data.title, f"#page=announcements&notice={announcement_id}",
+                             announcement_id=announcement_id)
+    return {"ok":True,"id":announcement_id}
 
 
 class Message(BaseModel):
@@ -646,16 +757,80 @@ def announcements(conn: DB, user: User):
     return conn.execute(
         """SELECT a.*, EXISTS (
             SELECT 1 FROM announcement_reads r WHERE r.announcement_id=a.id AND r.member_id=%s
-        ) AS is_read FROM announcements a ORDER BY a.pinned DESC, a.id DESC LIMIT 100""",
-        (user["id"],),
+        ) AS is_read,
+        ARRAY(SELECT member_id FROM announcement_recipients WHERE announcement_id=a.id) AS recipient_ids,
+        COALESCE((SELECT json_agg(json_build_object('id',f.id,'filename',f.filename))
+          FROM announcement_attachments f WHERE f.announcement_id=a.id),'[]') AS attachments
+        FROM announcements a WHERE %s OR a.audience='team' OR (a.audience='selected' AND EXISTS (
+          SELECT 1 FROM announcement_recipients r WHERE r.announcement_id=a.id AND r.member_id=%s))
+        ORDER BY a.pinned DESC, a.id DESC LIMIT 100""",
+        (user["id"], user["role"] in STAFF_ROLES, user["id"]),
     ).fetchall()
 
 
 @api.post("/announcements")
-def announce(data: Announcement, conn: DB, _staff: Staff):
-    conn.execute("INSERT INTO announcements (title, body, pinned) VALUES (%s,%s,%s)",
-                 (data.title, data.body, data.pinned))
-    return {"ok": True}
+def announce(data: Announcement, conn: DB, user: Staff):
+    return save_notice(conn,data,user)
+
+
+@api.put("/announcements/{announcement_id}")
+def edit_announcement(announcement_id: int, data: Announcement, conn: DB, user: Staff):
+    return save_notice(conn,data,user,announcement_id)
+
+
+@api.delete("/announcements/{announcement_id}")
+def delete_announcement(announcement_id: int, conn: DB, user: Staff):
+    notice_access(conn,announcement_id,user,lock=True)
+    conn.execute("DELETE FROM announcements WHERE id=%s", (announcement_id,))
+    return {"ok":True}
+
+
+@api.get("/announcement-recipients")
+def announcement_contacts(conn: DB, _user: Staff):
+    return conn.execute("SELECT id,name,role FROM members WHERE active AND role IN ('member','coach') ORDER BY name,id").fetchall()
+
+
+@api.post("/announcement-drafts")
+def create_announcement_draft(conn: DB, user: Staff):
+    conn.execute("DELETE FROM announcement_drafts WHERE created_at<now()-interval '1 day'")
+    return conn.execute("INSERT INTO announcement_drafts(member_id) VALUES (%s) RETURNING id", (user["id"],)).fetchone()
+
+
+@api.post("/announcement-drafts/{draft_id}/attachments")
+async def upload_announcement_attachment(draft_id: int, request: Request, conn: DB, user: Staff):
+    if not conn.execute("SELECT 1 FROM announcement_drafts WHERE id=%s AND member_id=%s FOR UPDATE",
+                         (draft_id,user["id"])).fetchone():
+        raise HTTPException(404,"Koncept sa nenašiel.")
+    content=bytearray()
+    async for chunk in request.stream():
+        content.extend(chunk)
+        if len(content)>5*1024*1024:
+            raise HTTPException(413,"Prílohy môžu mať spolu najviac 5 MB.")
+    sizes=conn.execute("SELECT count(*) AS n,coalesce(sum(octet_length(content)),0) AS size FROM announcement_attachments WHERE draft_id=%s",(draft_id,)).fetchone()
+    if sizes["n"]>=5 or sizes["size"]+len(content)>5*1024*1024:
+        raise HTTPException(413,"Najviac 5 príloh, spolu najviac 5 MB.")
+    media = ('application/pdf' if content.startswith(b'%PDF-') else
+             'image/png' if content.startswith(b'\x89PNG\r\n\x1a\n') else
+             'image/jpeg' if content.startswith(b'\xff\xd8\xff') else None)
+    if media is None:
+        raise HTTPException(422,"Príloha musí byť PDF, PNG alebo JPEG.")
+    try:
+        filename=TypeAdapter(Short).validate_python(bytes.fromhex(request.headers.get('x-filename','')).decode())
+    except (ValueError,UnicodeError):
+        raise HTTPException(422,"Neplatný názov súboru.") from None
+    return conn.execute("INSERT INTO announcement_attachments(draft_id,filename,media_type,content) VALUES (%s,%s,%s,%s) RETURNING id,filename",
+                        (draft_id,filename,media,bytes(content))).fetchone()
+
+
+@api.get("/announcements/{announcement_id}/attachments/{attachment_id}")
+def download_announcement_attachment(announcement_id:int, attachment_id:int, conn:DB, user:User):
+    notice_access(conn,announcement_id,user)
+    item=conn.execute("SELECT * FROM announcement_attachments WHERE id=%s AND announcement_id=%s",(attachment_id,announcement_id)).fetchone()
+    if not item:
+        raise HTTPException(404,"Príloha sa nenašla.")
+    from urllib.parse import quote
+    return Response(bytes(item['content']),media_type=item['media_type'],
+                    headers={'Content-Disposition':"attachment; filename*=UTF-8''"+quote(item['filename'],safe='')})
 
 
 class Pin(BaseModel):
@@ -674,8 +849,7 @@ def pin_announcement(announcement_id: int, data: Pin, conn: DB, _staff: Staff):
 
 @api.post("/announcements/{announcement_id}/read")
 def read_announcement(announcement_id: int, conn: DB, user: User):
-    if not conn.execute("SELECT 1 FROM announcements WHERE id=%s", (announcement_id,)).fetchone():
-        raise HTTPException(404, "Oznam sa nenašiel.")
+    notice_access(conn,announcement_id,user)
     conn.execute(
         "INSERT INTO announcement_reads VALUES (%s,%s) ON CONFLICT DO NOTHING",
         (announcement_id, user["id"]),
@@ -947,6 +1121,16 @@ def send_message(data: Message, conn: DB, user: ChatUser):
             "INSERT INTO messages (sender_id, recipient_id, body) VALUES (%s,%s,%s) RETURNING id",
             (user["id"], target["id"], data.body),
         ).fetchone()
+    if data.group_id is not None:
+        group=accessible_group(conn,data.group_id,user)
+        recipients=[p['id'] for p in group_participants(conn,group)]
+        path=f"#page=messages&group={data.group_id}"
+        title=f"{group['name']}: nová správa od {user['name']}"
+    else:
+        recipients=[data.recipient_id]
+        path=f"#page=messages&contact={user['id']}"
+        title=f"Nová správa od {user['name']}"
+    push_service.enqueue(conn,recipients,'messages',title,path,message_id=message['id'],exclude=user['id'])
     return {"ok": True, "id": message["id"]}
 
 
@@ -1036,6 +1220,98 @@ def label(code: Code, conn: DB, _staff: Staff):
         raise HTTPException(404, "Batéria sa nenašla.")
     qr = qrcode.make(f"{PUBLIC_URL}/#battery={code}", image_factory=qrcode.image.svg.SvgPathImage)
     return Response(qr.to_string(), media_type="image/svg+xml")
+
+
+class PushPreferences(BaseModel):
+    push_messages: bool
+    push_calendar: bool
+    push_announcements: bool
+
+
+@api.put('/me/notification-preferences')
+def notification_preferences(data:PushPreferences, conn:DB, user:User):
+    conn.execute('UPDATE members SET push_messages=%s,push_calendar=%s,push_announcements=%s WHERE id=%s',
+                 (data.push_messages,data.push_calendar,data.push_announcements,user['id']))
+    return data.model_dump()
+
+
+@api.get('/push/config')
+def push_config(conn:DB, _user:User):
+    return {'public_key':conn.execute('SELECT public_key FROM push_keys WHERE id=1').fetchone()['public_key']}
+
+
+class PushKeys(BaseModel):
+    p256dh: Annotated[str,Field(max_length=100)]
+    auth: Annotated[str,Field(max_length=30)]
+
+
+class PushSubscription(BaseModel):
+    endpoint: Annotated[str,Field(max_length=2048)]
+    keys: PushKeys
+
+    @model_validator(mode='after')
+    def validate_subscription(self):
+        endpoint=urlsplit(self.endpoint)
+        host=endpoint.hostname or ''
+        allowed=(host=='fcm.googleapis.com' or host=='updates.push.services.mozilla.com'
+                 or host.endswith('.push.services.mozilla.com') or host=='web.push.apple.com'
+                 or host.endswith('.push.apple.com') or host.endswith('.notify.windows.com'))
+        if endpoint.scheme!='https' or not allowed or endpoint.port not in (None,443) or endpoint.username or endpoint.password or endpoint.fragment:
+            raise ValueError('Nepodporovaná push služba.')
+        try:
+            public=base64.urlsafe_b64decode(self.keys.p256dh+'='*(-len(self.keys.p256dh)%4))
+            auth=base64.urlsafe_b64decode(self.keys.auth+'='*(-len(self.keys.auth)%4))
+            from cryptography.hazmat.primitives.asymmetric import ec
+            ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), public)
+            if len(auth)!=16:
+                raise ValueError('Invalid authentication secret')
+        except (ValueError,binascii.Error):
+            raise ValueError('Neplatné push kľúče.') from None
+        return self
+
+
+@api.post('/push/subscriptions')
+def subscribe_push(data:PushSubscription, conn:DB, user:User):
+    if user['role']=='superadmin':
+        raise HTTPException(403,'Systémový účet neprijíma klubové upozornenia.')
+    conn.execute('DELETE FROM push_subscriptions WHERE endpoint=%s AND member_id<>%s', (data.endpoint,user['id']))
+    conn.execute('''INSERT INTO push_subscriptions(member_id,endpoint,p256dh,auth) VALUES (%s,%s,%s,%s)
+                 ON CONFLICT(endpoint) DO UPDATE SET p256dh=excluded.p256dh,auth=excluded.auth''',
+                 (user['id'],data.endpoint,data.keys.p256dh,data.keys.auth))
+    return {'ok':True}
+
+
+class PushEndpoint(BaseModel):
+    endpoint: Annotated[str,Field(max_length=2048)]
+
+
+@api.delete('/push/subscriptions')
+def unsubscribe_push(data:PushEndpoint, conn:DB, user:User):
+    conn.execute('DELETE FROM push_subscriptions WHERE endpoint=%s AND member_id=%s',(data.endpoint,user['id']))
+    return {'ok':True}
+
+
+@api.get('/push/notifications/{notification_id}')
+def push_notification(notification_id:int, conn:DB, user:User):
+    item=conn.execute('SELECT * FROM push_notifications WHERE id=%s AND member_id=%s AND created_at>now()-interval \'1 day\'',
+                      (notification_id,user['id'])).fetchone()
+    if not item or not user['push_'+item['channel']]:
+        raise HTTPException(404,'Upozornenie už nie je dostupné.')
+    if item['announcement_id'] is not None:
+        notice=notice_access(conn,item['announcement_id'],user)
+        if notice['audience']=='selected' and not conn.execute(
+            'SELECT 1 FROM announcement_recipients WHERE announcement_id=%s AND member_id=%s',
+            (notice['id'],user['id'])).fetchone():
+            raise HTTPException(404,'Upozornenie už nie je dostupné.')
+    if item['message_id'] is not None:
+        msg=conn.execute('SELECT * FROM messages WHERE id=%s',(item['message_id'],)).fetchone()
+        if not msg:
+            raise HTTPException(404,'Správa sa nenašla.')
+        if msg['group_id'] is not None:
+            accessible_group(conn,msg['group_id'],user)
+        elif user['id'] not in (msg['sender_id'],msg['recipient_id']):
+            raise HTTPException(404,'Správa sa nenašla.')
+    return {'title':item['title'],'path':item['path'],'channel':item['channel']}
 
 
 app.include_router(api)

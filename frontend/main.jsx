@@ -260,10 +260,14 @@ function TrainingDetail({training, staff, places, close, refresh}) {
         {staff && !training.cancelled && <div className="actions section-space">
           <button onClick={() => setEdit(true)}><Pencil size={17} />Upraviť</button>
           <Action className="danger" run={async () => {
-            if (!window.confirm("Zrušiť túto udalosť?")) return;
+            if (!window.confirm("Zrušiť udalosť a zverejniť oznam pre tím? Udalosť zostane v kalendári označená ako zrušená.")) return;
             await api("trainings/" + training.id + "/cancel", "POST"); await refresh();
           }}>Zrušiť udalosť</Action>
         </div>}
+        {staff && training.can_delete && <div className="section-space"><Action className="danger" run={async () => {
+          if (!window.confirm("Natrvalo vymazať túto udalosť aj jej prihlášky, dochádzku a súvisiace automatické oznamy? Bez odoslania upozornenia. Táto akcia sa nedá vrátiť.")) return;
+          await api("trainings/" + training.id, "DELETE"); close(); await refresh();
+        }}>Vymazať bez upozornenia</Action></div>}
       </> : <>
         {tab === "rsvp" && <div className="chips">
           {[["all", "Všetci"], ["yes", "Prídu"], ["no", "Neprídu"], ["maybe", "Nevedia"], ["none", "Bez odpovede"]].map(([value, text]) =>
@@ -434,24 +438,83 @@ function InviteLink({link}) {
     {navigator.clipboard && <Action run={() => navigator.clipboard.writeText(link)}>Kopírovať odkaz</Action>}</div>;
 }
 
+function AnnouncementEditor({item, close, refresh}) {
+  const [audience,setAudience]=useState(item?.audience || "team");
+  const [people,setPeople]=useState([]);
+  const [selected,setSelected]=useState(item?.recipient_ids || []);
+  const [keep,setKeep]=useState((item?.attachments || []).map(f=>f.id));
+  const [files,setFiles]=useState([]);
+  const [query,setQuery]=useState("");
+  const [error,setError]=useState("");
+  useEffect(()=>{api("announcement-recipients").then(setPeople).catch(e=>setError(e.message));},[]);
+  return <Modal title={item ? "Upraviť oznam" : "Nový oznam"} close={close}>
+    {error && <p className="error" role="alert">{error}</p>}
+    <Form label={item ? "Uložiť zmeny" : "Zverejniť oznam"} submit={async data=>{
+      if (audience === "selected" && !selected.length) throw new Error("Vyber aspoň jedného adresáta.");
+      const existing=(item?.attachments || []).filter(f=>keep.includes(f.id));
+      if(existing.length+files.length>5 || files.reduce((sum,f)=>sum+f.size,0)>5*1024*1024)
+        throw new Error("Najviac 5 príloh, spolu najviac 5 MB.");
+      let draft;
+      if(files.length){
+        draft=await api("announcement-drafts","POST");
+        for(const file of files){
+          const name=Array.from(new TextEncoder().encode(file.name),b=>b.toString(16).padStart(2,"0")).join("");
+          const response=await fetch(new URL("api/announcement-drafts/"+draft.id+"/attachments",base),{
+            method:"POST",headers:{"X-Filename":name},body:file});
+          if(!response.ok) throw new Error((await response.json()).detail || "Príloha sa nenahrala.");
+        }
+      }
+      await api("announcements"+(item ? "/"+item.id : ""),item ? "PUT" : "POST",{
+        title:data.title,body:data.body,pinned:data.pinned==="on",audience,recipient_ids:selected,
+        keep_attachment_ids:keep,draft_id:draft?.id || null,notify:data.notify==="on"});
+      close();await refresh();
+    }}>
+      <label>Názov<input name="title" maxLength="120" defaultValue={item?.title || ""} required /></label>
+      <label>Text<textarea name="body" maxLength="4000" defaultValue={item?.body || ""} required /></label>
+      <label>Adresáti<select value={audience} onChange={e=>setAudience(e.target.value)}>
+        <option value="team">Celý tím</option><option value="coaches">Iba tréneri</option><option value="selected">Vybraní členovia a tréneri</option>
+      </select></label>
+      {audience==="selected" && <><label>Vyhľadať adresáta<input type="search" value={query} onChange={e=>setQuery(e.target.value)} /></label>
+        <div className="recipient-picker">{people.filter(p=>p.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(person=><label className="checkbox" key={person.id}>
+          <input type="checkbox" checked={selected.includes(person.id)} onChange={e=>setSelected(e.target.checked ? [...selected,person.id] : selected.filter(id=>id!==person.id))} />
+          {person.name} · {roles[person.role]}
+        </label>)}</div><p className="meta">Vybraných: {selected.length}</p></>}
+      <label className="checkbox"><input name="pinned" type="checkbox" defaultChecked={item?.pinned || false} />Pripnúť na nástenku</label>
+      {(item?.attachments || []).map(file=><label className="checkbox" key={file.id}><input type="checkbox" checked={keep.includes(file.id)} onChange={e=>setKeep(e.target.checked ? [...keep,file.id] : keep.filter(id=>id!==file.id))} />Ponechať {file.filename}</label>)}
+      <label>Pridať prílohy<input type="file" multiple accept=".pdf,.png,.jpg,.jpeg" onChange={e=>setFiles(Array.from(e.target.files || []))} /></label>
+      <p className="meta">PDF, PNG alebo JPEG. Najviac 5 príloh, spolu 5 MB.</p>
+      <label className="checkbox"><input name="notify" type="checkbox" defaultChecked={!item} />Poslať push upozornenie adresátom</label>
+      <p className="meta">Oznamy spravujú tréneri a systémový správca. Pri úprave sa potvrdenia prečítania vynulujú.</p>
+    </Form>
+  </Modal>;
+}
+
 function Bulletin({items, staff, refresh}) {
-  const [create, setCreate] = useState(false);
+  const [editor,setEditor]=useState(null);
+  useEffect(()=>{
+    const id=Number(hash().get("notice"));
+    if(id) document.getElementById("notice-"+id)?.scrollIntoView?.({block:"center"});
+  },[items]);
   return <>
-    {staff && <div className="toolbar end"><button className="primary" onClick={() => setCreate(true)}><Plus size={18} />Nový oznam</button></div>}
-    {items.length ? <div className="bulletin-list">{items.map(item => <article className="card" key={item.id}>
+    {staff && <div className="toolbar end"><button className="primary" onClick={()=>setEditor({})}><Plus size={18} />Nový oznam</button></div>}
+    {items.length ? <div className="bulletin-list">{items.map(item=><article className="card" key={item.id} id={"notice-"+item.id}>
       <div className="row-between"><span className="meta">{date(item.created_at)}</span>{item.pinned && <span className="badge"><Pin size={13} />Pripnuté</span>}</div>
-      <h2>{item.title}</h2><p className="body">{item.body}</p><div className="actions section-space">
-        {!item.is_read ? <Action className="text-button" run={async () => {await api("announcements/" + item.id + "/read", "POST"); await refresh();}}><CheckCheck size={16} />Prečítané</Action> : <span className="meta"><CheckCheck size={16} />Prečítané</span>}
-        {staff && <Action className="text-button" run={async () => {await api("announcements/" + item.id + "/pin", "PUT", {pinned: !item.pinned}); await refresh();}}><Pin size={16} />{item.pinned ? "Odopnúť" : "Pripnúť"}</Action>}
+      <h2>{item.title}</h2><p className="body">{item.body}</p>
+      {staff && <p className="meta">{item.audience==="selected" ? "Vybraní adresáti" : item.audience==="coaches" ? "Iba tréneri" : "Celý tím"}</p>}
+      {(item.attachments || []).length>0 && <ul className="attachment-list">{item.attachments.map(file=><li key={file.id}><a href={new URL("api/announcements/"+item.id+"/attachments/"+file.id,base).href}><Download size={16} />{file.filename}</a></li>)}</ul>}
+      <div className="actions section-space">
+        {!item.is_read ? <Action className="text-button" run={async()=>{await api("announcements/"+item.id+"/read","POST");await refresh();}}><CheckCheck size={16} />Prečítané</Action> : <span className="meta"><CheckCheck size={16} />Prečítané</span>}
+        {staff && <>
+          <Action className="text-button" run={async()=>{await api("announcements/"+item.id+"/pin","PUT",{pinned:!item.pinned});await refresh();}}><Pin size={16} />{item.pinned ? "Odopnúť" : "Pripnúť"}</Action>
+          <button onClick={()=>setEditor(item)}><Pencil size={16} />Upraviť</button>
+          <Action className="danger" run={async()=>{
+            if(!window.confirm("Natrvalo vymazať oznam aj prílohy? Bez odoslania upozornenia.")) return;
+            await api("announcements/"+item.id,"DELETE");await refresh();
+          }}>Vymazať</Action>
+        </>}
       </div>
     </article>)}</div> : <Empty icon={Megaphone}>Zatiaľ žiadne oznamy.</Empty>}
-    {create && <Modal title="Nový oznam" close={() => setCreate(false)}><Form label="Zverejniť oznam" submit={async data => {
-      await api("announcements", "POST", {...data, pinned: data.pinned === "on"}); setCreate(false); await refresh();
-    }}>
-      <label>Názov<input name="title" maxLength="120" required /></label>
-      <label>Text<textarea name="body" maxLength="4000" required /></label>
-      <label className="checkbox"><input name="pinned" type="checkbox" />Pripnúť na nástenku</label>
-    </Form></Modal>}
+    {editor && <AnnouncementEditor item={editor.id ? editor : null} close={()=>setEditor(null)} refresh={refresh} />}
   </>;
 }
 
@@ -481,7 +544,7 @@ function GroupEditor({contacts, group, user, close, done}) {
 
 function Messages({user, conversations, refresh, initialContact}) {
   const [contacts, setContacts] = useState([]);
-  const [selected, setSelected] = useState(initialContact ? {type: "private", id: initialContact} : null);
+  const [selected, setSelected] = useState(initialContact ? {type: "private", id: initialContact} : hash().get("group") ? {type: "group", id: Number(hash().get("group"))} : null);
   const [messages, setMessages] = useState([]);
   const [more, setMore] = useState(false);
   const [query, setQuery] = useState("");
@@ -713,6 +776,59 @@ function InstallPanel({installation, install}) {
   </section>;
 }
 
+const supportsPush = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+async function disablePush() {
+  if(!supportsPush()) return;
+  const registration=await navigator.serviceWorker.ready;
+  const subscription=await registration.pushManager.getSubscription();
+  if(subscription){
+    await api("push/subscriptions","DELETE",{endpoint:subscription.endpoint});
+    await subscription.unsubscribe();
+  }
+  for(const notification of await registration.getNotifications()) notification.close();
+}
+
+function PushSettings({user,reloadUser}) {
+  const [enabled,setEnabled]=useState(false);
+  const [state,setState]=useState("Načítava sa…");
+  const [saved,setSaved]=useState("");
+  const supported=supportsPush();
+  async function check(){
+    if(!supported){setState("Tento prehliadač zatiaľ neponúka push. Na iPhone otvor aplikáciu pridanú na plochu (iOS 16.4 alebo novší).");return;}
+    const registration=await navigator.serviceWorker.ready;
+    const subscription=await registration.pushManager.getSubscription();
+    setEnabled(Boolean(subscription) && Notification.permission==="granted");
+    setState(Notification.permission==="denied" ? "Upozornenia sú zablokované. Povoľ ich v nastaveniach prehliadača alebo zariadenia." : subscription ? "Toto zariadenie je prihlásené na push upozornenia." : "Push upozornenia na tomto zariadení nie sú zapnuté.");
+  }
+  useEffect(()=>{check().catch(()=>setState("Nepodarilo sa zistiť stav upozornení."));},[]);
+  return <section className="card push-settings"><h2>Upozornenia</h2>
+    <p className="muted">Vyber, na čo chceš dostávať push upozornenia. Výber platí na všetkých tvojich zariadeniach.</p>
+    <Form key={[user.push_messages,user.push_calendar,user.push_announcements].join(":")} label="Uložiť výber upozornení" submit={async data=>{
+      await api("me/notification-preferences","PUT",{push_messages:data.messages==="on",push_calendar:data.calendar==="on",push_announcements:data.announcements==="on"});
+      await reloadUser();setSaved("Výber upozornení bol uložený.");
+    }}>
+      <label className="checkbox"><input type="checkbox" name="messages" defaultChecked={user.push_messages!==false} />Správy – súkromné aj skupinové</label>
+      <label className="checkbox"><input type="checkbox" name="calendar" defaultChecked={user.push_calendar!==false} />Kalendár – nové udalosti, zmeny a zrušenia</label>
+      <label className="checkbox"><input type="checkbox" name="announcements" defaultChecked={user.push_announcements!==false} />Oznamy – manuálne zverejnené oznamy</label>
+    </Form>
+    {saved && <p className="success" role="status">{saved}</p>}
+    <p className="small">Oznamy a správy zostanú v aplikácii dostupné aj pri vypnutom push.</p>
+    <h3>Toto zariadenie</h3><p className="muted" role="status">{state}</p>
+    {supported && <div className="actions"><Action run={async()=>{
+      if(Notification.permission==="denied") throw new Error("Povoľ upozornenia v nastaveniach prehliadača alebo zariadenia.");
+      const permission=await Notification.requestPermission();
+      if(permission!=="granted"){await check();return;}
+      const registration=await navigator.serviceWorker.ready;
+      const config=await api("push/config");
+      const text=config.public_key.replace(/-/g,"+").replace(/_/g,"/");
+      const key=Uint8Array.from(atob(text+"=".repeat((4-text.length%4)%4)),c=>c.charCodeAt(0));
+      const subscription=await registration.pushManager.getSubscription() || await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});
+      await api("push/subscriptions","POST",subscription.toJSON());await check();
+    }}>{enabled ? "Obnoviť prihlásenie zariadenia" : "Zapnúť push na tomto zariadení"}</Action>
+    {enabled && <Action run={async()=>{await disablePush();await check();}}>Vypnúť push na tomto zariadení</Action>}</div>}
+  </section>;
+}
+
 function Profile({user, reloadUser, installation, install, saveInstallPreferences}) {
   const [attendance, setAttendance] = useState([]);
   const [edit, setEdit] = useState(null);
@@ -731,6 +847,7 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
       {attendance.length ? <><p className="big-number">{attended}<span> / {attendance.length}</span></p><p className="muted">navštívených udalostí so zaznamenanou dochádzkou</p>
         <ul className="records">{attendance.map(row => <li key={row.id}><div className="grow"><strong>{row.title}</strong><span className="meta">{date(row.starts_at)}</span></div><span className="badge">{row.attended ? "Prítomný" : "Neprítomný"}</span></li>)}</ul></> : <p className="muted">Tréner zatiaľ nezapísal dochádzku.</p>}
     </section>}
+    {user.role!=="superadmin" && <PushSettings user={user} reloadUser={reloadUser} />}
     <section className="card install-settings"><h2>Nastavenia inštalácie</h2>
       <Form key={String(user.pwa_show_card) + ":" + user.pwa_show_popup} label="Uložiť nastavenia" submit={async data => {
         await saveInstallPreferences({pwa_show_card: data.card === "on", pwa_show_popup: data.popup === "on"});
@@ -769,7 +886,7 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
   const notice = announcements.find(item => item.pinned) || announcements[0];
   return <>
     <div className="welcome"><div><p className="eyebrow">Drone Soccer · LF TUKE</p><h1>Ahoj, {user.name.split(" ")[0]}.</h1>
-      <p className="muted">{staff ? "Všetko pre najbližší tréning na jednom mieste." : "Tvoj tím, tréningy a nové správy."}</p></div>
+      <p className="muted">{staff ? "Všetko pre najbližšiu udalosť na jednom mieste." : "Tvoj tím, tréningy a nové správy."}</p></div>
       <span className="welcome-date">{new Date().toLocaleDateString("sk-SK", {weekday: "long", day: "numeric", month: "long", timeZone})}</span>
     </div>
     <div className="home-grid">
@@ -817,15 +934,16 @@ function App() {
   const [user, setUser] = useState(undefined);
   const [page, setPage] = useState(() => hash().has("battery") ? "equipment" : hash().get("page") || "home");
   const [menu, setMenu] = useState(false);
+  const [route, setRoute] = useState(location.hash);
   const [snapshot, setSnapshot] = useState(null);
   const session = useRef(null);
   const empty = {trainings: [], announcements: [], conversations: [], places: []};
   const data = snapshot && snapshot.owner === user ? snapshot.data : empty;
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [trainingId, setTrainingId] = useState(null);
+  const [trainingId, setTrainingId] = useState(() => Number(hash().get("event")) || null);
   const [activeBattery, setActiveBattery] = useState(() => hash().get("battery"));
-  const [contact, setContact] = useState(null);
+  const [contact, setContact] = useState(() => Number(hash().get("contact")) || null);
   const [createTraining, setCreateTraining] = useState(false);
   const [notifications, setNotifications] = useState(false);
   const staff = user?.role === "coach" || user?.role === "superadmin";
@@ -898,6 +1016,7 @@ function App() {
   function closeMenu() {if (history.state?.drawer) history.back(); else setMenu(false);}
   function messageMember(id) {setContact(id); navigate("messages");}
   async function logout() {
+    await disablePush().catch(()=>{});
     await api("logout", "POST"); session.current = null; setSnapshot(null); setUser(null);
     setTrainingId(null); setMenu(false); setNotifications(false); setCreateTraining(false); setContact(null); history.replaceState({}, "", base);
     setPage("home");
@@ -907,10 +1026,11 @@ function App() {
   useEffect(() => {loadUser();}, []);
   useEffect(() => {
     const onNavigation = () => {
+      setRoute(location.hash);
       setMenu(Boolean(history.state?.drawer));
       setActiveBattery(hash().get("battery"));
       setPage(hash().has("battery") ? "equipment" : hash().get("page") || "home");
-      setTrainingId(null); setContact(null);
+      setTrainingId(Number(hash().get("event")) || null); setContact(Number(hash().get("contact")) || null);
     };
     addEventListener("popstate", onNavigation); addEventListener("hashchange", onNavigation);
     return () => {removeEventListener("popstate", onNavigation); removeEventListener("hashchange", onNavigation);};
@@ -967,7 +1087,7 @@ function App() {
             <Home user={user} {...data} refresh={refresh} navigate={navigate} openTraining={setTrainingId} />
           </>}
           {currentPage === "calendar" && <Calendar trainings={data.trainings} staff={staff} places={data.places} refresh={refresh} openTraining={setTrainingId} />}
-          {currentPage === "messages" && <Messages key={user.id + ":" + contact} user={user} conversations={data.conversations} refresh={refresh} initialContact={contact} />}
+          {currentPage === "messages" && <Messages key={user.id + ":" + contact + ":" + route} user={user} conversations={data.conversations} refresh={refresh} initialContact={contact} />}
           {currentPage === "announcements" && <Bulletin items={data.announcements} staff={staff} refresh={refresh} />}
           {currentPage === "members" && staff && <Members key="members" userId={user.id} superadmin={superadmin} onMessage={messageMember} />}
           {currentPage === "management" && superadmin && <Members key="management" userId={user.id} superadmin management onMessage={messageMember} />}
