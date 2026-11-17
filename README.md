@@ -13,14 +13,13 @@
 
 ## Server THRUST
 
-V produkčnom `.env` nastav `HUB_PUBLIC_URL=https://thrust.lf.tuke.sk/dronesoccer/`. Spusť hub bez lokálneho mapovania portu:
+V produkčnom `.env` nastav `HUB_PUBLIC_URL=https://thrust.lf.tuke.sk/dronesoccer/`. Najprv spusti HTTPS frontend THRUST-webdb podľa jeho README. Vytvorí sieť `thrust_webdb_hub_proxy`. Potom spusti hub bez lokálneho mapovania portu:
 
 ```sh
-docker network inspect thrust_hub_proxy >/dev/null 2>&1 || docker network create thrust_hub_proxy
 docker compose -f compose.yml -f compose.thrust.yml up -d --build
 ```
 
-V repozitári THRUST-webdb zapni `docker-compose.lf-ds-hub.yml` spolu so základným a HTTPS Compose súborom podľa jeho README. Hub a THRUST majú samostatné aplikačné kontajnery, účty, databázy a zväzky. Verejné HTTPS smerovanie zabezpečuje Nginx THRUST. Pri presune na vlastnú doménu zmeň `HUB_PUBLIC_URL` a pravidlá proxy. Vytlačené QR štítky smerujú na adresu platnú pri ich vytvorení.
+Hub a THRUST majú samostatné aplikačné kontajnery, účty, databázy a zväzky. Verejné HTTPS smerovanie zabezpečuje Nginx THRUST. Pri presune na vlastnú doménu zmeň `HUB_PUBLIC_URL` a pravidlá proxy. Vytlačené QR štítky smerujú na adresu platnú pri ich vytvorení.
 
 Zálohu databázy vytvor:
 

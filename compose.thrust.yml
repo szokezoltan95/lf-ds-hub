@@ -7,3 +7,4 @@ services:
 networks:
   thrust_hub_proxy:
     external: true
+    name: thrust_webdb_hub_proxy
