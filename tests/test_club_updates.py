@@ -74,6 +74,60 @@ class ClubUpdates(unittest.TestCase):
         b64=lambda b:base64.urlsafe_b64encode(b).decode().rstrip('=')
         return {'endpoint':'https://fcm.googleapis.com/fcm/send/test','keys':{'p256dh':b64(key),'auth':b64(os.urandom(16))}}
 
+    def add_calendar_event(self, title, starts_at, kind='training', cancelled=False):
+        return self.sql(
+            """INSERT INTO trainings(title,starts_at,location,instructions,kind,cancelled)
+            VALUES (%s,%s,'Hala','',%s,%s) RETURNING id""",
+            (title,starts_at,kind,cancelled),
+        )[0]['id']
+
+    def test_attendance_matrix_members_records_and_event_filters(self):
+        training=self.add_calendar_event('Tréning','2026-10-12T14:00:00Z')
+        meeting=self.add_calendar_event('Porada','2026-10-13T14:00:00Z','meeting')
+        cancelled=self.add_calendar_event('Zrušený zápas','2026-10-14T14:00:00Z','match',True)
+        self.sql('UPDATE members SET active=false WHERE id=%s',(self.ids['outsider'],))
+        self.sql("INSERT INTO participation(training_id,member_id,response,attended) VALUES (%s,%s,'yes',false),(%s,%s,'no',true),(%s,%s,'yes',NULL)",
+                 (training,self.ids['member'],training,self.ids['outsider'],meeting,self.ids['member']))
+        result=self.get('attendance?date_from=2026-10-01&date_to=2026-10-31')
+        self.assertEqual([row['id'] for row in result['members']],[self.ids['member'],self.ids['outsider']])
+        self.assertFalse(result['members'][1]['active'])
+        self.assertEqual([row['id'] for row in result['events']],[training,meeting])
+        records={(r['member_id'],r['training_id']):r['attended'] for r in result['attendance']}
+        self.assertIs(records[(self.ids['member'],training)],False)
+        self.assertIs(records[(self.ids['outsider'],training)],True)
+        self.assertNotIn((self.ids['member'],meeting),records,'RSVP must not be recorded as presence')
+        self.assertEqual([r['id'] for r in self.get('attendance?kinds=meeting,match&include_cancelled=true')['events']],[meeting,cancelled])
+        self.assertEqual(self.get('attendance?kinds=')['events'],[])
+        self.assertEqual(self.get('attendance?kinds=')['attendance'],[])
+        self.assertEqual(len(self.get('attendance?kinds=')['members']),2)
+        self.assertEqual(self.get('attendance?date_from=2026-10-15')['events'],[])
+
+    def test_attendance_dates_include_full_club_day_at_dst_boundary(self):
+        self.add_calendar_event('Pred dňom','2026-03-28T22:59:59Z')
+        first=self.add_calendar_event('Polnoc','2026-03-28T23:00:00Z')
+        last=self.add_calendar_event('Koniec dňa','2026-03-29T21:59:59Z')
+        self.add_calendar_event('Nasledujúci deň','2026-03-29T22:00:00Z')
+        result=self.get('attendance?date_from=2026-03-29&date_to=2026-03-29')
+        self.assertEqual([row['id'] for row in result['events']],[first,last])
+        self.assertEqual(self.client.get(portal.PREFIX+'/api/attendance?date_from=2026-11-02&date_to=2026-11-01').status_code,422)
+        self.assertEqual(self.client.get(portal.PREFIX+'/api/attendance?kinds=unknown').status_code,422)
+        self.assertEqual(self.client.get(portal.PREFIX+'/api/attendance?date_from=not-a-date').status_code,422)
+
+    def test_attendance_overview_has_no_calendar_list_limit(self):
+        with portal.connect() as conn:
+            conn.execute("""INSERT INTO trainings(title,starts_at,location,instructions)
+                         SELECT 'Udalosť '||n, '2026-01-01'::timestamptz+n*interval '1 day','Hala',''
+                         FROM generate_series(1,305) n""")
+        result=self.get('attendance')
+        self.assertEqual(len(result['events']),305)
+        self.assertLess(result['events'][0]['starts_at'],result['events'][-1]['starts_at'])
+
+    def test_attendance_overview_requires_staff(self):
+        self.as_user('member')
+        self.assertEqual(self.client.get(portal.PREFIX+'/api/attendance').status_code,403)
+        self.as_user('root')
+        self.assertEqual(len(self.get('attendance')['members']),2)
+
     def test_event_delete_is_owned_silent_and_cascades(self):
         event,data=self.event()
         self.sql("INSERT INTO participation(training_id,member_id,response,attended) VALUES (%s,%s,'yes',true)",(event,self.ids['member']))

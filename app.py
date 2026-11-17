@@ -8,7 +8,7 @@ import hmac
 import os
 import secrets
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date as CalendarDate, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
@@ -642,6 +642,36 @@ def bulk_attendance(training_id: int, data: BulkAttendance, conn: DB, _staff: St
             [(training_id, member_id, data.attended) for member_id in ids],
         )
     return {"ok": True}
+
+
+@api.get("/attendance")
+def attendance_matrix(conn: DB, _staff: Staff, date_from: CalendarDate | None = None,
+                      date_to: CalendarDate | None = None,
+                      kinds: str = "training,match,meeting", include_cancelled: bool = False):
+    if date_from is not None and date_to is not None and date_from > date_to:
+        raise HTTPException(422, "Dátum od nesmie byť neskôr než dátum do.")
+    selected_kinds = kinds.split(",") if kinds else []
+    if set(selected_kinds) - {"training", "match", "meeting"}:
+        raise HTTPException(422, "Neplatný typ udalosti.")
+    # Filter by club-local calendar dates, including the full final day across DST.
+    events = conn.execute(
+        """SELECT id,title,starts_at,ends_at,kind,cancelled FROM trainings
+        WHERE kind=ANY(%s) AND (%s OR NOT cancelled)
+        AND (%s::date IS NULL OR (starts_at AT TIME ZONE 'Europe/Bratislava')::date>=%s)
+        AND (%s::date IS NULL OR (starts_at AT TIME ZONE 'Europe/Bratislava')::date<=%s)
+        ORDER BY starts_at,id""",
+        (selected_kinds, include_cancelled, date_from, date_from, date_to, date_to),
+    ).fetchall()
+    members = conn.execute(
+        "SELECT id,name,active FROM members WHERE role='member' ORDER BY lower(name),id"
+    ).fetchall()
+    attendance = conn.execute(
+        """SELECT p.training_id,p.member_id,p.attended FROM participation p
+        JOIN members m ON m.id=p.member_id WHERE m.role='member'
+        AND p.training_id=ANY(%s) AND p.attended IS NOT NULL""",
+        ([event["id"] for event in events],),
+    ).fetchall()
+    return {"events": events, "members": members, "attendance": attendance}
 
 
 @api.get("/members/{member_id}/attendance")

@@ -2,7 +2,7 @@ import React, {useEffect, useRef, useState} from "react";
 import {createRoot} from "react-dom/client";
 import {Drone, Menu, X, House, CalendarDays, MessageCircle, Megaphone, Users, Battery, ShieldCheck,
   LogOut, Bell, Plus, ChevronLeft, ChevronRight, MapPin, Clock, Check, CircleHelp,
-  Search, Pin, FileText, Download, ArrowUpRight, Settings2, Send, CheckCheck, Pencil} from "lucide-react";
+  Search, ClipboardCheck, Pin, FileText, Download, ArrowUpRight, Settings2, Send, CheckCheck, Pencil} from "lucide-react";
 import "@fontsource/dm-sans/latin-400.css";
 import "@fontsource/dm-sans/latin-ext-400.css";
 import "@fontsource/dm-sans/latin-600.css";
@@ -436,6 +436,95 @@ function Members({superadmin, management = false, onMessage, userId}) {
 function InviteLink({link}) {
   return <div className="invite"><p>Odkaz je platný 7 dní. Pošli ho používateľovi.</p><label>Odkaz<input readOnly value={link} onFocus={event => event.target.select()} /></label>
     {navigator.clipboard && <Action run={() => navigator.clipboard.writeText(link)}>Kopírovať odkaz</Action>}</div>;
+}
+
+function AttendanceOverview() {
+  const initial = () => ({date_from: today().slice(0, 7) + "-01", date_to: today(),
+    kinds: Object.keys(kinds), include_cancelled: false});
+  const [draft, setDraft] = useState(initial);
+  const [filters, setFilters] = useState(initial);
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    let current = true;
+    const query = new URLSearchParams({kinds: filters.kinds.join(","), include_cancelled: String(filters.include_cancelled)});
+    if (filters.date_from) query.set("date_from", filters.date_from);
+    if (filters.date_to) query.set("date_to", filters.date_to);
+    async function load(background = false) {
+      if (!background) {setLoading(true); setResult(null);}
+      try {
+        const data = await api("attendance?" + query);
+        if (current) {setResult(data); setError("");}
+      } catch (error) {if (current) setError(error.message);}
+      finally {if (current) setLoading(false);}
+    }
+    load();
+    const timer = setInterval(() => {if (!document.hidden) load(true);}, 15000);
+    const focus = () => {if (!document.hidden) load(true);};
+    addEventListener("visibilitychange", focus);
+    return () => {current = false; clearInterval(timer); removeEventListener("visibilitychange", focus);};
+  }, [filters, revision]);
+  const people = (result?.members || []).filter(person => person.name.toLocaleLowerCase().includes(search.toLocaleLowerCase().trim()));
+  const events = result?.events || [];
+  const records = new Map((result?.attendance || []).map(row => [row.member_id + ":" + row.training_id, row.attended]));
+  const status = (person, event) => event.cancelled ? "Zrušené" : !past(event) ? "Plánované" :
+    records.get(person.id + ":" + event.id) === true ? "Prítomný" : records.get(person.id + ":" + event.id) === false ? "Neprítomný" : "Nezapísané";
+  const classes = {"Prítomný": "present", "Neprítomný": "absent", "Nezapísané": "unknown", "Plánované": "planned", "Zrušené": "cancelled"};
+  return <>
+    <section className="card attendance-filters"><h2>Prehľad dochádzky tímu</h2>
+      <form onSubmit={event => {
+        event.preventDefault();
+        if (draft.date_from && draft.date_to && draft.date_from > draft.date_to) {setError("Dátum od nesmie byť neskôr než dátum do."); return;}
+        setFilters({...draft, kinds: [...draft.kinds]});
+      }}>
+        <div className="attendance-date-filters">
+          <label>Od<input type="date" value={draft.date_from} onChange={event => setDraft({...draft, date_from: event.target.value})} /></label>
+          <label>Do<input type="date" value={draft.date_to} onChange={event => setDraft({...draft, date_to: event.target.value})} /></label>
+        </div>
+        <fieldset className="attendance-types"><legend>Typy udalostí</legend>
+          {Object.entries(kinds).map(([key, label]) => <label className="checkbox" key={key}><input type="checkbox" checked={draft.kinds.includes(key)} onChange={event => setDraft({...draft,
+            kinds: event.target.checked ? [...draft.kinds, key] : draft.kinds.filter(kind => kind !== key)})} />{label}</label>)}
+        </fieldset>
+        <label className="checkbox"><input type="checkbox" checked={draft.include_cancelled} onChange={event => setDraft({...draft, include_cancelled: event.target.checked})} />Zobraziť aj zrušené udalosti</label>
+        <div className="actions"><button className="primary">Zobraziť</button>
+          <button type="button" onClick={() => {const all = {date_from: "", date_to: "", kinds: Object.keys(kinds), include_cancelled: false}; setDraft(all); setFilters(all);}}>Celé obdobie</button>
+          <button type="button" onClick={() => setRevision(value => value + 1)}>Obnoviť údaje</button>
+        </div>
+      </form>
+    </section>
+    {error && <p className="error" role="alert">{error}</p>}
+    {loading ? <Empty>Načítava sa dochádzka…</Empty> : result && <>
+      <div className="attendance-overview-toolbar"><label>Vyhľadať člena<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Meno člena" /></label>
+        <p className="meta" role="status">Členovia: {people.length} · Udalosti: {events.length}</p></div>
+      <p className="small muted">Obdobie zahŕňa oba krajné dni podľa času na Slovensku. Zobrazení sú aj neaktívni členovia. Účasť potvrdená vopred sa nepočíta ako dochádzka.</p>
+      {!events.length ? <Empty icon={CalendarDays}>Pre vybrané filtre nie sú žiadne udalosti.</Empty> : !people.length ? <Empty icon={Users}>Žiadni členovia pre tento výber.</Empty> : <>
+        <div className="attendance-table-scroll" tabIndex={0} role="region" aria-label="Tabuľka dochádzky členov, posúvateľná vodorovne aj zvislo">
+          <table className="attendance-table"><caption className="sr-only">Členovia tímu a dochádzka na udalostiach podľa vybraných filtrov</caption>
+            <thead><tr><th scope="col" className="attendance-name">Člen</th><th scope="col">Prítomný / zapísané</th>
+              {events.map(event => <th scope="col" key={event.id} className={"attendance-event event-" + event.kind}>
+                <span className={"badge event-type " + event.kind}>{kinds[event.kind]}</span><strong>{event.title}</strong>
+                <span>{date(event.starts_at)}</span>{event.cancelled && <span>Zrušené</span>}
+              </th>)}
+            </tr></thead>
+            <tbody>{people.map(person => {
+              const recorded = events.filter(event => !event.cancelled && past(event) && records.has(person.id + ":" + event.id));
+              const present = recorded.filter(event => records.get(person.id + ":" + event.id) === true).length;
+              return <tr key={person.id}><th scope="row" className="attendance-name"><strong>{person.name}</strong>{!person.active && <span className="meta">Neaktívny</span>}</th>
+                <td className="attendance-total">{present} / {recorded.length}</td>
+                {events.map(event => {const label = status(person, event); return <td key={event.id} aria-label={person.name + ", " + event.title + ", " + date(event.starts_at) + ": " + label}>
+                  <span className={"attendance-status " + classes[label]}>{label === "Prítomný" && <Check size={15} />}{label === "Neprítomný" && <X size={15} />}{label}</span>
+                </td>;})}
+              </tr>;
+            })}</tbody>
+          </table>
+        </div>
+        <p className="meta section-space">Súhrn počíta iba zapísanú dochádzku na začatých, nezrušených udalostiach. Dochádzku upravíš v detaile udalosti v kalendári.</p>
+      </>}
+    </>}
+  </>;
 }
 
 function AnnouncementEditor({item, close, refresh}) {
@@ -872,7 +961,7 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
   </>;
 }
 const navigation = [
-  ["home", "Domov", House], ["calendar", "Kalendár", CalendarDays],
+  ["home", "Domov", House], ["calendar", "Kalendár", CalendarDays], ["attendance", "Dochádzka", ClipboardCheck],
   ["messages", "Správy", MessageCircle], ["announcements", "Oznamy", Megaphone],
   ["members", "Členovia", Users], ["equipment", "Vybavenie", Battery],
   ["documents", "Dokumenty", FileText], ["management", "Správa používateľov", ShieldCheck],
@@ -948,7 +1037,7 @@ function App() {
   const [notifications, setNotifications] = useState(false);
   const staff = user?.role === "coach" || user?.role === "superadmin";
   const superadmin = user?.role === "superadmin";
-  const visibleNavigation = navigation.filter(([key]) => (key !== "members" || staff) && (key !== "management" || superadmin) && (key !== "messages" || !superadmin));
+  const visibleNavigation = navigation.filter(([key]) => (key !== "members" || staff) && (key !== "attendance" || staff) && (key !== "management" || superadmin) && (key !== "messages" || !superadmin));
   const allowedPages = [...visibleNavigation.map(([key]) => key), "profile"];
   const currentPage = allowedPages.includes(page) ? page : "home";
   const title = currentPage === "profile" ? "Môj profil a nastavenia" : visibleNavigation.find(([key]) => key === currentPage)?.[1];
@@ -1087,6 +1176,7 @@ function App() {
             <Home user={user} {...data} refresh={refresh} navigate={navigate} openTraining={setTrainingId} />
           </>}
           {currentPage === "calendar" && <Calendar trainings={data.trainings} staff={staff} places={data.places} refresh={refresh} openTraining={setTrainingId} />}
+          {currentPage === "attendance" && staff && <AttendanceOverview />}
           {currentPage === "messages" && <Messages key={user.id + ":" + contact + ":" + route} user={user} conversations={data.conversations} refresh={refresh} initialContact={contact} />}
           {currentPage === "announcements" && <Bulletin items={data.announcements} staff={staff} refresh={refresh} />}
           {currentPage === "members" && staff && <Members key="members" userId={user.id} superadmin={superadmin} onMessage={messageMember} />}

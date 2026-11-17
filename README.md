@@ -152,3 +152,19 @@ produkčnú databázu: testy vyprázdňujú svoje tabuľky.
 python -m pip install -r requirements.txt httpx
 HUB_DATABASE_URL=postgresql://hub:password@localhost/hub_test HUB_DIST=frontend/dist python -m unittest discover -s tests -v
 ```
+
+## Tímový prehľad dochádzky
+
+Tréneri a superadmin majú v menu **Dochádzka**. Riadky obsahujú všetkých členov
+(vrátane neaktívnych), stĺpce udalosti z kalendára v časovom poradí. Tréneri
+ani systémový účet sa do členských riadkov nezaraďujú. Predvolený interval je
+od začiatku aktuálneho mesiaca do dneška. Filtre **Od/Do** zahŕňajú celé dni
+podľa času na Slovensku, typy možno kombinovať. **Celé obdobie** odstráni
+časové obmedzenie a vyberie všetky typy. Zrušené udalosti sú predvolene skryté.
+
+Bunky rozlišujú prítomnosť, neprítomnosť, nezapísanú dochádzku, plánované a
+zrušené udalosti. RSVP nie je dôkazom prítomnosti. Súhrn **Prítomný / zapísané**
+počíta iba skutočné záznamy na začatých, nezrušených udalostiach vo vybraných
+stĺpcoch. Vyhľadávanie filtruje mená členov. Na mobile je tabuľka posúvateľná,
+mená aj hlavičky zostávajú prichytené. Údaje sa obnovujú každých 15 sekúnd pri
+zobrazenej stránke. Prehľad dochádzku nemení; zápis je v detaile udalosti v kalendári.
