@@ -6,13 +6,15 @@ import push_service
 
 import hmac
 import os
+import re
 import secrets
+from xml.etree import ElementTree as ET
 from contextlib import asynccontextmanager
 from datetime import date as CalendarDate, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Literal
-from urllib.parse import urlsplit
-from uuid import uuid4
+from urllib.parse import parse_qs, urlsplit
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 import psycopg
@@ -1196,6 +1198,7 @@ class Battery(BaseModel):
 
 
 class BatteryEvent(BaseModel):
+    request_id: UUID | None = None
     action: Literal["used", "charged", "stored", "damaged", "retired"]
     note: Note = ""
 
@@ -1230,8 +1233,16 @@ def events(code: Code, conn: DB, _user: User):
 
 @api.post("/batteries/{code}/events")
 def add_event(code: Code, data: BatteryEvent, conn: DB, user: User):
+    if user["role"] == "member" and data.action != "used":
+        raise HTTPException(403, "Člen môže zaznamenať iba použitie batérie.")
     if not conn.execute("SELECT 1 FROM batteries WHERE code=%s FOR UPDATE", (code,)).fetchone():
         raise HTTPException(404, "Batéria sa nenašla.")
+    if data.request_id is not None:
+        previous = conn.execute("SELECT code,actor_id,action,note FROM battery_events WHERE request_id=%s", (data.request_id,)).fetchone()
+        if previous:
+            if (previous["code"],previous["actor_id"],previous["action"],previous["note"]) != (code,user["id"],data.action,data.note):
+                raise HTTPException(409, "Identifikátor záznamu už bol použitý.")
+            return {"ok": True}
     last = conn.execute("SELECT action FROM battery_events WHERE code=%s ORDER BY id DESC LIMIT 1",
                         (code,)).fetchone()
     status = last["action"] if last else None
@@ -1239,8 +1250,14 @@ def add_event(code: Code, data: BatteryEvent, conn: DB, user: User):
         raise HTTPException(409, "Batéria je poškodená alebo vyradená.")
     if data.action == "retired" and user["role"] not in STAFF_ROLES:
         raise HTTPException(403, "Batériu môže vyradiť iba tréner alebo superadmin.")
-    conn.execute("INSERT INTO battery_events (code, actor_id, action, note) VALUES (%s,%s,%s,%s)",
-                 (code, user["id"], data.action, data.note))
+    # A stable request id makes retrying a scanned action safe after a lost response.
+    inserted = conn.execute(
+        """INSERT INTO battery_events (code,actor_id,action,note,request_id) VALUES (%s,%s,%s,%s,%s)
+        ON CONFLICT (request_id) WHERE request_id IS NOT NULL DO NOTHING""",
+        (code,user["id"],data.action,data.note,data.request_id),
+    )
+    if not inserted.rowcount:
+        raise HTTPException(409, "Identifikátor záznamu už bol použitý.")
     return {"ok": True}
 
 
@@ -1250,6 +1267,149 @@ def label(code: Code, conn: DB, _staff: Staff):
         raise HTTPException(404, "Batéria sa nenašla.")
     qr = qrcode.make(f"{PUBLIC_URL}/#battery={code}", image_factory=qrcode.image.svg.SvgPathImage)
     return Response(qr.to_string(), media_type="image/svg+xml")
+
+
+class ScanRequest(BaseModel):
+    value: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2048)]
+    event_id: int | None = Field(None, gt=0)
+
+
+def scan_value(value):
+    # Old battery QR labels contain a portal URL; barcode labels contain just LF-B… .
+    if value.startswith(('https://','http://')):
+        link=urlsplit(value)
+        if (link.scheme,link.netloc,link.path.rstrip('/')) != (url.scheme,url.netloc,PREFIX):
+            raise HTTPException(422,'Kód nepatrí tomuto klubu.')
+        parameters=parse_qs(link.fragment)
+        value=parameters.get('battery',[''])[0]
+    if value.startswith('LF-B'):
+        try:
+            return 'battery',TypeAdapter(Code).validate_python(value)
+        except ValueError:
+            raise HTTPException(422,'Kód batérie musí mať LF-B a 2 až 6 číslic, napríklad LF-B01.') from None
+    if re.fullmatch(r'LF-M:[A-Za-z0-9_-]{43}',value):
+        return 'member',value[5:]
+    raise HTTPException(422,'Nerozpoznaný kód. Použi klubový kód batérie alebo členský QR.')
+
+
+@api.get('/scan/events')
+def scan_events(conn:DB, _staff:Staff, day:CalendarDate | None = None):
+    day=day or datetime.now(CLUB_ZONE).date()
+    return conn.execute(
+        """SELECT id,title,kind,starts_at,ends_at,
+        starts_at<=now() AS can_record,
+        (starts_at<=now() AND coalesce(ends_at,starts_at+interval '3 hours')>=now()) AS is_current
+        FROM trainings WHERE NOT cancelled AND (starts_at AT TIME ZONE 'Europe/Bratislava')::date=%s
+        ORDER BY starts_at,id""",(day,),
+    ).fetchall()
+
+
+@api.post('/scan')
+def scan(data:ScanRequest, conn:DB, user:User):
+    kind,code=scan_value(data.value)
+    if kind=='battery':
+        battery=conn.execute(
+            """SELECT b.*,(SELECT action FROM battery_events WHERE code=b.code ORDER BY id DESC LIMIT 1) AS status
+            FROM batteries b WHERE b.code=%s""",(code,),
+        ).fetchone()
+        if not battery:
+            if user['role'] not in STAFF_ROLES:
+                raise HTTPException(404,'Batéria nie je evidovaná. Požiadaj trénera o jej pridanie.')
+            return {'type':'battery','exists':False,'code':code}
+        return {'type':'battery','exists':True,**battery}
+    if user['role'] not in STAFF_ROLES:
+        raise HTTPException(403,'Členské QR kódy môže skenovať iba tréner.')
+    # Match the same locking order as attendance edits and event deletion.
+    if data.event_id is not None:
+        event=lock_training(conn,data.event_id)
+        if event['cancelled'] or event['starts_at']>datetime.now(timezone.utc):
+            raise HTTPException(409,'Dochádzku možno zapísať iba na začatej, nezrušenej udalosti.')
+    person=conn.execute(
+        "SELECT id,name FROM members WHERE card_token=%s AND role='member' AND active FOR UPDATE",(code,),
+    ).fetchone()
+    if not person:
+        raise HTTPException(404,'Členský QR už neplatí alebo člen nie je aktívny.')
+    if data.event_id is None:
+        return {'type':'member',**person,'recorded':False}
+    previous=conn.execute('SELECT attended FROM participation WHERE training_id=%s AND member_id=%s',
+                          (data.event_id,person['id'])).fetchone()
+    conn.execute(
+        """INSERT INTO participation(training_id,member_id,attended) VALUES (%s,%s,true)
+        ON CONFLICT(training_id,member_id) DO UPDATE SET attended=true""",(data.event_id,person['id']),
+    )
+    return {'type':'member',**person,'recorded':True,'already_present':bool(previous and previous['attended']),
+            'event_id':event['id'],'event_title':event['title']}
+
+
+def digital_card(conn,member_id):
+    card=conn.execute(
+        """UPDATE members SET card_token=COALESCE(card_token,%s)
+        WHERE id=%s AND role='member' AND active RETURNING id,name,card_token""",
+        (secrets.token_urlsafe(32),member_id),
+    ).fetchone()
+    if not card:
+        raise HTTPException(404,'QR kód je dostupný iba aktívnemu členovi.')
+    return {'id':card['id'],'name':card['name'],'payload':'LF-M:'+card['card_token']}
+
+
+def dotted_member_qr(payload):
+    qr=qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H,box_size=10,border=4)
+    qr.add_data(payload)
+    qr.make(fit=True)
+    size=len(qr.modules)
+    dimension=(size+8)*10
+    svg=ET.Element('svg',xmlns='http://www.w3.org/2000/svg',viewBox=f'0 0 {dimension} {dimension}',
+                   width=str(dimension),height=str(dimension))
+    ET.SubElement(svg,'rect',width='100%',height='100%',fill='white')
+    eyes=[(0,0),(size-7,0),(0,size-7)]
+    modules=ET.SubElement(svg,'g',fill='#10354B')
+    for row,line in enumerate(qr.modules):
+        for col,dark in enumerate(line):
+            if dark and not any(x<=col<x+7 and y<=row<y+7 for x,y in eyes):
+                ET.SubElement(modules,'circle',cx=str((col+4)*10+5),cy=str((row+4)*10+5),r='4.65')
+    # Rounded finder rings preserve the recognizable center lines used by decoders.
+    for x,y in eyes:
+        for inset,span,radius,fill in [(0,7,13,'#10354B'),(1,5,8,'white'),(2,3,6,'#10354B')]:
+            ET.SubElement(svg,'rect',x=str((x+4+inset)*10),y=str((y+4+inset)*10),
+                          width=str(span*10),height=str(span*10),rx=str(radius),fill=fill)
+    return ET.tostring(svg)
+
+
+def card_qr(conn,member_id):
+    card=digital_card(conn,member_id)
+    return Response(dotted_member_qr(card['payload']),media_type='image/svg+xml')
+
+
+@api.get('/me/card')
+def my_card(conn:DB,user:User):
+    if user['role']!='member':
+        raise HTTPException(403,'Členský QR je určený členom tímu.')
+    return digital_card(conn,user['id'])
+
+
+@api.get('/me/card.svg')
+def my_card_qr(conn:DB,user:User):
+    if user['role']!='member':
+        raise HTTPException(403,'Členský QR je určený členom tímu.')
+    return card_qr(conn,user['id'])
+
+
+@api.get('/members/{member_id}/card')
+def member_card(member_id:int,conn:DB,_staff:Staff):
+    return digital_card(conn,member_id)
+
+
+@api.get('/members/{member_id}/card.svg')
+def member_card_qr(member_id:int,conn:DB,_staff:Staff):
+    return card_qr(conn,member_id)
+
+
+@api.post('/members/{member_id}/card/reset')
+def reset_member_card(member_id:int,conn:DB,_staff:Staff):
+    if not conn.execute("UPDATE members SET card_token=%s WHERE id=%s AND role='member' AND active",
+                        (secrets.token_urlsafe(32),member_id)).rowcount:
+        raise HTTPException(404,'Aktívny člen sa nenašiel.')
+    return digital_card(conn,member_id)
 
 
 class PushPreferences(BaseModel):

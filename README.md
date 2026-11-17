@@ -168,3 +168,41 @@ počíta iba skutočné záznamy na začatých, nezrušených udalostiach vo vyb
 stĺpcoch. Vyhľadávanie filtruje mená členov. Na mobile je tabuľka posúvateľná,
 mená aj hlavičky zostávajú prichytené. Údaje sa obnovujú každých 15 sekúnd pri
 zobrazenej stránke. Prehľad dochádzku nemení; zápis je v detaile udalosti v kalendári.
+
+## Skenovanie a členský QR
+
+Ikonka skenera je priamo v hornej lište na mobile aj desktope. Dostupná je aj
+položka **Skenovať** v menu a skratky vo vybavení, prehľade dochádzky a detaile
+začatej udalosti. Kamera číta QR aj bežné textové čiarové kódy (napríklad Code 128
+alebo Code 39). Pri zamietnutej kamere možno vložiť kód ručne alebo USB skenerom.
+Pre kameru je potrebné HTTPS a povolenie prehliadača. Zábery sa dekódujú priamo
+na zariadení, neposielajú sa na server. Kamera sa zastaví po načítaní kódu,
+pri odchode zo skenera aj po skrytí stránky. Viaceré kamery možno prepínať.
+
+Kód začínajúci na **LF-B** sa vyhodnocuje ako batéria. Platný formát zostáva
+`LF-B` a 2–6 číslic. Podporované sú aj pôvodné QR štítky s odkazom
+`/dronesoccer/#battery=LF-B01`. Existujúca batéria otvorí formulár na zápis
+úkonu. Tréner môže neznámu batériu pridať a hneď zapísať úkon. Člen môže
+zapisovať iba použitie existujúcej batérie; ostatné úkony sú určené trénerom.
+Poškodené a vyradené batérie nie je možné použiť. Záznam treba potvrdiť, samotné
+zachytenie kódu ho nevytvára. Opakovanie rovnakého požiadavku po výpadku spojenia
+nevytvorí druhý záznam.
+
+Člen otvorí **Môj členský QR kód** ikonou v hornej lište alebo vo svojom profile.
+Je to digitálny bodkovaný QR s oblými orientačnými značkami, tmavomodrý na bielom
+pozadí s voľným okrajom a vysokou úrovňou korekcie chýb. Obsahuje náhodný
+identifikátor `LF-M:…`, bez mena či e-mailu, a neslúži na prihlásenie. Pri kopírovaní
+možno kód vložiť do ručného vstupu skenera. Tréner ho môže zobraziť a obnoviť
+v detaile člena; obnova okamžite zneplatní starý QR. Neaktívne členské QR neplatia.
+Na zobrazenie QR aj zápis je potrebné internetové pripojenie.
+
+Tréner v skeneri vyberie deň a udalosť. Jedna prebiehajúca udalosť sa predvolí
+sama, súbeh udalostí vyžaduje ručný výber. Za prebiehajúcu sa považuje udalosť
+medzi začiatkom a koncom, pri nezadanom konci najviac tri hodiny od začiatku.
+Udalosti sa vyhľadávajú podľa dňa začiatku; pri udalosti cez polnoc vyber predchádzajúci
+deň. Ručne možno vybrať aj inú začatú, nezrušenú udalosť daného dňa. Sken členského
+QR uloží prítomnosť automaticky, ak je udalosť vybraná. Bez výberu sa iba zobrazí
+meno a zápis čaká na výber a potvrdenie. Opakovaný sken nemení počet záznamov,
+nezmaže RSVP ani poznámku. Predchádzajúca neprítomnosť sa opraví na prítomnosť.
+Skenovanie dochádzky neodosiela push. Členom server nedovolí čítať cudzie
+členské QR ani zapisovať dochádzku.

@@ -226,3 +226,9 @@ CREATE TABLE IF NOT EXISTS announcement_drafts (
 ALTER TABLE announcement_attachments ALTER COLUMN announcement_id DROP NOT NULL;
 ALTER TABLE announcement_attachments ADD COLUMN IF NOT EXISTS draft_id bigint
     REFERENCES announcement_drafts(id) ON DELETE CASCADE;
+
+-- Digital membership identifiers are not login credentials.
+ALTER TABLE members ADD COLUMN IF NOT EXISTS card_token text;
+CREATE UNIQUE INDEX IF NOT EXISTS members_card_token_idx ON members(card_token) WHERE card_token IS NOT NULL;
+ALTER TABLE battery_events ADD COLUMN IF NOT EXISTS request_id uuid;
+CREATE UNIQUE INDEX IF NOT EXISTS battery_events_request_id_idx ON battery_events(request_id) WHERE request_id IS NOT NULL;

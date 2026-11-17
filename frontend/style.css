@@ -336,3 +336,23 @@ details p {font-size: 13px; margin-top: 12px;}
 .attendance-status.planned,.attendance-status.cancelled {color:var(--muted);background:#edf1f4;}
 .attendance-total {font-weight:600;font-variant-numeric:tabular-nums;}
 @media (max-width:480px) {.attendance-table .attendance-name {min-width:120px;max-width:145px;}.attendance-table th,.attendance-table td {padding:12px 9px;}}
+
+.topbar .brand {flex:1;}
+.topbar .brand > span:last-child {min-width:0;}
+.topbar .brand strong,.topbar .brand small {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.topbar .notification-button {margin-left:0;}
+.scan-event-picker {padding:14px;background:#eef7fc;border-radius:12px;margin-bottom:18px;}
+.scan-camera {margin-top:18px;position:relative;}
+.scan-camera video {display:block;width:100%;max-height:55dvh;aspect-ratio:4/3;object-fit:cover;border-radius:14px;background:#10354b;}
+.scan-camera-status {position:absolute;top:15px;left:15px;right:15px;color:white;background:#10354b;padding:8px;border-radius:8px;}
+.scan-camera label {margin-top:12px;}
+.scan-result {border-left:4px solid #41b6e6;}
+.scan-result > svg {color:#146588;float:right;}
+.member-qr {text-align:center;padding:22px 12px;background:linear-gradient(155deg,#e5f6fd 0%,#fff 55%);border:1px solid #b0dff2;border-radius:20px;}
+.member-qr > .badge {background:#10354b;color:#fff;margin-bottom:14px;}
+.member-qr h2 {font-size:1.4rem;overflow-wrap:anywhere;}
+.member-qr img {display:block;width:min(100%,340px);height:auto;aspect-ratio:1;margin:18px auto;border-radius:18px;box-shadow:0 8px 32px #10354b12;background:white;}
+.member-qr > p {max-width:280px;margin-inline:auto;color:var(--muted);}
+.qr-profile-button {display:flex;align-items:center;gap:14px;width:100%;text-align:left;color:#10354b;}
+.qr-profile-button > span {flex:1;font-weight:600;}
+@media (max-width:480px) {.topbar {gap:6px;padding-inline:10px;}.topbar .icon-button {min-width:36px;width:36px;padding:6px;}.brand {gap:6px;}.brand strong {font-size:14px;}.brand small {font-size:9px;}}

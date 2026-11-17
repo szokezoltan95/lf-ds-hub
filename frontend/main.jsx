@@ -2,12 +2,13 @@ import React, {useEffect, useRef, useState} from "react";
 import {createRoot} from "react-dom/client";
 import {Drone, Menu, X, House, CalendarDays, MessageCircle, Megaphone, Users, Battery, ShieldCheck,
   LogOut, Bell, Plus, ChevronLeft, ChevronRight, MapPin, Clock, Check, CircleHelp,
-  Search, ClipboardCheck, Pin, FileText, Download, ArrowUpRight, Settings2, Send, CheckCheck, Pencil} from "lucide-react";
+  Search, ScanLine, QrCode, ClipboardCheck, Pin, FileText, Download, ArrowUpRight, Settings2, Send, CheckCheck, Pencil} from "lucide-react";
 import "@fontsource/dm-sans/latin-400.css";
 import "@fontsource/dm-sans/latin-ext-400.css";
 import "@fontsource/dm-sans/latin-600.css";
 import "@fontsource/dm-sans/latin-ext-600.css";
 import "./style.css";
+import {CameraScanner} from "./scanner.jsx";
 import {usePwaInstall, promptInstallation, installationPlatform} from "./install.js";
 
 const base = new URL("./", location.href);
@@ -227,7 +228,7 @@ function TrainingCard({training, staff, refresh, open, prominent = false}) {
   </article>;
 }
 
-function TrainingDetail({training, staff, places, close, refresh}) {
+function TrainingDetail({training, staff, places, close, refresh, openScanner}) {
   const [tab, setTab] = useState("info");
   const [rows, setRows] = useState([]);
   const [selected, setSelected] = useState([]);
@@ -273,6 +274,7 @@ function TrainingDetail({training, staff, places, close, refresh}) {
           {[["all", "Všetci"], ["yes", "Prídu"], ["no", "Neprídu"], ["maybe", "Nevedia"], ["none", "Bez odpovede"]].map(([value, text]) =>
             <button className={filter === value ? "selected" : ""} key={value} onClick={() => setFilter(value)}>{text}</button>)}
         </div>}
+        {tab === "attendance" && past(training) && !training.cancelled && <button className="primary section-space" onClick={()=>openScanner(training)}><ScanLine size={18} />Skenovať členské QR</button>}
         {tab === "attendance" && (!past(training) || training.cancelled) && <p className="notice">Dochádzku možno zapísať od začiatku nezrušenej udalosti.</p>}
         {tab === "attendance" && past(training) && !training.cancelled && rows.length > 0 && <>
           <label className="checkbox"><input type="checkbox" checked={selected.length === rows.length} onChange={event => setSelected(event.target.checked ? rows.map(row => row.id) : [])} />Vybrať všetkých</label>
@@ -351,7 +353,7 @@ function Calendar({trainings, staff, places, refresh, openTraining}) {
     {create && <Modal title="Nová udalosť" close={() => setCreate(false)}><TrainingForm initialDay={selectedDay} places={places} done={async () => {setCreate(false); await refresh();}} /></Modal>}
   </>;
 }
-function Members({superadmin, management = false, onMessage, userId}) {
+function Members({superadmin, management = false, onMessage, onCard, userId}) {
   const [members, setMembers] = useState([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("active");
@@ -399,6 +401,7 @@ function Members({superadmin, management = false, onMessage, userId}) {
     </Modal>}
     {selected && <Modal title={selected.name} close={() => setSelected(null)}>
       <div className="profile-heading"><Avatar name={selected.name} /><div><span className="badge">{roles[selected.role]}</span><p>{selected.email || "admin"}</p></div></div>
+      {selected.role === "member" && selected.active && <button className="section-space" onClick={()=>onCard(selected)}><QrCode size={17} />Členský QR kód</button>}
       {selected.role !== "superadmin" && <div className="actions">
         {!superadmin && selected.id !== userId && selected.active && selected.registered && <button className="primary" onClick={() => {onMessage(selected.id); setSelected(null);}}><MessageCircle size={17} />Napísať správu</button>}
         {(superadmin || selected.role === "member") && <Action run={async () => {
@@ -438,7 +441,7 @@ function InviteLink({link}) {
     {navigator.clipboard && <Action run={() => navigator.clipboard.writeText(link)}>Kopírovať odkaz</Action>}</div>;
 }
 
-function AttendanceOverview() {
+function AttendanceOverview({openScanner}) {
   const initial = () => ({date_from: today().slice(0, 7) + "-01", date_to: today(),
     kinds: Object.keys(kinds), include_cancelled: false});
   const [draft, setDraft] = useState(initial);
@@ -474,7 +477,7 @@ function AttendanceOverview() {
     records.get(person.id + ":" + event.id) === true ? "Prítomný" : records.get(person.id + ":" + event.id) === false ? "Neprítomný" : "Nezapísané";
   const classes = {"Prítomný": "present", "Neprítomný": "absent", "Nezapísané": "unknown", "Plánované": "planned", "Zrušené": "cancelled"};
   return <>
-    <section className="card attendance-filters"><h2>Prehľad dochádzky tímu</h2>
+    <section className="card attendance-filters"><div className="row-between"><h2>Prehľad dochádzky tímu</h2><button onClick={()=>openScanner()}><ScanLine size={18} />Skenovať dochádzku</button></div>
       <form onSubmit={event => {
         event.preventDefault();
         if (draft.date_from && draft.date_to && draft.date_from > draft.date_to) {setError("Dátum od nesmie byť neskôr než dátum do."); return;}
@@ -771,7 +774,7 @@ function Messages({user, conversations, refresh, initialContact}) {
   </div>;
 }
 
-function Batteries({staff, initialCode}) {
+function Batteries({staff, initialCode, openScanner}) {
   const [items, setItems] = useState([]);
   const [selected, setSelected] = useState(initialCode || null);
   const [events, setEvents] = useState([]);
@@ -791,6 +794,7 @@ function Batteries({staff, initialCode}) {
   const battery = items.find(item => item.code === selected);
   return <>
     <div className="toolbar"><label className="search"><Search size={18} /><input type="search" aria-label="Hľadať batériu" placeholder="Kód alebo označenie…" value={query} onChange={event => setQuery(event.target.value)} /></label>
+      <button onClick={()=>openScanner()}><ScanLine size={18} />Skenovať batériu</button>
       {staff && <button className="primary" onClick={() => setCreate(true)}><Plus size={18} />Batéria</button>}</div>
     {error && <p className="error" role="alert">{error}</p>}
     <div className="equipment-grid">{items.filter(b => (b.code + " " + b.label).toLowerCase().includes(query.toLowerCase())).map(b =>
@@ -804,7 +808,7 @@ function Batteries({staff, initialCode}) {
         <p className="muted">{battery.label}</p><p><span className="badge">{batteryLabels[battery.status] || "Bez záznamu"}</span></p>
         {staff && <a className="button section-space" href={new URL("api/batteries/" + battery.code + "/label.svg", base)} download={battery.code + ".svg"}><Download size={17} />QR štítok</a>}
         {battery.status !== "retired" && <div className="battery-actions section-space">
-          {Object.entries(batteryLabels).filter(([value]) => (value !== "retired" || staff) &&
+          {Object.entries(batteryLabels).filter(([value]) => (staff || value === "used") &&
             (battery.status !== "damaged" || value === "retired" || value === "damaged")).map(([value, text]) =>
               <button key={value} className={action === value ? "selected" : ""} onClick={() => setAction(value)}>{text}</button>)}
         </div>}
@@ -865,6 +869,130 @@ function InstallPanel({installation, install}) {
   </section>;
 }
 
+function MemberQr({member,close}) {
+  const own=member.self;
+  const path=own ? "me/card" : "members/"+member.id+"/card";
+  const [card,setCard]=useState(null),[error,setError]=useState("");
+  const [version,setVersion]=useState(0);
+  useEffect(()=>{let current=true;api(path).then(value=>{if(current)setCard(value);}).catch(e=>{if(current)setError(e.message);});return()=>{current=false;};},[path,version]);
+  return <Modal title={own ? "Môj členský QR" : "Členský QR"} close={close}>
+    {error && <p className="error" role="alert">{error}</p>}
+    {card ? <div className="member-qr"><span className="badge">DroneSoccer LF</span><h2>{card.name}</h2>
+      <img src={new URL("api/"+path+".svg?v="+version,base).href} alt={"Členský QR kód: "+card.name} />
+      <p>Ukáž tento kód trénerovi na zápis dochádzky.</p>
+      {navigator.clipboard && <Action run={()=>navigator.clipboard.writeText(card.payload)}>Kopírovať členský kód</Action>}
+      {!own && <div className="section-space"><Action className="danger" run={async()=>{
+        if(!window.confirm("Obnoviť členský QR? Starý kód okamžite prestane platiť. Člen si nový zobrazí vo svojej appke.")) return;
+        setCard(await api(path+"/reset","POST"));setVersion(value=>value+1);
+      }}>Obnoviť QR kód</Action></div>}
+    </div> : !error && <Empty>Načítava sa QR kód…</Empty>}
+  </Modal>;
+}
+
+function ClubScanner({user,initialEvent,refresh}) {
+  const staff=user.role!=="member";
+  const [running,setRunning]=useState(false),[busy,setBusy]=useState(false);
+  const [manual,setManual]=useState("");
+  const [error,setError]=useState("");
+  const [result,setResult]=useState(null),[value,setValue]=useState("");
+  const [day,setDay]=useState(()=>initialEvent ? dayKey(initialEvent.starts_at) : today());
+  const [events,setEvents]=useState([]),[eventId,setEventId]=useState(initialEvent?.id || null);
+  const [eventsLoading,setEventsLoading]=useState(staff);
+  const [recent,setRecent]=useState([]);
+  const [saved,setSaved]=useState("");
+  const [action,setAction]=useState("used");
+  const [requestId,setRequestId]=useState(null);
+  const locked=useRef(false);
+  const mounted=useRef(true);
+  const selectedEvent=events.find(event=>event.id===eventId);
+  useEffect(()=>()=>{mounted.current=false;},[]);
+  useEffect(()=>{
+    if(!staff) return;
+    let current=true;
+    setEventsLoading(true);setEvents([]);
+    const query=day ? "?day="+encodeURIComponent(day) : "";
+    api("scan/events"+query).then(rows=>{
+      if(!current) return;
+      setEvents(rows);
+      const candidates=rows.filter(event=>event.is_current);
+      setEventId(previous=>rows.some(event=>event.id===previous && event.can_record) ? previous : candidates.length===1 ? candidates[0].id : null);
+    }).catch(e=>{if(current){setEventId(null);setError(e.message);}}).finally(()=>{if(current)setEventsLoading(false);});
+    return()=>{current=false;};
+  },[staff,day]);
+  function next(){locked.current=false;setResult(null);setSaved("");setError("");setManual("");setRunning(true);}
+  async function decode(raw){
+    if(locked.current) return;
+    locked.current=true;setRunning(false);setBusy(true);setResult(null);setError("");setSaved("");setValue(raw);
+    try {
+      const response=await api("scan","POST",{value:raw,event_id:staff && !eventsLoading && selectedEvent?.can_record ? eventId : null});
+      if(!mounted.current) return;
+      setResult(response);setAction(response.status==="damaged" ? "damaged" : "used");setRequestId(crypto.randomUUID());
+      if(response.type==="member" && response.recorded){
+        setRecent(previous=>[{id:response.id,name:response.name,event:response.event_title},...previous].slice(0,12));
+        await refresh();
+      }
+    } catch(e){if(mounted.current){setResult(null);setError(e.message);}}
+    finally{if(mounted.current)setBusy(false);}
+  }
+  return <>
+    <section className="card"><h2>Skenovať QR alebo čiarový kód</h2>
+      <p className="muted">{staff ? "Kódy LF-B rozpoznávajú batérie. Členský QR zapíše prítomnosť na vybranej udalosti." : "Naskenuj existujúcu batériu s kódom LF-B a potvrď jej použitie."}</p>
+      {staff && <div className="scan-event-picker">
+        <label>Deň udalosti<input type="date" value={day} onChange={event=>{setEventId(null);setDay(event.target.value);}} disabled={busy} /></label>
+        <label>Dochádzka na udalosť<select value={eventsLoading ? "" : eventId || ""} disabled={eventsLoading || busy} onChange={event=>setEventId(Number(event.target.value) || null)}>
+          <option value="">{eventsLoading ? "Načítavajú sa udalosti…" : "Vyber udalosť pre dochádzku"}</option>
+          {events.map(event=><option key={event.id} value={event.id} disabled={!event.can_record}>{clock(event.starts_at)} · {event.title}{!event.can_record ? " – ešte sa nezačala" : ""}</option>)}
+        </select></label>
+        {!eventsLoading && !eventId && <p className="small muted">Ak sa nedá jednoznačne určiť prebiehajúca udalosť, vyber ju ručne. Batérie možno skenovať aj bez výberu udalosti.</p>}
+      </div>}
+      <div className="actions"><button className="primary" disabled={busy} onClick={next}><ScanLine size={18} />{result || error ? "Skenovať ďalší kód" : "Zapnúť kameru"}</button>
+        {running && <button onClick={()=>setRunning(false)}>Zastaviť kameru</button>}</div>
+      {running && <CameraScanner running={running} onDecode={decode} onError={message=>{setRunning(false);setError(message);}} />}
+      <Form label={busy ? "Spracúva sa…" : "Spracovať kód"} submit={async()=>{
+        if(busy) return;locked.current=false;await decode(manual);
+      }}>
+        <label className="section-space">Kód ručne alebo z USB skenera<input value={manual} onChange={event=>setManual(event.target.value)} placeholder={staff ? "LF-B01 alebo LF-M:…" : "LF-B01"} maxLength="2048" autoComplete="off" autoCapitalize="none" spellCheck="false" required disabled={busy} /></label>
+      </Form>
+      {error && <p className="error" role="alert">{error}</p>}
+    </section>
+    {result?.type==="member" && <section className="card scan-result" aria-live="polite"><Users size={26} /><h2>{result.name}</h2>
+      {result.recorded ? <><p className="success">{result.already_present ? "Člen už má zapísanú prítomnosť." : "Prítomnosť bola zapísaná."}</p><p>{result.event_title}</p></> : <>
+        <p>Vyber udalosť vyššie a potvrď zápis prítomnosti.</p>
+        <Action disabled={busy || !selectedEvent?.can_record || eventsLoading} run={async()=>{
+          if(locked.current && busy) return;
+          locked.current=false;await decode(value);
+        }}>Zapísať prítomnosť</Action>
+      </>}
+    </section>}
+    {result?.type==="battery" && <section className="card scan-result"><Battery size={26} /><h2>{result.code}</h2>
+      {!result.exists ? <><p>Batéria ešte nie je evidovaná.</p><Form label="Pridať batériu" submit={async data=>{
+        setBusy(true);
+        try {
+          try{await api("batteries","POST",{code:result.code,label:data.label});}catch(e){if(e.status!==409)throw e;}
+          const updated=await api("scan","POST",{value:result.code});setResult(updated);setSaved("");
+        } finally {setBusy(false);}
+      }}><label>Označenie batérie<input name="label" defaultValue={result.code} maxLength="120" required /></label></Form></> : <>
+        <p>{result.label}</p><p><span className="badge">{batteryLabels[result.status] || "Bez záznamu"}</span></p>
+        {["damaged","retired"].includes(result.status) && <p className="notice">Túto batériu nepoužívaj.</p>}
+        {!saved && result.status!=="retired" && (staff || result.status!=="damaged") && <Form label="Uložiť záznam" submit={async data=>{
+          setBusy(true);
+          try {
+            await api("batteries/"+result.code+"/events","POST",{action:staff ? action : "used",note:data.note,request_id:requestId});
+            setSaved("Záznam bol uložený.");setResult({...result,status:staff ? action : "used"});await refresh();
+          } finally {setBusy(false);}
+        }}>
+          {staff && <label>Úkon<select value={action} onChange={event=>{setAction(event.target.value);setRequestId(crypto.randomUUID());}}>
+            {Object.entries(batteryLabels).filter(([key])=>result.status!=="damaged" || ["damaged","retired"].includes(key)).map(([key,label])=><option value={key} key={key}>{label}</option>)}
+          </select></label>}
+          {!staff && result.status==="damaged" ? <p className="error">Poškodenú batériu nemožno použiť.</p> : <label>Poznámka<input name="note" maxLength="1000" placeholder="Voliteľná poznámka" /></label>}
+        </Form>}
+      </>}
+      {saved && <p className="success" role="status">{saved}</p>}
+    </section>}
+    {recent.length>0 && <section className="card"><h2>Posledné zápisy v tomto skenovaní</h2><ul className="records">{recent.map((person,index)=><li key={index}><Check size={17} /><span><strong>{person.name}</strong><span className="meta">{person.event}</span></span></li>)}</ul></section>}
+  </>;
+}
+
 const supportsPush = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 async function disablePush() {
   if(!supportsPush()) return;
@@ -918,7 +1046,7 @@ function PushSettings({user,reloadUser}) {
   </section>;
 }
 
-function Profile({user, reloadUser, installation, install, saveInstallPreferences}) {
+function Profile({user, reloadUser, installation, install, saveInstallPreferences, openCard}) {
   const [attendance, setAttendance] = useState([]);
   const [edit, setEdit] = useState(null);
   const [error, setError] = useState("");
@@ -926,6 +1054,7 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
   useEffect(() => {api("me/attendance").then(setAttendance).catch(error => setError(error.message));}, []);
   const attended = attendance.filter(row => row.attended).length;
   return <>
+    {user.role==="member" && <button className="card qr-profile-button" onClick={openCard}><QrCode size={25} /><span>Môj členský QR kód</span><ChevronRight /></button>}
     <section className="card profile-card"><Avatar name={user.name} /><h2>{user.name}</h2><p className="muted">{user.email || "admin"}</p><span className="badge">{roles[user.role]}</span>
       <div className="actions section-space"><button onClick={() => setEdit("profile")}><Pencil size={16} />Upraviť profil</button>
         {user.role !== "superadmin" && <button onClick={() => setEdit("password")}>Zmeniť heslo</button>}</div>
@@ -961,7 +1090,7 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
   </>;
 }
 const navigation = [
-  ["home", "Domov", House], ["calendar", "Kalendár", CalendarDays], ["attendance", "Dochádzka", ClipboardCheck],
+  ["home", "Domov", House], ["calendar", "Kalendár", CalendarDays], ["attendance", "Dochádzka", ClipboardCheck], ["scanner", "Skenovať", ScanLine],
   ["messages", "Správy", MessageCircle], ["announcements", "Oznamy", Megaphone],
   ["members", "Členovia", Users], ["equipment", "Vybavenie", Battery],
   ["documents", "Dokumenty", FileText], ["management", "Správa používateľov", ShieldCheck],
@@ -1034,6 +1163,8 @@ function App() {
   const [activeBattery, setActiveBattery] = useState(() => hash().get("battery"));
   const [contact, setContact] = useState(() => Number(hash().get("contact")) || null);
   const [createTraining, setCreateTraining] = useState(false);
+  const [scanEvent,setScanEvent]=useState(null);
+  const [cardMember,setCardMember]=useState(null);
   const [notifications, setNotifications] = useState(false);
   const staff = user?.role === "coach" || user?.role === "superadmin";
   const superadmin = user?.role === "superadmin";
@@ -1101,6 +1232,7 @@ function App() {
     if (next !== "messages") setContact(null);
     window.scrollTo({top: 0});
   }
+  function openScanner(event=null) {setScanEvent(event);setTrainingId(null);navigate("scanner");}
   function openMenu() {history.pushState({drawer: true}, "", location.href); setMenu(true);}
   function closeMenu() {if (history.state?.drawer) history.back(); else setMenu(false);}
   function messageMember(id) {setContact(id); navigate("messages");}
@@ -1109,7 +1241,7 @@ function App() {
     await api("logout", "POST"); session.current = null; setSnapshot(null); setUser(null);
     setTrainingId(null); setMenu(false); setNotifications(false); setCreateTraining(false); setContact(null); history.replaceState({}, "", base);
     setPage("home");
-    setInstallHelp(false); setInstallPopup(false); setInstallHidden(false);
+    setInstallHelp(false); setInstallPopup(false); setInstallHidden(false);setCardMember(null);setScanEvent(null);
     loginPromotionShown.current = null;
   }
   useEffect(() => {loadUser();}, []);
@@ -1157,6 +1289,8 @@ function App() {
       <a className="brand" href="#page=home" onClick={event => {event.preventDefault(); if (user) navigate("home");}}>
         <span className="brand-symbol" aria-hidden="true"><Drone size={24} /></span><span><strong>LF DS Hub</strong><small>Drone Soccer · LF TUKE</small></span>
       </a>
+      {user && <button className="icon-button scan-shortcut" aria-label="Skenovať kód" onClick={()=>openScanner()}><ScanLine size={22} /></button>}
+      {user?.role==="member" && <button className="icon-button" aria-label="Môj členský QR kód" onClick={()=>setCardMember({self:true})}><QrCode size={22} /></button>}
       {user && <button className="icon-button notification-button" aria-label={"Oznámenia" + (unread + unreadNotices ? " (" + (unread + unreadNotices) + ")" : "")} onClick={() => setNotifications(true)}><Bell size={22} />{unread + unreadNotices > 0 && <i />}</button>}
     </header>
     {user && <aside className="sidebar">{menuContent}</aside>}
@@ -1176,14 +1310,15 @@ function App() {
             <Home user={user} {...data} refresh={refresh} navigate={navigate} openTraining={setTrainingId} />
           </>}
           {currentPage === "calendar" && <Calendar trainings={data.trainings} staff={staff} places={data.places} refresh={refresh} openTraining={setTrainingId} />}
-          {currentPage === "attendance" && staff && <AttendanceOverview />}
+          {currentPage === "scanner" && <ClubScanner key={user.id+":"+(scanEvent?.id || "general")} user={user} initialEvent={scanEvent} refresh={refresh} />}
+          {currentPage === "attendance" && staff && <AttendanceOverview openScanner={openScanner} />}
           {currentPage === "messages" && <Messages key={user.id + ":" + contact + ":" + route} user={user} conversations={data.conversations} refresh={refresh} initialContact={contact} />}
           {currentPage === "announcements" && <Bulletin items={data.announcements} staff={staff} refresh={refresh} />}
-          {currentPage === "members" && staff && <Members key="members" userId={user.id} superadmin={superadmin} onMessage={messageMember} />}
-          {currentPage === "management" && superadmin && <Members key="management" userId={user.id} superadmin management onMessage={messageMember} />}
-          {currentPage === "equipment" && <Batteries key={user.id + ":" + activeBattery} staff={staff} initialCode={activeBattery} />}
+          {currentPage === "members" && staff && <Members key="members" userId={user.id} superadmin={superadmin} onMessage={messageMember} onCard={setCardMember} />}
+          {currentPage === "management" && superadmin && <Members key="management" userId={user.id} superadmin management onMessage={messageMember} onCard={setCardMember} />}
+          {currentPage === "equipment" && <Batteries key={user.id + ":" + activeBattery} staff={staff} initialCode={activeBattery} openScanner={openScanner} />}
           {currentPage === "documents" && <Documents staff={staff} />}
-          {currentPage === "profile" && <Profile user={user} reloadUser={loadUser} installation={installation} install={install} saveInstallPreferences={saveInstallPreferences} />}
+          {currentPage === "profile" && <Profile user={user} reloadUser={loadUser} installation={installation} install={install} saveInstallPreferences={saveInstallPreferences} openCard={()=>setCardMember({self:true})} />}
         </>}
       </>}
     </main>
@@ -1210,7 +1345,8 @@ function App() {
       </ol> : <><p>V adresnom riadku alebo menu prehliadača vyhľadaj možnosť <strong>Inštalovať aplikáciu</strong>.</p>
         <p>Ak túto možnosť prehliadač ponúka, potvrď inštaláciu DroneSoccer LF.</p></>}
     </Modal>}
-    {user && training && <TrainingDetail key={training.id} training={training} staff={staff} places={data.places} refresh={refresh} close={() => setTrainingId(null)} />}
+    {user && cardMember && <MemberQr key={cardMember.self ? "self" : cardMember.id} member={cardMember} close={()=>setCardMember(null)} />}
+    {user && training && <TrainingDetail key={training.id} training={training} staff={staff} places={data.places} refresh={refresh} openScanner={openScanner} close={() => setTrainingId(null)} />}
     {user && createTraining && <Modal title="Nová udalosť" close={() => setCreateTraining(false)}><TrainingForm places={data.places} done={async () => {setCreateTraining(false); await refresh();}} /></Modal>}
     {user && notifications && <Modal title="Oznámenia" close={() => setNotifications(false)}>
       {!superadmin && <button className="card quick-link" onClick={() => navigate("messages")}><MessageCircle /><span className="grow"><strong>Správy</strong><span className="meta">{unread ? unread + " neprečítaných" : "Všetko máš prečítané"}</span></span><ChevronRight /></button>}
