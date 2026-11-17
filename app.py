@@ -1371,7 +1371,7 @@ def digital_card(conn,member_id):
     return {'id':card['id'],'name':card['name'],'payload':'LF-M:'+card['card_token']}
 
 
-def dotted_member_qr(payload):
+def rounded_member_qr(payload):
     qr=qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H,box_size=10,border=4)
     qr.add_data(payload)
     qr.make(fit=True)
@@ -1382,10 +1382,20 @@ def dotted_member_qr(payload):
     ET.SubElement(svg,'rect',width='100%',height='100%',fill='white')
     eyes=[(0,0),(size-7,0),(0,size-7)]
     modules=ET.SubElement(svg,'g',fill='#10354B')
+    snake=ET.SubElement(svg,'g',fill='none',stroke='#10354B',
+                        **{'stroke-width':'9.4','stroke-linecap':'round'})
     for row,line in enumerate(qr.modules):
         for col,dark in enumerate(line):
-            if dark and not any(x<=col<x+7 and y<=row<y+7 for x,y in eyes):
-                ET.SubElement(modules,'circle',cx=str((col+4)*10+5),cy=str((row+4)*10+5),r='4.65')
+            if not dark or any(x<=col<x+7 and y<=row<y+7 for x,y in eyes):
+                continue
+            cx,cy=(col+4)*10+5,(row+4)*10+5
+            ET.SubElement(modules,'circle',cx=str(cx),cy=str(cy),r='4.65')
+            # Join neighboring cells into rounded, continuous paths instead of
+            # rendering the data pattern as a field of separate dots.
+            for dx,dy in ((1,0),(0,1)):
+                nx,ny=col+dx,row+dy
+                if nx<size and ny<size and qr.modules[ny][nx] and not any(x<=nx<x+7 and y<=ny<y+7 for x,y in eyes):
+                    ET.SubElement(snake,'path',d=f'M {cx} {cy} L {cx+dx*10} {cy+dy*10}')
     # Rounded finder rings preserve the recognizable center lines used by decoders.
     for x,y in eyes:
         for inset,span,radius,fill in [(0,7,13,'#10354B'),(1,5,8,'white'),(2,3,6,'#10354B')]:
@@ -1396,7 +1406,7 @@ def dotted_member_qr(payload):
 
 def card_qr(conn,member_id):
     card=digital_card(conn,member_id)
-    return Response(dotted_member_qr(card['payload']),media_type='image/svg+xml')
+    return Response(rounded_member_qr(card['payload']),media_type='image/svg+xml')
 
 
 @api.get('/me/card')
