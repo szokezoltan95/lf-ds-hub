@@ -252,3 +252,38 @@ details p {font-size: 13px; margin-top: 12px;}
 
 .brand-symbol {display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; color: #10354b; background: #41b6e6;}
 .notice-card .eyebrow {color: #8b4828;}
+
+/* Activity types use the same colors in the calendar, legend and event cards. */
+:root {--training-color: #0876a3; --match-color: #b44b1b; --meeting-color: #7655b2;}
+.event-marker {display: inline-block; width: 20px; height: 5px; border-radius: 3px; background: var(--training-color); flex-shrink: 0;}
+.event-marker.match {background: var(--match-color);}
+.event-marker.meeting {background: var(--meeting-color);}
+.calendar-grid button {min-height: 54px; flex-direction: column; gap: 4px; padding: 6px 2px 8px; border-radius: 10px;}
+.calendar-grid button.has-activities {background: #e4f1fa; border: 1px solid #b2d5e8; font-weight: 700;}
+.calendar-grid button.has-activities.selected {background: #cce9f8; border-color: #1686b4; box-shadow: inset 0 0 0 1px #1686b4;}
+.calendar-grid button.today {border-color: #5c7688;}
+.calendar-markers {display: flex; justify-content: center; gap: 2px; width: 100%; min-height: 5px;}
+.calendar-markers .event-marker {width: 22%; min-width: 5px; max-width: 20px;}
+.calendar-event-count {position: absolute; top: 2px; right: 3px; color: #456b7f; font-size: 8px; line-height: 10px;}
+.calendar-legend {display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; font-size: 11px; color: var(--muted);}
+.calendar-legend > span {display: inline-flex; align-items: center; gap: 6px;}
+.badge.event-type.training {background: #e4f3fb; color: #095d82;}
+.badge.event-type.match {background: #fff0e5; color: #99401a;}
+.badge.event-type.meeting {background: #f0eafa; color: #66459c;}
+.training-card.event-match {border-top: 3px solid var(--match-color);}
+.training-card.event-meeting {border-top: 3px solid var(--meeting-color);}
+.training-card.event-training {border-top: 3px solid #41b6e6;}
+.chat-list-actions {display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 14px 14px 0;}
+.chat-list-actions > .primary {flex: 1; font-size: 13px;}
+.recipient-list {max-height: 55dvh; overflow-y: auto; margin-top: 14px;}
+.recipient-check {display: flex; flex-direction: row; align-items: center; padding: 10px 0; gap: 12px; border-bottom: 1px solid var(--line);}
+.group-avatar {background: #dceff9; color: #146588;}
+.message-author {display: block; margin-bottom: 5px; font-size: 11px; color: #146588;}
+.chat-list-error {padding-inline: 14px;}
+@media (min-width: 780px) {
+  .calendar-grid button {min-height: 65px;}
+}
+.calendar-grid button.has-activities.activity-match {background: #fff0e5; border-color: #edc1a5;}
+.calendar-grid button.has-activities.activity-meeting {background: #f0eafa; border-color: #d0bfe8;}
+.calendar-grid button.activity-match.selected {background: #ffe1ce; border-color: var(--match-color); box-shadow: inset 0 0 0 1px var(--match-color);}
+.calendar-grid button.activity-meeting.selected {background: #e5d9f6; border-color: var(--meeting-color); box-shadow: inset 0 0 0 1px var(--meeting-color);}

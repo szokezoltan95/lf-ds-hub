@@ -115,7 +115,7 @@ async def protect(request, call_next):
             return JSONResponse({"detail": "Požiadavka má nepovolený pôvod."}, status_code=403,
                                 headers={"Cache-Control": "no-store"})
     response = await call_next(request)
-    if is_api or request.url.path in {f"{PREFIX}/", f"{PREFIX}/sw.js", f"{PREFIX}/index.html"}:
+    if is_api or request.url.path in {f"{PREFIX}/", f"{PREFIX}/sw.js", f"{PREFIX}/index.html", f"{PREFIX}/manifest.webmanifest"}:
         response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -293,14 +293,13 @@ def own_attendance(conn: DB, user: User):
 
 
 @api.get("/members")
-def members(conn: DB, user: Staff):
+def members(conn: DB, _staff: Staff):
     return conn.execute(
         """SELECT m.id, m.email, m.name, m.role, m.active,
         m.password_hash IS NOT NULL AS registered,
         (SELECT count(*) FROM participation WHERE member_id=m.id AND attended=true) AS attended_count,
         (SELECT count(*) FROM participation WHERE member_id=m.id AND attended IS NOT NULL) AS recorded_count
-        FROM members m WHERE role = 'member' OR %s ORDER BY name, id""",
-        (user["role"] == "superadmin",)
+        FROM members m WHERE role IN ('member', 'coach') ORDER BY name, id"""
     ).fetchall()
 
 
@@ -617,8 +616,15 @@ class Announcement(BaseModel):
 
 
 class Message(BaseModel):
-    recipient_id: int
+    recipient_id: int | None = None
+    group_id: int | None = None
     body: Body
+
+    @model_validator(mode="after")
+    def validate_destination(self):
+        if (self.recipient_id is None) == (self.group_id is None):
+            raise ValueError("Vyber jedného adresáta alebo jednu skupinu.")
+        return self
 
 
 @api.get("/announcements")
@@ -722,59 +728,237 @@ def delete_document(document_id: int, conn: DB, _staff: Staff):
     return {"ok": True}
 
 
-@api.get("/conversations")
-def conversations(conn: DB, user: User):
+def chat_user(user: User):
+    if user["role"] not in ("member", "coach"):
+        raise HTTPException(403, "Klubové správy sú určené členom a trénerom.")
+    return user
+
+
+ChatUser = Annotated[dict, Depends(chat_user, scope="function")]
+
+
+class ChatGroup(BaseModel):
+    name: Short
+    member_ids: Annotated[list[int], Field(min_length=1, max_length=500)]
+
+
+class GroupRead(BaseModel):
+    last_message_id: int = Field(ge=0)
+
+
+def accessible_group(conn, group_id, user, lock=False):
+    query = "SELECT * FROM chat_groups WHERE id=%s"
+    if lock:
+        query += " FOR UPDATE"
+    group = conn.execute(query, (group_id,)).fetchone()
+    if not group:
+        raise HTTPException(404, "Skupina sa nenašla.")
+    allowed = (
+        group["system_key"] == "team"
+        or (group["system_key"] == "coaches" and user["role"] == "coach")
+        or (group["system_key"] is None and conn.execute(
+            "SELECT 1 FROM chat_group_members WHERE group_id=%s AND member_id=%s",
+            (group_id, user["id"]),
+        ).fetchone())
+    )
+    if not allowed:
+        raise HTTPException(404, "Skupina sa nenašla.")
+    return group
+
+
+def group_participants(conn, group):
+    if group["system_key"]:
+        roles = ["coach"] if group["system_key"] == "coaches" else ["coach", "member"]
+        return conn.execute(
+            """SELECT id, name, role FROM members WHERE active AND password_hash IS NOT NULL
+            AND role=ANY(%s) ORDER BY name, id""", (roles,),
+        ).fetchall()
     return conn.execute(
+        """SELECT m.id, m.name, m.role FROM chat_group_members gm
+        JOIN members m ON m.id=gm.member_id WHERE gm.group_id=%s AND m.active
+        AND m.password_hash IS NOT NULL AND m.role IN ('member', 'coach') ORDER BY m.name, m.id""",
+        (group["id"],),
+    ).fetchall()
+
+
+def validate_group_members(conn, data, user):
+    if user["role"] != "coach":
+        raise HTTPException(403, "Skupiny vytvárajú a upravujú tréneri.")
+    member_ids = set(data.member_ids) | {user["id"]}
+    found = conn.execute(
+        """SELECT id FROM members WHERE id=ANY(%s) AND active AND password_hash IS NOT NULL
+        AND role IN ('member', 'coach')""", (list(member_ids),),
+    ).fetchall()
+    if len(found) != len(member_ids):
+        raise HTTPException(422, "Vyber aktívnych členov alebo trénerov.")
+    if len(member_ids) < 2:
+        raise HTTPException(422, "Vyber aspoň jedného ďalšieho účastníka.")
+    return member_ids
+
+
+@api.get("/conversations")
+def conversations(conn: DB, user: ChatUser):
+    private = conn.execute(
         """WITH inbox AS (
             SELECT p.*, CASE WHEN sender_id=%s THEN recipient_id ELSE sender_id END AS contact_id
-            FROM messages p WHERE sender_id=%s OR recipient_id=%s
+            FROM messages p WHERE group_id IS NULL AND (sender_id=%s OR recipient_id=%s)
         ), recent AS (
             SELECT DISTINCT ON (contact_id) contact_id, body, created_at, id
             FROM inbox ORDER BY contact_id, id DESC
         )
-        SELECT r.*, m.name, m.active,
+        SELECT r.*, m.name, m.active, 'private' AS type,
         (SELECT count(*) FROM messages WHERE sender_id=r.contact_id AND recipient_id=%s
          AND read_at IS NULL) AS unread
-        FROM recent r JOIN members m ON m.id=r.contact_id ORDER BY r.id DESC""",
+        FROM recent r JOIN members m ON m.id=r.contact_id
+        WHERE m.role IN ('coach', 'member') ORDER BY r.id DESC""",
         (user["id"], user["id"], user["id"], user["id"]),
     ).fetchall()
+    groups = conn.execute(
+        """SELECT g.id AS group_id, g.name, g.system_key, true AS active, 'group' AS type,
+        latest.id, latest.body, latest.created_at, author.name AS sender,
+        (SELECT count(*) FROM messages p WHERE p.group_id=g.id AND p.sender_id<>%s
+         AND p.id>COALESCE(gr.last_message_id, 0)) AS unread
+        FROM chat_groups g
+        LEFT JOIN chat_group_reads gr ON gr.group_id=g.id AND gr.member_id=%s
+        LEFT JOIN LATERAL (
+            SELECT id, body, created_at, sender_id FROM messages WHERE group_id=g.id
+            ORDER BY id DESC LIMIT 1
+        ) latest ON true
+        LEFT JOIN members author ON author.id=latest.sender_id
+        WHERE g.system_key='team' OR (g.system_key='coaches' AND %s='coach')
+        OR (g.system_key IS NULL AND EXISTS (
+            SELECT 1 FROM chat_group_members gm WHERE gm.group_id=g.id AND gm.member_id=%s
+        ))
+        ORDER BY g.system_key IS NULL, latest.id DESC NULLS LAST, g.id""",
+        (user["id"], user["id"], user["role"], user["id"]),
+    ).fetchall()
+    # Default rooms remain visible before their first message.
+    return groups + private
 
 
 @api.get("/contacts")
-def contacts(conn: DB, user: User):
-    roles = ["member"] if user["role"] in STAFF_ROLES else list(STAFF_ROLES)
-    return conn.execute("SELECT id, name FROM members WHERE active AND role=ANY(%s) AND password_hash IS NOT NULL ORDER BY name",
-                        (roles,)).fetchall()
+def contacts(conn: DB, user: ChatUser):
+    return conn.execute(
+        """SELECT id, name, role FROM members WHERE active AND password_hash IS NOT NULL
+        AND role IN ('member', 'coach') AND id<>%s ORDER BY name, id""", (user["id"],),
+    ).fetchall()
+
+
+@api.get("/chat-groups/{group_id}")
+def group_detail(group_id: int, conn: DB, user: ChatUser):
+    group = accessible_group(conn, group_id, user)
+    return {**group, "members": group_participants(conn, group),
+            "can_manage": user["role"] == "coach" and group["system_key"] is None}
+
+
+@api.post("/chat-groups")
+def create_group(data: ChatGroup, conn: DB, user: ChatUser):
+    member_ids = validate_group_members(conn, data, user)
+    group_id = conn.execute(
+        "INSERT INTO chat_groups (name, created_by) VALUES (%s,%s) RETURNING id",
+        (data.name, user["id"]),
+    ).fetchone()["id"]
+    with conn.cursor() as cursor:
+        cursor.executemany(
+            "INSERT INTO chat_group_members VALUES (%s,%s)",
+            [(group_id, member_id) for member_id in member_ids],
+        )
+    return {"group_id": group_id}
+
+
+@api.put("/chat-groups/{group_id}")
+def update_group(group_id: int, data: ChatGroup, conn: DB, user: ChatUser):
+    group = accessible_group(conn, group_id, user, lock=True)
+    if group["system_key"]:
+        raise HTTPException(403, "Účastníci predvolených skupín sa určujú podľa rolí.")
+    member_ids = validate_group_members(conn, data, user)
+    conn.execute("UPDATE chat_groups SET name=%s WHERE id=%s", (data.name, group_id))
+    conn.execute(
+        "DELETE FROM chat_group_members WHERE group_id=%s AND NOT (member_id=ANY(%s))",
+        (group_id, list(member_ids)),
+    )
+    # Removed users lose their read cursor too. Re-adding them restores the full history.
+    conn.execute(
+        "DELETE FROM chat_group_reads WHERE group_id=%s AND NOT (member_id=ANY(%s))",
+        (group_id, list(member_ids)),
+    )
+    with conn.cursor() as cursor:
+        cursor.executemany(
+            "INSERT INTO chat_group_members VALUES (%s,%s) ON CONFLICT DO NOTHING",
+            [(group_id, member_id) for member_id in member_ids],
+        )
+    return {"ok": True}
 
 
 @api.get("/messages")
-def messages(conn: DB, user: User, before: int | None = None, contact_id: int | None = None):
+def messages(conn: DB, user: ChatUser, before: int | None = None,
+             contact_id: int | None = None, group_id: int | None = None):
+    if group_id is not None:
+        if contact_id is not None:
+            raise HTTPException(422, "Vyber jednu konverzáciu.")
+        accessible_group(conn, group_id, user)
+        return conn.execute(
+            """SELECT p.*, s.name AS sender FROM messages p JOIN members s ON s.id=p.sender_id
+            WHERE p.group_id=%s AND p.id<%s ORDER BY p.id DESC LIMIT 200""",
+            (group_id, before or 9223372036854775807),
+        ).fetchall()
     return conn.execute(
         """SELECT p.*, s.name AS sender, r.name AS recipient FROM messages p
         JOIN members s ON s.id=p.sender_id JOIN members r ON r.id=p.recipient_id
-        WHERE (sender_id=%s OR recipient_id=%s) AND p.id < %s
+        WHERE p.group_id IS NULL AND (sender_id=%s OR recipient_id=%s) AND p.id < %s
+        AND s.role IN ('member', 'coach') AND r.role IN ('member', 'coach')
         AND (%s::bigint IS NULL OR sender_id=%s OR recipient_id=%s)
         ORDER BY p.id DESC LIMIT 200""",
-        (user["id"], user["id"], before or 9223372036854775807, contact_id, contact_id, contact_id)
+        (user["id"], user["id"], before or 9223372036854775807, contact_id, contact_id, contact_id),
     ).fetchall()
 
 
 @api.post("/messages")
-def send_message(data: Message, conn: DB, user: User):
-    roles = ["member"] if user["role"] in STAFF_ROLES else list(STAFF_ROLES)
-    target = conn.execute("SELECT id FROM members WHERE id=%s AND active AND role=ANY(%s) AND password_hash IS NOT NULL",
-                          (data.recipient_id, roles)).fetchone()
-    if not target:
-        raise HTTPException(404, "Adresát sa nenašiel.")
-    conn.execute("INSERT INTO messages (sender_id, recipient_id, body) VALUES (%s,%s,%s)",
-                 (user["id"], target["id"], data.body))
-    return {"ok": True}
+def send_message(data: Message, conn: DB, user: ChatUser):
+    if data.group_id is not None:
+        accessible_group(conn, data.group_id, user, lock=True)
+        message = conn.execute(
+            "INSERT INTO messages (sender_id, group_id, body) VALUES (%s,%s,%s) RETURNING id",
+            (user["id"], data.group_id, data.body),
+        ).fetchone()
+    else:
+        target = conn.execute(
+            """SELECT id FROM members WHERE id=%s AND id<>%s AND active
+            AND role IN ('member', 'coach') AND password_hash IS NOT NULL""",
+            (data.recipient_id, user["id"]),
+        ).fetchone()
+        if not target:
+            raise HTTPException(404, "Adresát sa nenašiel.")
+        message = conn.execute(
+            "INSERT INTO messages (sender_id, recipient_id, body) VALUES (%s,%s,%s) RETURNING id",
+            (user["id"], target["id"], data.body),
+        ).fetchone()
+    return {"ok": True, "id": message["id"]}
 
 
 @api.post("/messages/read")
-def read_messages(ids: Annotated[list[int], Field(max_length=200)], conn: DB, user: User):
-    conn.execute("UPDATE messages SET read_at=now() WHERE recipient_id=%s AND id=ANY(%s) AND read_at IS NULL",
-                 (user["id"], ids))
+def read_messages(ids: Annotated[list[int], Field(max_length=200)], conn: DB, user: ChatUser):
+    conn.execute(
+        "UPDATE messages SET read_at=now() WHERE recipient_id=%s AND id=ANY(%s) AND read_at IS NULL",
+        (user["id"], ids),
+    )
+    return {"ok": True}
+
+
+@api.post("/chat-groups/{group_id}/read")
+def read_group(group_id: int, data: GroupRead, conn: DB, user: ChatUser):
+    accessible_group(conn, group_id, user, lock=True)
+    # Bound the cursor by an existing message so a client cannot skip future unread messages.
+    last_id = conn.execute(
+        "SELECT COALESCE(max(id), 0) AS id FROM messages WHERE group_id=%s AND id<=%s",
+        (group_id, data.last_message_id),
+    ).fetchone()["id"]
+    conn.execute(
+        """INSERT INTO chat_group_reads VALUES (%s,%s,%s)
+        ON CONFLICT (group_id, member_id) DO UPDATE
+        SET last_message_id=greatest(chat_group_reads.last_message_id, excluded.last_message_id)""",
+        (group_id, user["id"], last_id),
+    )
     return {"ok": True}
 
 
@@ -809,7 +993,8 @@ def add_battery(data: Battery, conn: DB, _staff: Staff):
 @api.get("/batteries/{code}/events")
 def events(code: Code, conn: DB, _user: User):
     return conn.execute(
-        """SELECT e.*, COALESCE(m.name, 'Odstránený účet') AS name
+        """SELECT e.*, CASE WHEN m.role='superadmin' THEN 'Systém'
+        ELSE COALESCE(m.name, 'Odstránený účet') END AS name
         FROM battery_events e LEFT JOIN members m ON m.id=e.actor_id
         WHERE code=%s ORDER BY e.id DESC LIMIT 100""", (code,)
     ).fetchall()

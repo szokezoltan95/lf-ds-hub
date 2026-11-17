@@ -207,11 +207,11 @@ function RSVP({training, refresh}) {
 
 function TrainingCard({training, staff, refresh, open, prominent = false}) {
   const day = new Date(training.starts_at);
-  return <article className={"card training-card " + (prominent ? "prominent " : "") + (training.cancelled ? "cancelled" : "")}>
+  return <article className={"card training-card event-" + (training.kind || "training") + " " + (prominent ? "prominent " : "") + (training.cancelled ? "cancelled" : "")}>
     <button className="event-link" onClick={open}>
       <span className="date-tile"><strong>{day.toLocaleDateString("sk-SK", {day: "numeric", timeZone})}</strong>
         <span>{day.toLocaleDateString("sk-SK", {month: "short", timeZone})}</span></span>
-      <span className="event-text"><span className="eyebrow">{kinds[training.kind] || "Tréning"}</span><strong>{training.title}</strong>
+      <span className="event-text"><span className={"badge event-type " + (training.kind || "training")}>{kinds[training.kind] || "Tréning"}</span><strong>{training.title}</strong>
         <span className="meta"><Clock size={14} />{clock(training.starts_at)}{training.ends_at && " – " + clock(training.ends_at)}</span>
         <span className="meta"><MapPin size={14} />{training.location}</span>
       </span><ChevronRight size={20} />
@@ -323,11 +323,20 @@ function Calendar({trainings, staff, places, refresh, openTraining}) {
           {Array.from({length: padding}, (_, i) => <span key={"pad" + i} />)}
           {Array.from({length: days}, (_, i) => {
             const key = month + "-" + String(i + 1).padStart(2, "0");
-            const hasEvent = trainings.some(t => dayKey(t.starts_at) === key && !t.cancelled);
-            return <button key={key} aria-label={"Vybrať " + key} aria-pressed={selectedDay === key}
-              className={(key === today() ? "today " : "") + (key === selectedDay ? "selected " : "")}
-              onClick={() => setSelectedDay(selectedDay === key ? null : key)}>{i + 1}{hasEvent && <i />}</button>;
+            const activities = trainings.filter(t => dayKey(t.starts_at) === key && !t.cancelled);
+            const types = [...new Set(activities.map(t => t.kind || "training"))];
+            const summary = activities.map(t => kinds[t.kind || "training"] + ": " + t.title).join(", ");
+            return <button key={key} aria-label={"Vybrať " + key + (summary ? " · " + summary : "")} aria-pressed={selectedDay === key}
+              className={(key === today() ? "today " : "") + (key === selectedDay ? "selected " : "") + (types.length ? "has-activities " : "") + (types.length === 1 ? "activity-" + types[0] : "")}
+              onClick={() => setSelectedDay(selectedDay === key ? null : key)}>
+              <span className="calendar-day-number">{i + 1}</span>
+              {types.length > 0 && <span className="calendar-markers" aria-hidden="true">{types.map(type =>
+                <span className={"event-marker " + type} key={type} />)}</span>}
+              {activities.length > 0 && <span className="calendar-event-count" aria-hidden="true">{activities.length}</span>}
+            </button>;
           })}</div>
+        <div className="calendar-legend">{Object.entries(kinds).map(([type, name]) =>
+          <span key={type}><span className={"event-marker " + type} />{name}</span>)}</div>
         {staff && selectedDay && <button className="text-button" onClick={() => setCreate(true)}><Plus size={16} />Pridať udalosť na {selectedDay.split("-").reverse().join(".")}</button>}
       </section>}
     <div className="event-list">{shown.length ? shown.map((t, i) => <React.Fragment key={t.id}>
@@ -337,7 +346,7 @@ function Calendar({trainings, staff, places, refresh, openTraining}) {
     {create && <Modal title="Nová udalosť" close={() => setCreate(false)}><TrainingForm initialDay={selectedDay} places={places} done={async () => {setCreate(false); await refresh();}} /></Modal>}
   </>;
 }
-function Members({superadmin, management = false, onMessage}) {
+function Members({superadmin, management = false, onMessage, userId}) {
   const [members, setMembers] = useState([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("active");
@@ -355,20 +364,20 @@ function Members({superadmin, management = false, onMessage}) {
       .then(rows => {if (current) setAttendance(rows);}).catch(error => {if (current) setError(error.message);});
     return () => {current = false;};
   }, [selected?.id, selected?.role]);
-  const found = members.filter(m => (management || m.role === "member") &&
+  const found = members.filter(m => m.role !== "superadmin" &&
     (m.name + " " + (m.email || "")).toLowerCase().includes(query.toLowerCase()) &&
-    (management || filter === "all" || (filter === "invited" ? !m.registered && m.active : filter === "inactive" ? !m.active : m.active && m.registered)));
+    (management || filter === "all" || (filter === "coaches" ? m.role === "coach" && m.active : filter === "invited" ? !m.registered && m.active : filter === "inactive" ? !m.active : m.active && m.registered)));
   const status = m => !m.active ? "Neaktívny" : !m.registered ? "Pozvaný" : "Aktívny";
   return <>
     <div className="toolbar"><label className="search"><Search size={18} /><input type="search" aria-label="Hľadať člena" placeholder="Hľadať podľa mena…" value={query} onChange={event => setQuery(event.target.value)} /></label>
       <button className="primary" onClick={() => {setLink(""); setForm(management ? "coach" : "invite");}}><Plus size={18} />{management ? "Tréner" : "Pozvať"}</button></div>
-    {!management && <div className="chips">{[["active", "Aktívni"], ["invited", "Pozvaní"], ["inactive", "Neaktívni"], ["all", "Všetci"]].map(([value, text]) =>
+    {!management && <div className="chips">{[["active", "Aktívni"], ["coaches", "Tréneri"], ["invited", "Pozvaní"], ["inactive", "Neaktívni"], ["all", "Všetci"]].map(([value, text]) =>
       <button key={value} className={filter === value ? "selected" : ""} onClick={() => setFilter(value)}>{text}</button>)}</div>}
     {error && <p className="error" role="alert">{error}</p>}
     <div className="card flush"><ul className="people-list">{found.map(member => <li key={member.id}>
       <button className="person-link" onClick={() => {setSelected(member); setLink("");}}>
-        <Avatar name={member.name} /><span className="grow"><strong>{member.name}</strong><span className="meta">{management ? roles[member.role] : member.email}</span>
-          <span className="meta">{management ? member.email || "admin" : member.recorded_count > 0 ? "Dochádzka " + member.attended_count + "/" + member.recorded_count : "Dochádzka zatiaľ bez záznamu"}</span></span>
+        <Avatar name={member.name} /><span className="grow"><strong>{member.name}</strong><span className="meta">{roles[member.role]}{!management && " · " + member.email}</span>
+          <span className="meta">{management ? member.email : member.role === "coach" ? "Tréner tímu" : member.recorded_count > 0 ? "Dochádzka " + member.attended_count + "/" + member.recorded_count : "Dochádzka zatiaľ bez záznamu"}</span></span>
         <span className={"badge " + (member.active ? "positive" : "")}>{status(member)}</span><ChevronRight size={18} />
       </button>
     </li>)}</ul>{found.length === 0 && <Empty icon={Users}>Žiadne zodpovedajúce účty.</Empty>}</div>
@@ -386,12 +395,12 @@ function Members({superadmin, management = false, onMessage}) {
     {selected && <Modal title={selected.name} close={() => setSelected(null)}>
       <div className="profile-heading"><Avatar name={selected.name} /><div><span className="badge">{roles[selected.role]}</span><p>{selected.email || "admin"}</p></div></div>
       {selected.role !== "superadmin" && <div className="actions">
-        {selected.active && selected.registered && selected.role === "member" && <button className="primary" onClick={() => {onMessage(selected.id); setSelected(null);}}><MessageCircle size={17} />Napísať správu</button>}
-        <Action run={async () => {
+        {!superadmin && selected.id !== userId && selected.active && selected.registered && <button className="primary" onClick={() => {onMessage(selected.id); setSelected(null);}}><MessageCircle size={17} />Napísať správu</button>}
+        {(superadmin || selected.role === "member") && <Action run={async () => {
           await api("members/" + selected.id + "/active", "PUT", {active: !selected.active});
           setSelected({...selected, active: !selected.active}); await load();
-        }}>{selected.active ? "Deaktivovať" : "Aktivovať"}</Action>
-        {selected.active && selected.registered && <Action run={async () => {
+        }}>{selected.active ? "Deaktivovať" : "Aktivovať"}</Action>}
+        {(superadmin || selected.role === "member") && selected.active && selected.registered && <Action run={async () => {
           const result = await api("members/" + selected.id + "/reset", "POST"); setLink(result.invite_url);
         }}>Obnoviť heslo</Action>}
         {selected.active && !selected.registered && selected.role === "member" && <Action run={async () => {
@@ -445,34 +454,93 @@ function Bulletin({items, staff, refresh}) {
   </>;
 }
 
+function GroupEditor({contacts, group, user, close, done}) {
+  const [selected, setSelected] = useState(() => group ? group.members.filter(m => m.id !== user.id).map(m => m.id) : []);
+  const [query, setQuery] = useState("");
+  return <Modal title={group ? "Upraviť skupinu" : "Nová skupina"} close={close}>
+    <Form label={group ? "Uložiť skupinu" : "Vytvoriť skupinu"} submit={async data => {
+      if (selected.length === 0) throw new Error("Vyber aspoň jedného ďalšieho účastníka.");
+      const result = await api(group ? "chat-groups/" + group.id : "chat-groups", group ? "PUT" : "POST", {name: data.name, member_ids: selected});
+      await done(result.group_id || group.id);
+    }}>
+      <label>Názov skupiny<input name="name" defaultValue={group?.name || ""} maxLength="120" required /></label>
+      <label className="search"><Search size={18} /><input type="search" value={query} placeholder="Hľadať ľudí…" aria-label="Hľadať účastníkov" onChange={event => setQuery(event.target.value)} /></label>
+      <p className="muted small">Vybraní účastníci: {selected.length + 1} vrátane teba</p>
+      <div className="recipient-list">
+        {contacts.filter(person => person.name.toLowerCase().includes(query.toLowerCase())).map(person =>
+          <label className="recipient-check" key={person.id}>
+            <input type="checkbox" checked={selected.includes(person.id)} onChange={event =>
+              setSelected(event.target.checked ? [...selected, person.id] : selected.filter(id => id !== person.id))} />
+            <Avatar name={person.name} /><span className="grow"><strong>{person.name}</strong><span className="meta">{roles[person.role]}</span></span>
+          </label>)}
+      </div>
+    </Form>
+  </Modal>;
+}
+
 function Messages({user, conversations, refresh, initialContact}) {
   const [contacts, setContacts] = useState([]);
-  const [selected, setSelected] = useState(initialContact || null);
+  const [selected, setSelected] = useState(initialContact ? {type: "private", id: initialContact} : null);
   const [messages, setMessages] = useState([]);
   const [more, setMore] = useState(false);
   const [query, setQuery] = useState("");
+  const [newMessage, setNewMessage] = useState(false);
+  const [groupEditor, setGroupEditor] = useState(null);
+  const [groupInfo, setGroupInfo] = useState(null);
+  const [recipientQuery, setRecipientQuery] = useState("");
   const [error, setError] = useState("");
   const scroller = useRef(null);
   const scrollPending = useRef(true);
-  useEffect(() => {api("contacts").then(setContacts).catch(error => setError(error.message));}, []);
-  const ids = new Set(conversations.map(item => item.contact_id));
-  const people = [...conversations.map(c => ({...c, id: c.contact_id})), ...contacts.filter(c => !ids.has(c.id))];
-  const person = people.find(item => item.id === selected);
-  const canSend = contacts.some(item => item.id === selected);
-  const latest = conversations.find(c => c.contact_id === selected)?.id;
+  const selectedKey = selected ? selected.type + ":" + selected.id : "";
+  const activeKey = useRef(selectedKey);
+  activeKey.current = selectedKey;
   useEffect(() => {
     let current = true;
-    scrollPending.current = true;
-    setError("");
-    if (selected) api("messages?contact_id=" + selected).then(async rows => {
-      if (!current) return;
-      setMessages(rows);
-      setMore(rows.length === 200);
+    const load = () => api("contacts").then(rows => {if (current) setContacts(rows);}).catch(error => {if (current) setError(error.message);});
+    load();
+    const timer = setInterval(() => {if (!document.hidden) load();}, 15000);
+    return () => {current = false; clearInterval(timer);};
+  }, []);
+  const conversationKey = item => item.type === "group" ? "group:" + item.group_id : "private:" + item.contact_id;
+  const rows = [...conversations];
+  if (selected?.type === "private" && !rows.some(row => conversationKey(row) === selectedKey)) {
+    const contact = contacts.find(person => person.id === selected.id);
+    if (contact) rows.push({...contact, contact_id: contact.id, id: null, type: "private", unread: 0});
+  }
+  const activeConversation = rows.find(row => conversationKey(row) === selectedKey);
+  const person = selected?.type === "private" ? contacts.find(person => person.id === selected.id) : null;
+  const canSend = selected?.type === "group" ? Boolean(activeConversation) : Boolean(person);
+  const latest = activeConversation?.id;
+  const messagePath = selection => "messages?" + (selection.type === "group" ? "group_id=" : "contact_id=") + selection.id;
+  async function markRead(selection, rows) {
+    if (selection.type === "group" && rows.length) {
+      await api("chat-groups/" + selection.id + "/read", "POST", {last_message_id: rows[0].id});
+    } else {
       const unread = rows.filter(row => row.recipient_id === user.id && !row.read_at);
-      if (unread.length) {await api("messages/read", "POST", unread.map(row => row.id)); if (current) await refresh();}
-    }).catch(error => {if (current) setError(error.message);});
+      if (unread.length) await api("messages/read", "POST", unread.map(row => row.id));
+    }
+  }
+  function openConversation(selection) {
+    if (selection.type + ":" + selection.id !== selectedKey) {
+      setMessages([]); setMore(false); setError("");
+    }
+    setSelected(selection); setNewMessage(false); setGroupInfo(null);
+  }
+  useEffect(() => {
+    let current = true;
+    if (selected) {
+      const selection = {...selected};
+      scrollPending.current = true;
+      api(messagePath(selection)).then(async rows => {
+        if (!current) return;
+        setMessages(rows);
+        setMore(rows.length === 200);
+        await markRead(selection, rows);
+        if (current) await refresh();
+      }).catch(error => {if (current) setError(error.message);});
+    }
     return () => {current = false;};
-  }, [selected, latest, user.id]);
+  }, [selectedKey, latest, user.id]);
   useEffect(() => {
     if (scroller.current && scrollPending.current) {
       scroller.current.scrollTop = scroller.current.scrollHeight;
@@ -481,32 +549,72 @@ function Messages({user, conversations, refresh, initialContact}) {
   }, [messages]);
   return <div className={"chat card flush " + (selected ? "conversation-open" : "")}>
     <aside className="conversation-list">
+      <div className="chat-list-actions"><button className="primary" onClick={() => {setRecipientQuery(""); setNewMessage(true);}}><Plus size={17} />Nová správa</button>
+        {user.role === "coach" && <button className="icon-button" aria-label="Nová skupina" onClick={() => setGroupEditor({})}><Users size={20} /></button>}
+      </div>
       <label className="search"><Search size={18} /><input type="search" aria-label="Hľadať konverzáciu" placeholder="Hľadať konverzáciu…" value={query} onChange={event => setQuery(event.target.value)} /></label>
-      {people.filter(p => p.name.toLowerCase().includes(query.toLowerCase())).map(person => <button className={"conversation-row " + (selected === person.id ? "active" : "")} key={person.id} onClick={() => {if (selected !== person.id) {setMessages([]); setMore(false);} setSelected(person.id);}}>
-        <Avatar name={person.name} /><span className="grow"><strong>{person.name}</strong><span className="preview">{person.body || "Začať konverzáciu"}</span></span>
-        <span className="conversation-meta">{person.created_at && <small>{clock(person.created_at)}</small>}{person.unread > 0 && <span className="counter">{person.unread}</span>}</span>
-      </button>)}
-      {people.length === 0 && <Empty icon={MessageCircle}>Zatiaľ nemáš žiadne kontakty.</Empty>}
+      {error && !selected && <p className="error chat-list-error" role="alert">{error}</p>}
+      {rows.filter(row => row.name.toLowerCase().includes(query.toLowerCase())).map(row => {
+        const group = row.type === "group";
+        const key = conversationKey(row);
+        return <button className={"conversation-row " + (selectedKey === key ? "active" : "")} key={key}
+          onClick={() => openConversation({type: group ? "group" : "private", id: group ? row.group_id : row.contact_id})}>
+          {group ? <span className="avatar group-avatar"><Users size={21} /></span> : <Avatar name={row.name} />}
+          <span className="grow"><strong>{row.name}</strong><span className="preview">{row.body ? (group && row.sender ? row.sender + ": " : "") + row.body :
+            row.system_key === "coaches" ? "Skupina trénerov" : group ? "Skupinová konverzácia" : "Začať konverzáciu"}</span></span>
+          <span className="conversation-meta">{row.created_at && <small>{clock(row.created_at)}</small>}{row.unread > 0 && <span className="counter">{row.unread}</span>}</span>
+        </button>;
+      })}
+      {rows.length === 0 && <Empty icon={MessageCircle}>Začni konverzáciu tlačidlom Nová správa.</Empty>}
     </aside>
     <section className="conversation-pane">
       {selected ? <>
-        <div className="chat-head"><button className="icon-button chat-back" aria-label="Späť na konverzácie" onClick={() => setSelected(null)}><ChevronLeft /></button><Avatar name={person?.name || "Kontakt"} /><strong>{person?.name || "Kontakt"}</strong></div>
+        <div className="chat-head">
+          <button className="icon-button chat-back" aria-label="Späť na konverzácie" onClick={() => setSelected(null)}><ChevronLeft /></button>
+          {selected.type === "group" ? <span className="avatar group-avatar"><Users size={19} /></span> : <Avatar name={activeConversation?.name || person?.name || "Kontakt"} />}
+          <strong className="grow">{activeConversation?.name || person?.name || "Konverzácia"}</strong>
+          {selected.type === "group" && <Action className="icon-button" run={async () => setGroupInfo(await api("chat-groups/" + selected.id))}>
+            <Settings2 size={19} /><span className="sr-only">Účastníci a nastavenia skupiny</span>
+          </Action>}
+        </div>
         <div className="message-stream" ref={scroller}>
           {error && <p className="error" role="alert">{error}</p>}
           {more && <Action className="text-button" run={async () => {
-            const page = await api("messages?contact_id=" + selected + "&before=" + messages.at(-1).id);
-            setMessages([...messages, ...page]); setMore(page.length === 200);
+            const key = selectedKey;
+            const page = await api(messagePath(selected) + "&before=" + messages.at(-1).id);
+            if (activeKey.current === key) {setMessages([...messages, ...page]); setMore(page.length === 200);}
           }}>Staršie správy</Action>}
           {messages.length ? [...messages].reverse().map(item => <div className={"message " + (item.sender_id === user.id ? "outgoing" : "")} key={item.id}>
-            <p>{item.body}</p><span>{date(item.created_at)}{item.sender_id === user.id && item.read_at && <CheckCheck size={13} />}</span>
+            {selected.type === "group" && item.sender_id !== user.id && <strong className="message-author">{item.sender}</strong>}
+            <p>{item.body}</p><span>{date(item.created_at)}{selected.type === "private" && item.sender_id === user.id && item.read_at && <CheckCheck size={13} />}</span>
           </div>) : <p className="muted small">Tu sa začína vaša konverzácia.</p>}
         </div>
-        {canSend ? <div className="composer"><Form key={selected} label={<><Send size={18} /><span className="sr-only">Odoslať správu</span></>} reset submit={async data => {
-          await api("messages", "POST", {recipient_id: selected, body: data.body});
-          setMessages(await api("messages?contact_id=" + selected)); await refresh();
-        }}><label className="sr-only" htmlFor="message-body">Správa</label><textarea id="message-body" name="body" rows="1" maxLength="4000" placeholder="Napíš správu…" required /></Form></div> : <p className="notice">Tomuto účtu už nemožno posielať správy.</p>}
-      </> : <Empty icon={MessageCircle}>Vyber konverzáciu alebo kontakt.</Empty>}
+        {canSend ? <div className="composer"><Form key={selectedKey} label={<><Send size={18} /><span className="sr-only">Odoslať správu</span></>} reset submit={async data => {
+          const key = selectedKey;
+          const destination = selected.type === "group" ? {group_id: selected.id} : {recipient_id: selected.id};
+          await api("messages", "POST", {...destination, body: data.body});
+          const rows = await api(messagePath(selected));
+          if (activeKey.current === key) {scrollPending.current = true; setMessages(rows); await markRead(selected, rows);}
+          await refresh();
+        }}><label className="sr-only" htmlFor="message-body">Správa</label><textarea id="message-body" name="body" rows="1" maxLength="4000" placeholder="Napíš správu…" required /></Form></div> :
+          <p className="notice">Do tejto konverzácie už nemožno posielať správy.</p>}
+      </> : <Empty icon={MessageCircle}>Vyber konverzáciu alebo vytvor novú správu.</Empty>}
     </section>
+    {newMessage && <Modal title="Nová správa" close={() => setNewMessage(false)}>
+      <label className="search"><Search size={18} /><input type="search" aria-label="Hľadať adresáta" value={recipientQuery} placeholder="Hľadať člena alebo trénera…" onChange={event => setRecipientQuery(event.target.value)} /></label>
+      {user.role === "coach" && <button className="button section-space" onClick={() => {setNewMessage(false); setGroupEditor({});}}><Users size={18} />Vytvoriť skupinu</button>}
+      <ul className="people-list recipient-list">{contacts.filter(person => person.name.toLowerCase().includes(recipientQuery.toLowerCase())).map(person =>
+        <li key={person.id}><button className="person-link" onClick={() => openConversation({type: "private", id: person.id})}><Avatar name={person.name} /><span className="grow"><strong>{person.name}</strong><span className="meta">{roles[person.role]}</span></span><ChevronRight size={18} /></button></li>)}</ul>
+      {contacts.length === 0 && <p className="muted section-space">Zatiaľ žiadne dostupné kontakty.</p>}
+    </Modal>}
+    {groupInfo && <Modal title={groupInfo.name} close={() => setGroupInfo(null)}>
+      <p className="muted">{groupInfo.members.length} účastníkov</p>
+      {groupInfo.system_key && <p className="small">Účastníci tejto skupiny sa určujú automaticky podľa rolí v klube.</p>}
+      <ul className="people-list">{groupInfo.members.map(person => <li key={person.id}><Avatar name={person.name} /><span className="grow"><strong>{person.name}</strong><span className="meta">{roles[person.role]}</span></span></li>)}</ul>
+      {groupInfo.can_manage && <button className="primary section-space" onClick={() => {setGroupEditor(groupInfo); setGroupInfo(null);}}><Pencil size={17} />Upraviť názov a účastníkov</button>}
+    </Modal>}
+    {groupEditor && <GroupEditor group={groupEditor.id ? groupEditor : null} contacts={contacts} user={user} close={() => setGroupEditor(null)}
+      done={async group_id => {setGroupEditor(null); await refresh(); openConversation({type: "group", id: group_id});}} />}
   </div>;
 }
 
@@ -648,7 +756,7 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
         {next.slice(1, 3).map(t => <TrainingCard training={t} staff={staff} refresh={refresh} key={t.id} open={() => openTraining(t.id)} />)}
       </section>
       <aside className="home-side">
-        <button className="card quick-link" onClick={() => navigate("messages")}><span className="quick-icon"><MessageCircle /></span><span className="grow"><strong>{unread ? unread + " neprečítaných správ" : "Správy s tímom"}</strong><span className="meta">{staff ? "Otvor konverzácie s členmi" : "Napíš svojmu trénerovi"}</span></span><ChevronRight size={18} /></button>
+        {user.role !== "superadmin" && <button className="card quick-link" onClick={() => navigate("messages")}><span className="quick-icon"><MessageCircle /></span><span className="grow"><strong>{unread ? unread + " neprečítaných správ" : "Správy s tímom"}</strong><span className="meta">{staff ? "Otvor konverzácie s členmi" : "Napíš členovi alebo trénerovi"}</span></span><ChevronRight size={18} /></button>}
         {staff && waiting.length > 0 && <button className="card quick-link" onClick={() => openTraining(waiting[0].id)}>
           <span className="quick-icon"><CheckCheck /></span><span className="grow"><strong>Doplniť dochádzku</strong><span className="meta">{waiting[0].title} · {date(waiting[0].starts_at)}</span></span><ChevronRight size={18} /></button>}
         {notice && <article className="card notice-card"><div className="section-heading"><span className="eyebrow">{notice.pinned ? "Pripnutý oznam" : "Nový oznam"}</span><Megaphone size={19} /></div>
@@ -693,7 +801,7 @@ function App() {
   const [notifications, setNotifications] = useState(false);
   const staff = user?.role === "coach" || user?.role === "superadmin";
   const superadmin = user?.role === "superadmin";
-  const visibleNavigation = navigation.filter(([key]) => (key !== "members" || staff) && (key !== "management" || superadmin));
+  const visibleNavigation = navigation.filter(([key]) => (key !== "members" || staff) && (key !== "management" || superadmin) && (key !== "messages" || !superadmin));
   const allowedPages = [...visibleNavigation.map(([key]) => key), "profile"];
   const currentPage = allowedPages.includes(page) ? page : "home";
   const title = currentPage === "profile" ? "Môj profil" : visibleNavigation.find(([key]) => key === currentPage)?.[1];
@@ -710,7 +818,7 @@ function App() {
     if (!owner) return;
     try {
       const [trainings, announcements, conversations, places] = await Promise.all([
-        api("trainings"), api("announcements"), api("conversations"), api("places"),
+        api("trainings"), api("announcements"), owner.role === "superadmin" ? Promise.resolve([]) : api("conversations"), api("places"),
       ]);
       if (session.current === owner) {setSnapshot({owner, data: {trainings, announcements, conversations, places}}); setError(""); setLoading(false);}
     } catch (error) {
@@ -785,8 +893,8 @@ function App() {
           {currentPage === "calendar" && <Calendar trainings={data.trainings} staff={staff} places={data.places} refresh={refresh} openTraining={setTrainingId} />}
           {currentPage === "messages" && <Messages key={user.id + ":" + contact} user={user} conversations={data.conversations} refresh={refresh} initialContact={contact} />}
           {currentPage === "announcements" && <Bulletin items={data.announcements} staff={staff} refresh={refresh} />}
-          {currentPage === "members" && staff && <Members key="members" superadmin={superadmin} onMessage={messageMember} />}
-          {currentPage === "management" && superadmin && <Members key="management" superadmin management onMessage={messageMember} />}
+          {currentPage === "members" && staff && <Members key="members" userId={user.id} superadmin={superadmin} onMessage={messageMember} />}
+          {currentPage === "management" && superadmin && <Members key="management" userId={user.id} superadmin management onMessage={messageMember} />}
           {currentPage === "equipment" && <Batteries key={user.id + ":" + activeBattery} staff={staff} initialCode={activeBattery} />}
           {currentPage === "documents" && <Documents staff={staff} />}
           {currentPage === "profile" && <Profile user={user} reloadUser={loadUser} />}
@@ -796,7 +904,7 @@ function App() {
     {user && training && <TrainingDetail key={training.id} training={training} staff={staff} places={data.places} refresh={refresh} close={() => setTrainingId(null)} />}
     {user && createTraining && <Modal title="Nová udalosť" close={() => setCreateTraining(false)}><TrainingForm places={data.places} done={async () => {setCreateTraining(false); await refresh();}} /></Modal>}
     {user && notifications && <Modal title="Oznámenia" close={() => setNotifications(false)}>
-      <button className="card quick-link" onClick={() => navigate("messages")}><MessageCircle /><span className="grow"><strong>Správy</strong><span className="meta">{unread ? unread + " neprečítaných" : "Všetko máš prečítané"}</span></span><ChevronRight /></button>
+      {!superadmin && <button className="card quick-link" onClick={() => navigate("messages")}><MessageCircle /><span className="grow"><strong>Správy</strong><span className="meta">{unread ? unread + " neprečítaných" : "Všetko máš prečítané"}</span></span><ChevronRight /></button>}
       {data.announcements.filter(item => !item.is_read).map(item => <button className="card quick-link" key={item.id} onClick={() => navigate("announcements")}><Megaphone /><span className="grow"><strong>{item.title}</strong><span className="meta">{date(item.created_at)}</span></span><ChevronRight /></button>)}
     </Modal>}
   </div>;

@@ -63,3 +63,20 @@ docker compose -f docker-compose.yml -f docker-compose.https.yml up -d --no-deps
 
 Príkaz spusti v adresári aktualizovaného THRUST-webdb. Zmeny databázovej schémy
 hubu sa aplikujú automaticky pri jeho štarte.
+
+## Klubová komunikácia
+
+Kontakty a zoznam členov zobrazujú trénerov aj členov. Systémový účet
+superadmina je z klubovej komunikácie a zoznamov používateľov vynechaný.
+Bežní používatelia môžu začať súkromnú konverzáciu s ktorýmkoľvek iným
+aktívnym používateľom cez **Nová správa**.
+
+Skupina **Celý tím** zahŕňa všetkých aktívnych členov a trénerov s aktivovaným
+účtom. **Tréneri** zahŕňa len trénerov. Ich členstvo sa automaticky prispôsobuje
+rolám. Tréneri môžu vytvárať vlastné skupiny. Tréner patriaci do vlastnej
+skupiny môže upraviť jej názov a účastníkov. Účastníci vlastnej skupiny vidia
+celú jej históriu. Odobratý používateľ stratí prístup k skupine okamžite.
+
+Manifest PWA odkazuje na modré ikony `icon-blue-192.png` a
+`icon-blue-512.png`. Ich zdrojom je `frontend/public/app-icon.svg`, ktorý
+používa rovnaký symbol dronu a fakultnú modrú ako hlavička aplikácie.

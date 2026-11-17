@@ -114,3 +114,38 @@ CREATE TABLE IF NOT EXISTS documents (
     content bytea NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS chat_groups (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name text NOT NULL,
+    system_key text UNIQUE CHECK (system_key IN ('team', 'coaches')),
+    created_by bigint REFERENCES members(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO chat_groups (name, system_key) VALUES ('Celý tím', 'team'), ('Tréneri', 'coaches')
+ON CONFLICT (system_key) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS chat_group_members (
+    group_id bigint NOT NULL REFERENCES chat_groups(id) ON DELETE CASCADE,
+    member_id bigint NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    PRIMARY KEY (group_id, member_id)
+);
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS group_id bigint REFERENCES chat_groups(id);
+ALTER TABLE messages ALTER COLUMN recipient_id DROP NOT NULL;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+        WHERE conrelid='messages'::regclass AND conname='messages_destination_check') THEN
+        ALTER TABLE messages ADD CONSTRAINT messages_destination_check CHECK (
+            (recipient_id IS NOT NULL AND group_id IS NULL) OR
+            (recipient_id IS NULL AND group_id IS NOT NULL)
+        );
+    END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS messages_group_idx ON messages(group_id, id DESC);
+CREATE TABLE IF NOT EXISTS chat_group_reads (
+    group_id bigint NOT NULL REFERENCES chat_groups(id) ON DELETE CASCADE,
+    member_id bigint NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    last_message_id bigint NOT NULL DEFAULT 0,
+    PRIMARY KEY (group_id, member_id)
+);
