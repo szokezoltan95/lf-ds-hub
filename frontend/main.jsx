@@ -478,7 +478,7 @@ function AttendanceOverview({openScanner}) {
   const classes = {"Prítomný": "present", "Neprítomný": "absent", "Nezapísané": "unknown", "Plánované": "planned", "Zrušené": "cancelled"};
   return <>
     <section className="card attendance-filters"><div className="row-between"><h2>Prehľad dochádzky tímu</h2><button onClick={()=>openScanner()}><ScanLine size={18} />Skenovať dochádzku</button></div>
-      <form onSubmit={event => {
+      <details className="attendance-filter-details"><summary>Filtre a obdobie</summary><form onSubmit={event => {
         event.preventDefault();
         if (draft.date_from && draft.date_to && draft.date_from > draft.date_to) {setError("Dátum od nesmie byť neskôr než dátum do."); return;}
         setFilters({...draft, kinds: [...draft.kinds]});
@@ -496,13 +496,12 @@ function AttendanceOverview({openScanner}) {
           <button type="button" onClick={() => {const all = {date_from: "", date_to: "", kinds: Object.keys(kinds), include_cancelled: false}; setDraft(all); setFilters(all);}}>Celé obdobie</button>
           <button type="button" onClick={() => setRevision(value => value + 1)}>Obnoviť údaje</button>
         </div>
-      </form>
+      </form></details>
     </section>
     {error && <p className="error" role="alert">{error}</p>}
     {loading ? <Empty>Načítava sa dochádzka…</Empty> : result && <>
       <div className="attendance-overview-toolbar"><label>Vyhľadať člena<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Meno člena" /></label>
         <p className="meta" role="status">Členovia: {people.length} · Udalosti: {events.length}</p></div>
-      <p className="small muted">Obdobie zahŕňa oba krajné dni podľa času na Slovensku. Zobrazení sú aj neaktívni členovia. Účasť potvrdená vopred sa nepočíta ako dochádzka.</p>
       {!events.length ? <Empty icon={CalendarDays}>Pre vybrané filtre nie sú žiadne udalosti.</Empty> : !people.length ? <Empty icon={Users}>Žiadni členovia pre tento výber.</Empty> : <>
         <div className="attendance-table-scroll" tabIndex={0} role="region" aria-label="Tabuľka dochádzky členov, posúvateľná vodorovne aj zvislo">
           <table className="attendance-table"><caption className="sr-only">Členovia tímu a dochádzka na udalostiach podľa vybraných filtrov</caption>
@@ -524,7 +523,6 @@ function AttendanceOverview({openScanner}) {
             })}</tbody>
           </table>
         </div>
-        <p className="meta section-space">Súhrn počíta iba zapísanú dochádzku na začatých, nezrušených udalostiach. Dochádzku upravíš v detaile udalosti v kalendári.</p>
       </>}
     </>}
   </>;
@@ -1129,8 +1127,7 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
   const waiting = trainings.filter(t => !t.cancelled && past(t) && t.counts?.attendance_pending > 0);
   const notice = announcements.find(item => item.pinned) || announcements[0];
   return <>
-    <div className="welcome"><div><p className="eyebrow">Drone Soccer · LF TUKE</p><h1>Ahoj, {user.name.split(" ")[0]}.</h1>
-      <p className="muted">{staff ? "Všetko pre najbližšiu udalosť na jednom mieste." : "Tvoj tím, tréningy a nové správy."}</p></div>
+    <div className="welcome"><div><h1>Ahoj, {user.name.split(" ")[0]}.</h1></div>
       <span className="welcome-date">{new Date().toLocaleDateString("sk-SK", {weekday: "long", day: "numeric", month: "long", timeZone})}</span>
     </div>
     <div className="home-grid">
@@ -1313,7 +1310,7 @@ function App() {
     <header className="topbar">
       {user && <button className="icon-button hamburger" aria-label="Otvoriť menu" aria-expanded={menu} onClick={openMenu}><Menu /></button>}
       <a className="brand" href="#page=home" onClick={event => {event.preventDefault(); if (user) navigate("home");}}>
-        <span className="brand-symbol" aria-hidden="true"><Drone size={24} /></span><span><strong>LF DS Hub</strong><small>Drone Soccer · LF TUKE</small></span>
+        <span className="brand-symbol" aria-hidden="true"><Drone size={24} /></span><span><strong>Drone Soccer Hub</strong><small>LF TUKE</small></span>
       </a>
       {user && <button className="icon-button scan-shortcut" aria-label="Skenovať kód" onClick={()=>openScanner()}><ScanLine size={22} /></button>}
       {user?.role==="member" && <button className="icon-button" aria-label="Môj členský QR kód" onClick={()=>setCardMember({self:true})}><QrCode size={22} /></button>}
@@ -1328,7 +1325,7 @@ function App() {
       </aside>
       {error && <div className="error-banner" role="alert">{error}<Action run={refresh}>Skúsiť znova</Action></div>}
       {user === undefined ? <Empty>Načítava sa…</Empty> : !user ? <Login onLogin={loadUser} /> : <>
-        {currentPage !== "home" && <div className="page-heading"><div><p className="eyebrow">Drone Soccer LF TUKE</p><h1>{title}</h1></div></div>}
+        {currentPage !== "home" && <div className="page-heading"><div><h1>{title}</h1></div></div>}
         {loading ? <Empty>Načítava sa…</Empty> : <>
           {currentPage === "home" && <>
             {!installation.installed && user.pwa_show_card !== false && !installHidden && <div className="install-promotion">

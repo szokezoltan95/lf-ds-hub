@@ -313,6 +313,13 @@ details p {font-size: 13px; margin-top: 12px;}
 .push-settings h3 {margin-top:24px;}
 
 .attendance-date-filters {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;max-width:520px;}
+.attendance-filters > .row-between h2 {margin:0;}
+.attendance-filter-details {margin-top:12px;border-top:1px solid var(--line);padding-top:10px;}
+.attendance-filter-details > summary {cursor:pointer;list-style:none;font-size:13px;font-weight:600;color:#146588;display:flex;align-items:center;justify-content:space-between;min-height:32px;}
+.attendance-filter-details > summary::-webkit-details-marker {display:none;}
+.attendance-filter-details > summary::after {content:"＋";font-size:18px;line-height:1;}
+.attendance-filter-details[open] > summary::after {content:"−";}
+.attendance-filter-details form {margin-top:12px;}
 .attendance-types {display:flex;flex-wrap:wrap;gap:8px 20px;margin:12px 0;border:0;padding:0;}
 .attendance-types legend {font-size:13px;font-weight:600;margin-bottom:8px;}
 .attendance-types .checkbox {margin:0;}
