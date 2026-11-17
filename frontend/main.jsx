@@ -891,6 +891,7 @@ function MemberQr({member,close}) {
 
 function ClubScanner({user,initialEvent,refresh}) {
   const staff=user.role!=="member";
+  const [mode,setMode]=useState(()=>staff && initialEvent ? "attendance" : "batteries");
   const [running,setRunning]=useState(false),[busy,setBusy]=useState(false);
   const [manual,setManual]=useState("");
   const [error,setError]=useState("");
@@ -900,6 +901,9 @@ function ClubScanner({user,initialEvent,refresh}) {
   const [eventsLoading,setEventsLoading]=useState(staff);
   const [recent,setRecent]=useState([]);
   const [saved,setSaved]=useState("");
+  const [toast,setToast]=useState("");
+  const [pendingMember,setPendingMember]=useState(null);
+  const [newPrivateEvent,setNewPrivateEvent]=useState(false);
   const [action,setAction]=useState("used");
   const [requestId,setRequestId]=useState(null);
   const locked=useRef(false);
@@ -909,35 +913,43 @@ function ClubScanner({user,initialEvent,refresh}) {
   useEffect(()=>{
     if(!staff) return;
     let current=true;
-    setEventsLoading(true);setEvents([]);
+    setEventsLoading(true);setEvents([]);setEventId(initialEvent?.id || null);
     const query=day ? "?day="+encodeURIComponent(day) : "";
     api("scan/events"+query).then(rows=>{
       if(!current) return;
       setEvents(rows);
       const candidates=rows.filter(event=>event.is_current);
-      setEventId(previous=>rows.some(event=>event.id===previous && event.can_record) ? previous : candidates.length===1 ? candidates[0].id : null);
+      setEventId(previous=>initialEvent && rows.some(event=>event.id===initialEvent.id && event.can_record) ? initialEvent.id : rows.some(event=>event.id===previous && event.can_record) ? previous : candidates.length===1 ? candidates[0].id : null);
     }).catch(e=>{if(current){setEventId(null);setError(e.message);}}).finally(()=>{if(current)setEventsLoading(false);});
     return()=>{current=false;};
-  },[staff,day]);
+  },[staff,day,initialEvent?.id]);
+  useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(""),1800);return()=>clearTimeout(timer);},[toast]);
   function next(){locked.current=false;setResult(null);setSaved("");setError("");setManual("");setRunning(true);}
   async function decode(raw){
     if(locked.current) return;
     locked.current=true;setRunning(false);setBusy(true);setResult(null);setError("");setSaved("");setValue(raw);
     try {
-      const response=await api("scan","POST",{value:raw,event_id:staff && !eventsLoading && selectedEvent?.can_record ? eventId : null});
+      const response=await api("scan","POST",{value:raw,event_id:mode==="attendance" && !eventsLoading && selectedEvent?.can_record ? eventId : null});
       if(!mounted.current) return;
-      setResult(response);setAction(response.status==="damaged" ? "damaged" : "used");setRequestId(crypto.randomUUID());
-      if(response.type==="member" && response.recorded){
-        setRecent(previous=>[{id:response.id,name:response.name,event:response.event_title},...previous].slice(0,12));
-        await refresh();
-      }
+      if(response.type==="member"){
+        if(response.recorded){
+          setPendingMember(null);
+          setRecent(previous=>[{id:response.id,name:response.name,event:response.event_title},...previous].slice(0,12));
+          setToast(`Zapísaná dochádzka: ${response.name} · ${response.event_title}`);
+          setResult(null);await refresh();
+        } else setPendingMember(response);
+      } else {setResult(response);setAction(response.status==="damaged" ? "damaged" : "used");setRequestId(crypto.randomUUID());}
     } catch(e){if(mounted.current){setResult(null);setError(e.message);}}
     finally{if(mounted.current)setBusy(false);}
   }
   return <>
     <section className="card"><h2>Skenovať QR alebo čiarový kód</h2>
-      <p className="muted">{staff ? "Kódy LF-B rozpoznávajú batérie. Členský QR zapíše prítomnosť na vybranej udalosti." : "Naskenuj existujúcu batériu s kódom LF-B a potvrď jej použitie."}</p>
-      {staff && <div className="scan-event-picker">
+      {staff && <div className="scanner-mode" role="tablist" aria-label="Režim skenovania">
+        <button role="tab" aria-selected={mode==="batteries"} className={mode==="batteries"?"selected":""} onClick={()=>{setMode("batteries");setPendingMember(null);setResult(null);setError("");}}>Batérie</button>
+        <button role="tab" aria-selected={mode==="attendance"} className={mode==="attendance"?"selected":""} onClick={()=>{setMode("attendance");setPendingMember(null);setResult(null);setError("");}}>Dochádzka</button>
+      </div>}
+      <p className="muted">{mode==="attendance" ? "Naskenuj členský QR. Prítomnosť sa zapíše automaticky." : staff ? "Skenuj kód LF-B na batérii. Neznámu batériu môžeš pridať." : "Naskenuj existujúcu batériu LF-B a zapíš jej použitie."}</p>
+      {staff && mode==="attendance" && <div className="scan-event-picker">
         <label>Deň udalosti<input type="date" value={day} onChange={event=>{setEventId(null);setDay(event.target.value);}} disabled={busy} /></label>
         <label>Dochádzka na udalosť<select value={eventsLoading ? "" : eventId || ""} disabled={eventsLoading || busy} onChange={event=>setEventId(Number(event.target.value) || null)}>
           <option value="">{eventsLoading ? "Načítavajú sa udalosti…" : "Vyber udalosť pre dochádzku"}</option>
@@ -945,25 +957,37 @@ function ClubScanner({user,initialEvent,refresh}) {
         </select></label>
         {!eventsLoading && !eventId && <p className="small muted">Ak sa nedá jednoznačne určiť prebiehajúca udalosť, vyber ju ručne. Batérie možno skenovať aj bez výberu udalosti.</p>}
       </div>}
-      <div className="actions"><button className="primary" disabled={busy} onClick={next}><ScanLine size={18} />{result || error ? "Skenovať ďalší kód" : "Zapnúť kameru"}</button>
-        {running && <button onClick={()=>setRunning(false)}>Zastaviť kameru</button>}</div>
-      {running && <CameraScanner running={running} onDecode={decode} onError={message=>{setRunning(false);setError(message);}} />}
-      <Form label={busy ? "Spracúva sa…" : "Spracovať kód"} submit={async()=>{
-        if(busy) return;locked.current=false;await decode(manual);
-      }}>
-        <label className="section-space">Kód ručne alebo z USB skenera<input value={manual} onChange={event=>setManual(event.target.value)} placeholder={staff ? "LF-B01 alebo LF-M:…" : "LF-B01"} maxLength="2048" autoComplete="off" autoCapitalize="none" spellCheck="false" required disabled={busy} /></label>
-      </Form>
+      {!running && <button className="primary scan-open-camera" disabled={busy || (mode==="attendance" && eventsLoading)} onClick={next}><ScanLine size={20} />Otvoriť kameru</button>}
+      {running && <div className={"scan-camera-stage "+(mode==="attendance"?"attendance-camera":"battery-camera")}>
+        <CameraScanner running={running} onDecode={decode} onError={message=>{setRunning(false);setError(message);}} />
+        <button className="scan-stop" onClick={()=>setRunning(false)}>Zastaviť skener</button>
+      </div>}
+      <details className="scan-manual"><summary>Zadať kód ručne alebo cez USB skener</summary>
+        <Form label={busy ? "Spracúva sa…" : "Spracovať kód"} submit={async()=>{if(busy)return;locked.current=false;await decode(manual);}}>
+          <label className="section-space">Kód<input value={manual} onChange={event=>setManual(event.target.value)} placeholder={mode==="attendance"?"LF-M:…":"LF-B01"} maxLength="2048" autoComplete="off" autoCapitalize="none" spellCheck="false" required disabled={busy} /></label>
+        </Form>
+      </details>
       {error && <p className="error" role="alert">{error}</p>}
     </section>
-    {result?.type==="member" && <section className="card scan-result" aria-live="polite"><Users size={26} /><h2>{result.name}</h2>
-      {result.recorded ? <><p className="success">{result.already_present ? "Člen už má zapísanú prítomnosť." : "Prítomnosť bola zapísaná."}</p><p>{result.event_title}</p></> : <>
-        <p>Vyber udalosť vyššie a potvrď zápis prítomnosti.</p>
-        <Action disabled={busy || !selectedEvent?.can_record || eventsLoading} run={async()=>{
-          if(locked.current && busy) return;
-          locked.current=false;await decode(value);
-        }}>Zapísať prítomnosť</Action>
-      </>}
-    </section>}
+    {toast && <div className="scan-success-toast" role="status"><Check size={16}/>{toast}</div>}
+    {pendingMember && <Modal title={pendingMember.name} close={()=>setPendingMember(null)}>
+      <p>Vyber udalosť pre zápis dochádzky alebo vytvor novú udalosť.</p>
+      <label>Deň udalosti<input type="date" value={day} onChange={event=>setDay(event.target.value)}/></label>
+      {events.filter(event=>event.can_record).map(event=><button className="card scan-event-option" key={event.id} onClick={async()=>{
+        try{const response=await api("scan","POST",{value:pendingMember.payload,event_id:event.id});setPendingMember(null);if(response.recorded){setToast(`Zapísaná dochádzka: ${response.name} · ${response.event_title}`);await refresh();}}
+        catch(e){setError(e.message);setPendingMember(null);}
+      }}>{date(event.starts_at)} · {event.title}{!event.can_record?" (ešte sa nezačala)":""}</button>)}
+      <button className="primary section-space" onClick={()=>setNewPrivateEvent(true)}><Plus size={18}/>Vytvoriť novú udalosť</button>
+      {newPrivateEvent && <Form label="Vytvoriť udalosť a zapísať prítomnosť" submit={async data=>{
+        const starts_at=trainingISO(data.starts_at),ends_at=data.ends_at?trainingISO(data.ends_at):null;
+        if(ends_at&&ends_at<=starts_at)throw new Error("Koniec musí nasledovať po začiatku.");
+        const created=await api("scan/private-events","POST",{title:data.title||"Neplánovaný tréning",starts_at,ends_at,location:data.location});
+        const response=await api("scan","POST",{value:pendingMember.payload,event_id:created.id});setNewPrivateEvent(false);setPendingMember(null);
+        setToast(`Zapísaná dochádzka: ${response.name} · ${response.event_title}`);await refresh();
+      }}><label>Názov<input name="title" defaultValue="Neplánovaný tréning" maxLength="120" required/></label>
+        <label>Začiatok<input name="starts_at" type="datetime-local" defaultValue={clubLocal(new Date())} required/></label>
+        <label>Koniec<input name="ends_at" type="datetime-local"/></label><label>Miesto<input name="location" maxLength="120" defaultValue="Hala" required/></label></Form>}
+    </Modal>}
     {result?.type==="battery" && <section className="card scan-result"><Battery size={26} /><h2>{result.code}</h2>
       {!result.exists ? <><p>Batéria ešte nie je evidovaná.</p><Form label="Pridať batériu" submit={async data=>{
         setBusy(true);

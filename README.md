@@ -206,3 +206,12 @@ meno a zápis čaká na výber a potvrdenie. Opakovaný sken nemení počet záz
 nezmaže RSVP ani poznámku. Predchádzajúca neprítomnosť sa opraví na prítomnosť.
 Skenovanie dochádzky neodosiela push. Členom server nedovolí čítať cudzie
 členské QR ani zapisovať dochádzku.
+
+## Aktualizácia skenera
+
+Skener má samostatný režim batérií a dochádzky. V dochádzke sa prebiehajúca
+udalosť predvolí, ak je jednoznačná, a každý sken členského QR hneď zapíše
+prítomnosť. Pri skenovaní bez vybranej udalosti sa zobrazí výber udalosti alebo
+formulár na vytvorenie súkromnej neplánovanej udalosti, po ktorom sa prítomnosť
+zapíše automaticky. Nová súkromná udalosť sa nezobrazí členom v kalendári a
+vytvorí sa až pri výslovnom potvrdení trénerom.

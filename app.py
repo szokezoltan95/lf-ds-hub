@@ -1304,6 +1304,25 @@ def scan_events(conn:DB, _staff:Staff, day:CalendarDate | None = None):
     ).fetchall()
 
 
+class PrivateScanEvent(BaseModel):
+    title: Short = "Neplánovaný tréning"
+    starts_at: AwareDatetime
+    ends_at: AwareDatetime | None = None
+    location: Short = "Hala"
+
+
+@api.post('/scan/private-events')
+def create_private_scan_event(data:PrivateScanEvent,conn:DB,user:Staff):
+    if data.starts_at > datetime.now(timezone.utc) or (data.ends_at and data.ends_at <= data.starts_at):
+        raise HTTPException(422,"Súkromná udalosť musí práve prebiehať alebo už začať a koniec musí nasledovať po začiatku.")
+    event=conn.execute(
+        """INSERT INTO trainings(title,starts_at,ends_at,location,instructions,kind,created_by)
+        VALUES (%s,%s,%s,%s,'', 'training',%s) RETURNING id,title,starts_at,ends_at,location""",
+        (data.title,data.starts_at,data.ends_at,data.location,user['id']),
+    ).fetchone()
+    return event
+
+
 @api.post('/scan')
 def scan(data:ScanRequest, conn:DB, user:User):
     kind,code=scan_value(data.value)
@@ -1322,8 +1341,8 @@ def scan(data:ScanRequest, conn:DB, user:User):
     # Match the same locking order as attendance edits and event deletion.
     if data.event_id is not None:
         event=lock_training(conn,data.event_id)
-        if event['cancelled'] or event['starts_at']>datetime.now(timezone.utc):
-            raise HTTPException(409,'Dochádzku možno zapísať iba na začatej, nezrušenej udalosti.')
+        if event['cancelled'] or event['starts_at']>datetime.now(timezone.utc) or (event['ends_at'] and event['ends_at']<datetime.now(timezone.utc)):
+            raise HTTPException(409,'Dochádzku možno zapísať iba počas prebiehajúcej alebo začatej nezrušenej udalosti.')
     person=conn.execute(
         "SELECT id,name FROM members WHERE card_token=%s AND role='member' AND active FOR UPDATE",(code,),
     ).fetchone()

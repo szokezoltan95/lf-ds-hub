@@ -356,3 +356,17 @@ details p {font-size: 13px; margin-top: 12px;}
 .qr-profile-button {display:flex;align-items:center;gap:14px;width:100%;text-align:left;color:#10354b;}
 .qr-profile-button > span {flex:1;font-weight:600;}
 @media (max-width:480px) {.topbar {gap:6px;padding-inline:10px;}.topbar .icon-button {min-width:36px;width:36px;padding:6px;}.brand {gap:6px;}.brand strong {font-size:14px;}.brand small {font-size:9px;}}
+.scanner-mode {display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;background:#edf3f7;border-radius:12px;margin-bottom:14px;}
+.scanner-mode button {min-height:44px;border:0;background:transparent;border-radius:9px;font-weight:600;}
+.scanner-mode button[aria-selected="true"] {background:white;box-shadow:0 1px 5px #10354b20;color:#10354b;}
+.scan-open-camera {width:100%;min-height:54px;justify-content:center;font-size:16px;}
+.scan-camera-stage {position:relative;margin:14px -10px 0;}
+.scan-camera-stage.attendance-camera video {width:100%;height:min(68dvh,680px);max-height:none;aspect-ratio:auto;object-fit:cover;border-radius:20px;}
+.scan-camera-stage.battery-camera video {width:100%;height:min(52dvh,520px);max-height:none;object-fit:cover;border-radius:18px;}
+.scan-stop {position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:#10354be8;color:white;border:1px solid #ffffff60;border-radius:999px;padding:10px 20px;}
+.scan-event-picker {display:grid;gap:10px;margin-bottom:14px;}
+.scan-event-option {display:block;width:100%;text-align:left;padding:14px;}
+.scan-success-toast {position:fixed;z-index:50;left:50%;bottom:max(22px,env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;align-items:center;gap:8px;max-width:calc(100vw - 28px);padding:11px 16px;background:#165d3a;color:white;border-radius:999px;box-shadow:0 6px 24px #102d2040;font-size:13px;animation:scan-toast-in .16s ease-out;}
+.scan-manual {margin-top:16px;font-size:13px;color:var(--muted);}
+.scan-manual summary {cursor:pointer;padding:8px 0;}
+@keyframes scan-toast-in {from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
