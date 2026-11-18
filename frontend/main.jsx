@@ -435,6 +435,9 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
   const [requests,setRequests]=useState([]),[config,setConfig]=useState([]),[menus,setMenus]=useState([]);
   const [inviteRoles,setInviteRoles]=useState(["player"]),[editRoles,setEditRoles]=useState([]),[bannerEnabled,setBannerEnabled]=useState(true);
   const canReview=user.role==="superadmin"||user.roles?.includes("club_leader")||user.roles?.includes("deputy_leader");
+  const canCreateInvites=superadmin||user.can_create_invites;
+  const canAssignInviteRoles=superadmin||user.can_assign_invite_roles;
+  const inviteRoleOptions=superadmin?config:catalog;
   async function load() {setMembers(await api("members"));}
   async function loadRequests() {if(canReview)setRequests(await api("role-requests"));}
   async function loadAdmin() {
@@ -459,7 +462,7 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
     {!superadmin&&canReview&&<button className="card quick-link role-request-alert" onClick={()=>setSection(section==="requests"?"members":"requests")}><ShieldCheck/><span className="grow"><strong>Žiadosti o pridanie rolí</strong><span className="meta">{requests.length?"Čakajúce žiadosti: "+requests.length:"Žiadne čakajúce žiadosti"}</span></span>{requests.length>0&&<span className="counter">{requests.length}</span>}</button>}
     {section==="members"&&<>
       <div className="toolbar"><label className="search"><Search size={18}/><input type="search" aria-label="Hľadať člena" placeholder="Hľadať podľa mena…" value={query} onChange={e=>setQuery(e.target.value)}/></label>
-        {staff&&<button className="primary" onClick={()=>{setLink("");setInviteTarget(null);setInviteRoles(["player"]);setForm(true);}}><Plus size={18}/>Pozvať člena</button>}</div>
+        {canCreateInvites&&<button className="primary" onClick={()=>{setLink("");setInviteTarget(null);setInviteRoles(["player"]);setForm(true);}}><Plus size={18}/>Pozvať člena</button>}</div>
       <div className="chips">{[["active","Aktívni"],["coaches","Tréneri"],["invited","Pozvaní"],["inactive","Neaktívni"],["all","Všetci"]].map(([value,text])=><button key={value} className={filter===value?"selected":""} onClick={()=>setFilter(value)}>{text}</button>)}</div>
       {error&&<p className="error" role="alert">{error}</p>}
       <div className="card flush"><ul className="people-list">{found.map(member=><li key={member.id}><button className="person-link" onClick={()=>{setSelected(member);setLink("");}}>
@@ -468,10 +471,10 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
         <span className={"badge "+(member.active?"positive":"")}>{status(member)}</span><ChevronRight size={18}/></button></li>)}
       </ul>{found.length===0&&<Empty icon={Users}>Žiadne zodpovedajúce účty.</Empty>}</div>
       {form&&<Modal title="Pozvať člena" close={()=>setForm(false)}>{link?<InviteLink link={link}/>:<Form label="Vytvoriť pozvánku" submit={async data=>{
-        if(superadmin&&!inviteRoles.length)throw new Error("Vyber aspoň jednu rolu.");
-        const result=await api("members/invite","POST",{...data,roles:superadmin?inviteRoles:["player"]});await load();setLink(result.invite_url);
+        if(canAssignInviteRoles&&!inviteRoles.length)throw new Error("Vyber aspoň jednu rolu.");
+        const result=await api("members/invite","POST",{...data,roles:canAssignInviteRoles?inviteRoles:["player"]});await load();setLink(result.invite_url);
       }}><label>Meno<input name="name" maxLength="120" autoComplete="name" defaultValue={inviteTarget?.name||""} required/></label><label>E-mail<input name="email" type="email" maxLength="254" autoComplete="email" defaultValue={inviteTarget?.email||""} required/></label>
-        {superadmin&&<fieldset className="role-checkboxes"><legend>Roly pri pozvánke</legend>{config.map(item=><label className="checkbox" key={item.key}><input type="checkbox" checked={inviteRoles.includes(item.key)} onChange={()=>toggle(setInviteRoles,inviteRoles,item.key)}/>{item.name}{!item.available&&<span className="badge">Funkcia zatiaľ nedostupná</span>}</label>)}</fieldset>}
+        {canAssignInviteRoles&&<fieldset className="role-checkboxes"><legend>Roly pri pozvánke</legend>{inviteRoleOptions.map(item=><label className="checkbox" key={item.key}><input type="checkbox" checked={inviteRoles.includes(item.key)} onChange={()=>toggle(setInviteRoles,inviteRoles,item.key)}/>{item.name}{!item.available&&<span className="badge">Funkcia zatiaľ nedostupná</span>}</label>)}</fieldset>}
       </Form>}</Modal>}
       {selected&&<Modal title={selected.name} close={()=>setSelected(null)}><div className="profile-heading"><Avatar name={selected.name}/><div><span className="badge">Člen klubu</span><p>{selected.email||"admin"}</p><p>{(selected.roles||[]).map(roleName).join(" · ")}</p></div></div>
         {staff&&(selected.roles||[]).includes("player")&&selected.active&&<button className="section-space" onClick={()=>onCard(selected)}><QrCode size={17}/>Členský QR kód</button>}
@@ -479,7 +482,7 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
           {staff&&<>
           {(superadmin||selected.role==="member")&&<Action run={async()=>{await api("members/"+selected.id+"/active","PUT",{active:!selected.active});setSelected({...selected,active:!selected.active});await load();}}>{selected.active?"Deaktivovať":"Aktivovať"}</Action>}
           {(superadmin||selected.role==="member")&&selected.active&&selected.registered&&<Action run={async()=>{const r=await api("members/"+selected.id+"/reset","POST");setLink(r.invite_url);}}>Obnoviť heslo</Action>}
-          {selected.active&&!selected.registered&&<Action run={async()=>{setInviteTarget(selected);setInviteRoles(selected.roles||["player"]);setLink("");setForm(true);setSelected(null);}}>Nová pozvánka</Action>}
+          {canCreateInvites&&selected.active&&!selected.registered&&<Action run={async()=>{setInviteTarget(selected);setInviteRoles(canAssignInviteRoles?(selected.roles||["player"]):["player"]);setLink("");setForm(true);setSelected(null);}}>Nová pozvánka</Action>}
           </>}
         </div>{link&&<InviteLink link={link}/>}
         {superadmin&&<section className="section-space"><h3>Funkčné roly</h3>{config.map(role=><label className="checkbox role-member-checkbox" key={role.key}><input type="checkbox" checked={editRoles.includes(role.key)} onChange={()=>toggle(setEditRoles,editRoles,role.key)}/>{role.name}{!role.available&&<span className="badge">Funkcia zatiaľ nedostupná</span>}</label>)}
@@ -502,8 +505,12 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
       <section className="card role-permissions-panel"><h2>Prístupy rolí k položkám menu</h2><p className="muted">Prístup sa uplatňuje v menu aj na API. Budúce moduly sú označené ako zatiaľ nedostupné.</p>
         {config.map(role=><details className="role-config-row" key={role.key}><summary><strong>{role.name}</strong><span className="meta">{role.available?"Dostupná rola":"Funkcie roly zatiaľ nie sú dostupné"}</span></summary><p>{role.description}</p>
           <div className="role-capabilities">{(role.capabilities||[]).map(feature=><span className="role-capability" key={feature.name}><span>{feature.name}</span><span className={"badge "+(feature.available?"positive":"planned-role")}>{feature.available?"Dostupné":"Zatiaľ nedostupné"}</span></span>)}</div>
+          <div className="role-invite-permissions">
+            <label className="checkbox"><input type="checkbox" checked={role.can_create_invites} onChange={e=>setConfig(rows=>rows.map(row=>row.key===role.key?{...row,can_create_invites:e.target.checked,can_assign_invite_roles:e.target.checked?row.can_assign_invite_roles:false}:row))}/>Môže vytvárať pozvánky</label>
+            <label className="checkbox"><input type="checkbox" checked={role.can_assign_invite_roles} disabled={!role.can_create_invites} onChange={e=>setConfig(rows=>rows.map(row=>row.key===role.key?{...row,can_assign_invite_roles:e.target.checked}:row))}/>Môže priraďovať roly v pozvánkach</label>
+          </div>
           <div className="role-menu-grid">{menus.map(menu=><label className="role-menu-setting" key={menu}><span>{navLabel[menu]}</span><select value={role.permissions[menu]||"none"} onChange={e=>setConfig(rows=>rows.map(row=>row.key===role.key?{...row,permissions:{...row.permissions,[menu]:e.target.value}}:row))}><option value="none">Bez prístupu</option><option value="read">Iba čítanie</option><option value="edit">Úprava</option></select></label>)}</div>
-          <Action className="primary section-space" run={async()=>{await api("role-config/"+role.key,"PUT",{permissions:role.permissions});}}>Uložiť prístupy</Action>
+          <Action className="primary section-space" run={async()=>{await api("role-config/"+role.key,"PUT",{permissions:role.permissions,can_create_invites:role.can_create_invites,can_assign_invite_roles:role.can_assign_invite_roles});}}>Uložiť prístupy</Action>
         </details>)}
       </section>
     </>}
