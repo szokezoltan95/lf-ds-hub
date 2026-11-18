@@ -707,6 +707,52 @@ class TrainingFeedbackInput(BaseModel):
     next_focus: Annotated[str, StringConstraints(max_length=1000)] = ""
 
 
+class TrainingLineupInput(BaseModel):
+    players: Annotated[list[dict], Field(max_length=40)] = []
+
+
+@api.get("/trainings/{training_id}/lineup")
+def get_training_lineup(training_id: int, conn: DB, _staff: Staff):
+    if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
+        raise HTTPException(404, "Udalosť sa nenašla.")
+    saved = conn.execute("SELECT players FROM training_lineups WHERE training_id=%s", (training_id,)).fetchone()
+    roster = conn.execute(
+        """SELECT id,name FROM members WHERE role='member' AND active AND password_hash IS NOT NULL
+        ORDER BY lower(name),id"""
+    ).fetchall()
+    return {"players": saved["players"] if saved else [], "roster": roster}
+
+
+@api.put("/trainings/{training_id}/lineup")
+def save_training_lineup(training_id: int, data: TrainingLineupInput, conn: DB, user: Staff):
+    if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
+        raise HTTPException(404, "Udalosť sa nenašla.")
+    players = []
+    seen = set()
+    for entry in data.players:
+        try:
+            member_id = int(entry.get("member_id"))
+        except (TypeError, ValueError):
+            continue
+        if member_id in seen:
+            continue
+        seen.add(member_id)
+        players.append({"member_id": member_id,
+                        "team": "A" if entry.get("team") == "A" else "B",
+                        "position": str(entry.get("position", ""))[:40]})
+    valid_ids = {row["id"] for row in conn.execute(
+        "SELECT id FROM members WHERE id=ANY(%s) AND role='member' AND active", (list(seen),)
+    ).fetchall()} if seen else set()
+    if seen != valid_ids:
+        raise HTTPException(422, "Zostava obsahuje neaktívneho alebo neplatného člena.")
+    conn.execute(
+        """INSERT INTO training_lineups(training_id,players,updated_by) VALUES (%s,%s,%s)
+        ON CONFLICT(training_id) DO UPDATE SET players=excluded.players,updated_by=excluded.updated_by,updated_at=now()""",
+        (training_id, Jsonb(players), user["id"]),
+    )
+    return {"ok": True}
+
+
 class MemberCoachNoteInput(BaseModel):
     note: Annotated[str, StringConstraints(max_length=4000)] = ""
 

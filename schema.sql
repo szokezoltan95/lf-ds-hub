@@ -276,3 +276,9 @@ CREATE TABLE IF NOT EXISTS member_skills (
     updated_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY(member_id, skill)
 );
+CREATE TABLE IF NOT EXISTS training_lineups (
+    training_id bigint PRIMARY KEY REFERENCES trainings(id) ON DELETE CASCADE,
+    players jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(players)='array'),
+    updated_by bigint REFERENCES members(id) ON DELETE SET NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);

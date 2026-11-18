@@ -920,6 +920,83 @@ function Batteries({staff, initialCode, openScanner}) {
   </>;
 }
 
+function DrillLibrary() {
+  const [items, setItems] = useState([]);
+  const [query, setQuery] = useState("");
+  const [error, setError] = useState("");
+  async function load() {setItems(await api("drills"));}
+  useEffect(() => {load().catch(e => setError(e.message));}, []);
+  return <>
+    <div className="toolbar"><label className="search"><Search size={18} /><input aria-label="Hľadať cvičenie" placeholder="Hľadať cvičenie…" value={query} onChange={e => setQuery(e.target.value)} /></label></div>
+    {error && <p className="error" role="alert">{error}</p>}
+    <div className="drill-grid">{items.filter(item => (item.title + " " + item.objective + " " + item.equipment).toLowerCase().includes(query.toLowerCase())).map(item => <article className="card drill-card" key={item.id}>
+      <div className="toolbar"><BookOpen /><strong className="grow">{item.title}</strong><span className="badge">{item.duration_minutes} min</span></div>
+      {item.objective && <p>{item.objective}</p>}{item.equipment && <span className="meta">Pomôcky: {item.equipment}</span>}
+    </article>)}</div>
+    {items.length === 0 && <Empty icon={BookOpen}>Knižnica cvičení je zatiaľ prázdna. Cvičenia pridáš v úpravách plánu tréningu.</Empty>}
+  </>;
+}
+
+function PlayerDevelopmentPage() {
+  const [members, setMembers] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [development, setDevelopment] = useState(null);
+  const [query, setQuery] = useState("");
+  const [error, setError] = useState("");
+  async function loadMembers() {setMembers((await api("members")).filter(member => member.role === "member"));}
+  async function open(member) {setSelected(member); setDevelopment(await api("members/" + member.id + "/development"));}
+  useEffect(() => {loadMembers().catch(e => setError(e.message));}, []);
+  return <>
+    <div className="toolbar"><label className="search"><Search size={18} /><input aria-label="Hľadať hráča" placeholder="Hľadať hráča…" value={query} onChange={e => setQuery(e.target.value)} /></label></div>
+    {error && <p className="error" role="alert">{error}</p>}
+    <div className="card flush"><ul className="people-list">{members.filter(m => m.name.toLowerCase().includes(query.toLowerCase())).map(member => <li key={member.id}>
+      <button className="person-link" onClick={() => open(member)}><Avatar name={member.name} /><span className="grow"><strong>{member.name}</strong><span className="meta">{member.active ? "Aktívny člen" : "Neaktívny člen"}</span></span><ChevronRight size={18} /></button>
+    </li>)}</ul></div>
+    {selected && <Modal title={selected.name} close={() => {setSelected(null); setDevelopment(null);}}>
+      {!development ? <p className="muted">Načítava sa…</p> : <>
+        <section className="development-section"><h3>Súkromná poznámka trénerov</h3><Form label="Uložiť poznámku" submit={async ({note}) => {await api("members/" + selected.id + "/development/note", "PUT", {note}); setDevelopment({...development, note});}}><label>Poznámka<textarea name="note" rows="4" maxLength="4000" defaultValue={development.note} /></label></Form></section>
+        <section className="development-section section-space"><h3>Zručnosti</h3>{development.skills.length === 0 && <p className="muted">Zručnosti zatiaľ nie sú ohodnotené.</p>}
+          {development.skills.map(skill => <div className="skill-row" key={skill.skill}><strong>{skill.skill}</strong><span className="skill-level">{[1,2,3,4].map(level => <button type="button" aria-label={skill.skill + " " + level} className={level <= skill.level ? "filled" : ""} key={level} onClick={async () => {await api("members/" + selected.id + "/development/skills", "PUT", {...skill, level}); setDevelopment(await api("members/" + selected.id + "/development"));}}>●</button>)}</span></div>)}
+          <Form reset label="Pridať zručnosť" submit={async values => {await api("members/" + selected.id + "/development/skills", "PUT", {...values, level: Number(values.level)}); setDevelopment(await api("members/" + selected.id + "/development"));}}>
+            <label>Zručnosť<input name="skill" maxLength="120" required /></label><label>Úroveň<select name="level" defaultValue="1">{["Na začiatku", "Základy", "Rozvíja sa", "Samostatný", "Istý"].map((label, i) => <option key={i} value={i}>{label}</option>)}</select></label><label>Poznámka<input name="note" maxLength="1000" /></label>
+          </Form>
+        </section>
+        <details className="section-space"><summary>Tréningový feedback ({development.feedback.length})</summary><ul className="records">{development.feedback.map(row => <li key={row.training_id}><strong>{row.title}</strong><span className="meta">{date(row.starts_at)}</span>{row.went_well && <p>Podarilo sa: {row.went_well}</p>}{row.difficult && <p>Náročné: {row.difficult}</p>}{row.next_focus && <p>Nabudúce: {row.next_focus}</p>}</li>)}</ul></details>
+      </>}
+    </Modal>}
+  </>;
+}
+
+function LineupPlanner({trainings}) {
+  const events = trainings.filter(event => event.kind === "match" || event.kind === "training").sort((a,b) => new Date(b.starts_at)-new Date(a.starts_at));
+  const [eventId, setEventId] = useState("");
+  const [roster, setRoster] = useState([]);
+  const [players, setPlayers] = useState([]);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!eventId) return;
+    let active = true;
+    api("trainings/" + eventId + "/lineup").then(data => {if (active) {setRoster(data.roster); setPlayers(data.players);}}).catch(e => {if (active) setError(e.message);});
+    return () => {active = false;};
+  }, [eventId]);
+  const assigned = new Set(players.map(item => item.member_id));
+  function update(member_id, patch) {setPlayers(current => current.map(player => player.member_id === member_id ? {...player, ...patch} : player));}
+  return <>
+    <section className="card lineup-picker"><label>Udalosť<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="">Vyber tréning alebo zápas</option>{events.map(event => <option key={event.id} value={event.id}>{date(event.starts_at)} · {event.title}</option>)}</select></label></section>
+    {error && <p className="error" role="alert">{error}</p>}
+    {eventId && <>
+      <div className="lineup-columns">{["A", "B"].map(team => <section className="card lineup-team" key={team}><h2>Tím {team}</h2>
+        {players.filter(player => player.team === team).map(player => <div className="lineup-player" key={player.member_id}><strong>{roster.find(member => member.id === player.member_id)?.name || "Člen"}</strong><select aria-label="Pozícia" value={player.position || ""} onChange={e => update(player.member_id, {position: e.target.value})}><option value="">Bez pozície</option>{["Attacker", "Defender", "Goalkeeper", "Náhradník"].map(position => <option key={position}>{position}</option>)}</select><button className="text-button" onClick={() => setPlayers(players.filter(item => item.member_id !== player.member_id))}>Odobrať</button></div>)}
+      </section>)}</div>
+      <section className="card"><h2>Členovia</h2><ul className="people-list">{roster.map(member => <li key={member.id}><Avatar name={member.name} /><strong className="grow">{member.name}</strong>
+        {assigned.has(member.id) ? <span className="badge positive">Tím {players.find(p => p.member_id === member.id)?.team}</span> : <div className="actions"><button onClick={() => setPlayers([...players, {member_id: member.id, team: "A", position: ""}])}>+ Tím A</button><button onClick={() => setPlayers([...players, {member_id: member.id, team: "B", position: ""}])}>+ Tím B</button></div>}</li>)}</ul>
+      </section>
+      <div className="toolbar end"><Action className="primary" run={async () => {await api("trainings/" + eventId + "/lineup", "PUT", {players});}}>Uložiť zostavu</Action></div>
+    </>}
+    {!eventId && <Empty icon={Users}>Vyber udalosť a vytvor zostavu tímov A a B.</Empty>}
+  </>;
+}
+
 function Documents({staff}) {
   const [items, setItems] = useState([]);
   const [create, setCreate] = useState(false);
@@ -1219,7 +1296,7 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
 const navigation = [
   ["home", "Domov", House], ["calendar", "Kalendár", CalendarDays], ["attendance", "Dochádzka", ClipboardCheck], ["scanner", "Skenovať", ScanLine],
   ["messages", "Správy", MessageCircle], ["announcements", "Oznamy", Megaphone],
-  ["members", "Členovia", Users], ["equipment", "Vybavenie", Battery],
+  ["members", "Členovia", Users], ["development", "Rozvoj hráčov", Users], ["lineups", "Zostavy", ClipboardCheck], ["drills", "Knižnica cvičení", BookOpen], ["equipment", "Vybavenie", Battery],
   ["documents", "Dokumenty", FileText], ["management", "Správa používateľov", ShieldCheck],
 ];
 
@@ -1297,7 +1374,7 @@ function App() {
   const [notifications, setNotifications] = useState(false);
   const staff = user?.role === "coach" || user?.role === "superadmin";
   const superadmin = user?.role === "superadmin";
-  const visibleNavigation = navigation.filter(([key]) => (key !== "members" || staff) && (key !== "attendance" || staff) && (key !== "management" || superadmin) && (key !== "messages" || !superadmin));
+  const visibleNavigation = navigation.filter(([key]) => (key !== "members" || staff) && (key !== "development" || staff) && (key !== "lineups" || staff) && (key !== "drills" || staff) && (key !== "attendance" || staff) && (key !== "management" || superadmin) && (key !== "messages" || !superadmin));
   const allowedPages = [...visibleNavigation.map(([key]) => key), "profile"];
   const currentPage = allowedPages.includes(page) ? page : "home";
   const title = currentPage === "profile" ? "Môj profil a nastavenia" : visibleNavigation.find(([key]) => key === currentPage)?.[1];
@@ -1468,6 +1545,9 @@ function App() {
           {currentPage === "messages" && <Messages key={user.id + ":" + contact + ":" + route} user={user} conversations={data.conversations} refresh={refresh} initialContact={contact} />}
           {currentPage === "announcements" && <Bulletin items={data.announcements} staff={staff} refresh={refresh} />}
           {currentPage === "members" && staff && <Members key="members" userId={user.id} superadmin={superadmin} onMessage={messageMember} onCard={setCardMember} />}
+          {currentPage === "development" && staff && <PlayerDevelopmentPage />}
+          {currentPage === "lineups" && staff && <LineupPlanner trainings={data.trainings} />}
+          {currentPage === "drills" && staff && <DrillLibrary />}
           {currentPage === "management" && superadmin && <Members key="management" userId={user.id} superadmin management onMessage={messageMember} onCard={setCardMember} />}
           {currentPage === "equipment" && <Batteries key={user.id + ":" + activeBattery} staff={staff} initialCode={activeBattery} openScanner={openScanner} />}
           {currentPage === "documents" && <Documents staff={staff} />}
