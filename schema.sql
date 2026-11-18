@@ -194,6 +194,18 @@ ALTER TABLE members ADD COLUMN IF NOT EXISTS push_announcements boolean NOT NULL
 ALTER TABLE members ADD COLUMN IF NOT EXISTS club_roles text[] NOT NULL DEFAULT ARRAY['player']::text[];
 UPDATE members SET club_roles=ARRAY['player','coach'] WHERE role='coach' AND club_roles=ARRAY['player']::text[];
 UPDATE members SET club_roles=ARRAY['player'] WHERE role='member' AND cardinality(club_roles)=0;
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version text PRIMARY KEY,
+    applied_at timestamptz NOT NULL DEFAULT now()
+);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version='2026-11-18-player-role-optional') THEN
+        -- Earlier releases automatically marked every coach as a player.
+        UPDATE members SET club_roles=array_remove(club_roles,'player')
+            WHERE role='coach' AND 'player'=ANY(club_roles);
+        INSERT INTO schema_migrations(version) VALUES ('2026-11-18-player-role-optional');
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS role_catalog (
     role_key text PRIMARY KEY,
@@ -208,6 +220,17 @@ CREATE TABLE IF NOT EXISTS role_menu_permissions (
     enabled boolean NOT NULL DEFAULT false,
     PRIMARY KEY(role_key,menu_key)
 );
+ALTER TABLE role_menu_permissions ADD COLUMN IF NOT EXISTS access_level text;
+UPDATE role_menu_permissions SET access_level=CASE WHEN enabled THEN 'edit' ELSE 'none' END
+    WHERE access_level IS NULL;
+ALTER TABLE role_menu_permissions ALTER COLUMN access_level SET DEFAULT 'none';
+ALTER TABLE role_menu_permissions ALTER COLUMN access_level SET NOT NULL;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='role_menu_permissions_access_level_check') THEN
+        ALTER TABLE role_menu_permissions ADD CONSTRAINT role_menu_permissions_access_level_check
+            CHECK (access_level IN ('none','read','edit'));
+    END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS role_requests (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     member_id bigint NOT NULL REFERENCES members(id) ON DELETE CASCADE,

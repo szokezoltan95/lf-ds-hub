@@ -118,7 +118,7 @@ function Login({onLogin}) {
 }
 
 const kinds = {training: "Tréning", match: "Zápas", meeting: "Stretnutie"};
-const roles = {superadmin: "Superadmin", coach: "Tréner", member: "Člen"};
+const roles = {superadmin: "Administrátor", coach: "Tréner", member: "Člen"};
 const roleNames = {player:"Hráč",coach:"Tréner",club_leader:"Vedúci klubu",deputy_leader:"Zástupca vedúceho klubu",administrator:"Administratívny pracovník",equipment_technician:"Technik vybavenia",social_media_manager:"Správca sociálnych sietí",competition_coordinator:"Koordinátor súťaží",recruitment_coordinator:"Koordinátor náboru",safety_coordinator:"Bezpečnostný a prevádzkový koordinátor",team_coordinator:"Koordinátor tímov",content_creator:"Fotograf / tvorca obsahu"};
 const initials = name => name.split(" ").filter(Boolean).map(part => part[0]).slice(0, 2).join("").toUpperCase();
 const dayKey = timestamp => clubLocal(timestamp).slice(0, 10);
@@ -468,9 +468,10 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
         <span className={"badge "+(member.active?"positive":"")}>{status(member)}</span><ChevronRight size={18}/></button></li>)}
       </ul>{found.length===0&&<Empty icon={Users}>Žiadne zodpovedajúce účty.</Empty>}</div>
       {form&&<Modal title="Pozvať člena" close={()=>setForm(false)}>{link?<InviteLink link={link}/>:<Form label="Vytvoriť pozvánku" submit={async data=>{
+        if(superadmin&&!inviteRoles.length)throw new Error("Vyber aspoň jednu rolu.");
         const result=await api("members/invite","POST",{...data,roles:superadmin?inviteRoles:["player"]});await load();setLink(result.invite_url);
       }}><label>Meno<input name="name" maxLength="120" autoComplete="name" required/></label><label>E-mail<input name="email" type="email" maxLength="254" autoComplete="email" required/></label>
-        {superadmin&&<fieldset className="role-checkboxes"><legend>Roly pri pozvánke</legend>{config.map(item=><label className="checkbox" key={item.key}><input type="checkbox" disabled={item.key==="player"} checked={inviteRoles.includes(item.key)} onChange={()=>toggle(setInviteRoles,inviteRoles,item.key)}/>{item.name}{!item.available&&<span className="badge">Funkcia zatiaľ nedostupná</span>}</label>)}</fieldset>}
+        {superadmin&&<fieldset className="role-checkboxes"><legend>Roly pri pozvánke</legend>{config.map(item=><label className="checkbox" key={item.key}><input type="checkbox" checked={inviteRoles.includes(item.key)} onChange={()=>toggle(setInviteRoles,inviteRoles,item.key)}/>{item.name}{!item.available&&<span className="badge">Funkcia zatiaľ nedostupná</span>}</label>)}</fieldset>}
       </Form>}</Modal>}
       {selected&&<Modal title={selected.name} close={()=>setSelected(null)}><div className="profile-heading"><Avatar name={selected.name}/><div><span className="badge">Člen klubu</span><p>{selected.email||"admin"}</p><p>{(selected.roles||[]).map(roleName).join(" · ")}</p></div></div>
         {staff&&(selected.roles||[]).includes("player")&&selected.active&&<button className="section-space" onClick={()=>onCard(selected)}><QrCode size={17}/>Členský QR kód</button>}
@@ -478,11 +479,11 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
           {staff&&<>
           {(superadmin||selected.role==="member")&&<Action run={async()=>{await api("members/"+selected.id+"/active","PUT",{active:!selected.active});setSelected({...selected,active:!selected.active});await load();}}>{selected.active?"Deaktivovať":"Aktivovať"}</Action>}
           {(superadmin||selected.role==="member")&&selected.active&&selected.registered&&<Action run={async()=>{const r=await api("members/"+selected.id+"/reset","POST");setLink(r.invite_url);}}>Obnoviť heslo</Action>}
-          {selected.active&&!selected.registered&&<Action run={async()=>{const r=await api("members/invite","POST",{name:selected.name,email:selected.email,roles:selected.roles||["player"]});setLink(r.invite_url);}}>Nová pozvánka</Action>}
+          {selected.active&&!selected.registered&&<Action run={async()=>{const r=await api("members/invite","POST",{name:selected.name,email:selected.email,roles:superadmin?(selected.roles||["player"]):["player"]});setLink(r.invite_url);}}>Nová pozvánka</Action>}
           </>}
         </div>{link&&<InviteLink link={link}/>}
-        {superadmin&&<section className="section-space"><h3>Funkčné roly</h3>{config.map(role=><label className="checkbox role-member-checkbox" key={role.key}><input type="checkbox" disabled={role.key==="player"} checked={editRoles.includes(role.key)} onChange={()=>toggle(setEditRoles,editRoles,role.key)}/>{role.name}{!role.available&&<span className="badge">Funkcia zatiaľ nedostupná</span>}</label>)}
-          <Action className="primary section-space" run={async()=>{const r=await api("members/"+selected.id+"/roles","PUT",{roles:editRoles.length?editRoles:["player"]});const updated={...selected,roles:r.roles,role:r.roles.some(k=>config.find(x=>x.key===k)?.admin_access)?"coach":"member"};setSelected(updated);await load();}}>Uložiť roly</Action>
+        {superadmin&&<section className="section-space"><h3>Funkčné roly</h3>{config.map(role=><label className="checkbox role-member-checkbox" key={role.key}><input type="checkbox" checked={editRoles.includes(role.key)} onChange={()=>toggle(setEditRoles,editRoles,role.key)}/>{role.name}{!role.available&&<span className="badge">Funkcia zatiaľ nedostupná</span>}</label>)}
+          <Action className="primary section-space" run={async()=>{if(!editRoles.length)throw new Error("Vyber aspoň jednu rolu.");const r=await api("members/"+selected.id+"/roles","PUT",{roles:editRoles});const updated={...selected,roles:r.roles,role:r.roles.some(k=>config.find(x=>x.key===k)?.admin_access)?"coach":"member"};setSelected(updated);await load();}}>Uložiť roly</Action>
           {selected.registered&&<Action className="danger section-space" run={async()=>{if(!window.confirm("Natrvalo odstrániť člena "+selected.name+"?"))return;await api("members/"+selected.id,"DELETE");setSelected(null);await load();}}>Natrvalo odstrániť člena</Action>}
         </section>}
         {(selected.roles||[]).includes("player")&&<section className="section-space"><h3>Dochádzka</h3>{attendance.length?<ul className="records">{attendance.map((row,i)=><li key={i}><div className="grow"><strong>{row.title}</strong><span className="meta">{date(row.starts_at)}</span></div><span className={"badge "+(row.attended?"positive":"")}>{row.attended?"Prítomný":"Neprítomný"}</span></li>)}</ul>:<p className="muted">Zatiaľ bez záznamu.</p>}</section>}
@@ -495,13 +496,13 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
       </Modal>}
     </>}
     {section==="requests"&&<section className="card role-requests-panel"><h2>Žiadosti o pridanie rolí</h2>{requests.length?requests.map(item=><article className="role-request-row" key={item.id}><div className="grow"><strong>{item.member_name} · {item.role_name}</strong><span className="meta">{item.email} · {date(item.created_at)}</span></div>
-      {superadmin?<><Action className="primary" run={async()=>{await api("role-requests/"+item.id,"PUT",{status:"approved"});await Promise.all([loadRequests(),load()]);}}>Schváliť</Action><Action className="danger" run={async()=>{await api("role-requests/"+item.id,"PUT",{status:"rejected"});await loadRequests();}}>Zamietnuť</Action></>:<span className="badge">Čaká na superadmina</span>}</article>):<p className="muted">Žiadne čakajúce žiadosti.</p>}</section>}
+      {superadmin?<><Action className="primary" run={async()=>{await api("role-requests/"+item.id,"PUT",{status:"approved"});await Promise.all([loadRequests(),load()]);}}>Schváliť</Action><Action className="danger" run={async()=>{await api("role-requests/"+item.id,"PUT",{status:"rejected"});await loadRequests();}}>Zamietnuť</Action></>:<span className="badge">Čaká na schválenie</span>}</article>):<p className="muted">Žiadne čakajúce žiadosti.</p>}</section>}
     {section==="roles"&&superadmin&&<>
       <section className="card"><h2>Skúšobná prevádzka</h2><label className="checkbox"><input type="checkbox" checked={bannerEnabled} onChange={async e=>{const value=e.target.checked;setBannerEnabled(value);try{await api("admin/trial-banner","PUT",{enabled:value});onTrialBanner(value);}catch(err){setBannerEnabled(!value);setError(err.message);}}}/>Zobrazovať banner o skúšobnej prevádzke všetkým používateľom</label></section>
       <section className="card role-permissions-panel"><h2>Prístupy rolí k položkám menu</h2><p className="muted">Prístup sa uplatňuje v menu aj na API. Budúce moduly sú označené ako zatiaľ nedostupné.</p>
         {config.map(role=><details className="role-config-row" key={role.key}><summary><strong>{role.name}</strong><span className="meta">{role.available?"Dostupná rola":"Funkcie roly zatiaľ nie sú dostupné"}</span></summary><p>{role.description}</p>
           <div className="role-capabilities">{(role.capabilities||[]).map(feature=><span className="role-capability" key={feature.name}><span>{feature.name}</span><span className={"badge "+(feature.available?"positive":"planned-role")}>{feature.available?"Dostupné":"Zatiaľ nedostupné"}</span></span>)}</div>
-          <div className="role-menu-grid">{menus.map(menu=><label className="checkbox" key={menu}><input type="checkbox" checked={Boolean(role.permissions[menu])} onChange={e=>setConfig(rows=>rows.map(row=>row.key===role.key?{...row,permissions:{...row.permissions,[menu]:e.target.checked}}:row))}/>{navLabel[menu]}</label>)}</div>
+          <div className="role-menu-grid">{menus.map(menu=><label className="role-menu-setting" key={menu}><span>{navLabel[menu]}</span><select value={role.permissions[menu]||"none"} onChange={e=>setConfig(rows=>rows.map(row=>row.key===role.key?{...row,permissions:{...row.permissions,[menu]:e.target.value}}:row))}><option value="none">Bez prístupu</option><option value="read">Iba čítanie</option><option value="edit">Úprava</option></select></label>)}</div>
           <Action className="primary section-space" run={async()=>{await api("role-config/"+role.key,"PUT",{permissions:role.permissions});}}>Uložiť prístupy</Action>
         </details>)}
       </section>
@@ -647,7 +648,7 @@ function AnnouncementEditor({item, close, refresh}) {
       <label>Pridať prílohy<input type="file" multiple accept=".pdf,.png,.jpg,.jpeg" onChange={e=>setFiles(Array.from(e.target.files || []))} /></label>
       <p className="meta">PDF, PNG alebo JPEG. Najviac 5 príloh, spolu 5 MB.</p>
       <label className="checkbox"><input name="notify" type="checkbox" defaultChecked={!item} />Poslať push upozornenie adresátom</label>
-      <p className="meta">Oznamy spravujú tréneri a systémový správca. Pri úprave sa potvrdenia prečítania vynulujú.</p>
+      <p className="meta">Oznamy spravujú tréneri a vedenie klubu. Pri úprave sa potvrdenia prečítania vynulujú.</p>
     </Form>
   </Modal>;
 }
@@ -1376,17 +1377,21 @@ function PushSettings({user,reloadUser}) {
 }
 
 function RoleApplications({user}) {
-  const [catalog,setCatalog]=useState([]),[requests,setRequests]=useState([]),[chosen,setChosen]=useState([]),[saved,setSaved]=useState(""),[error,setError]=useState("");
+  const [catalog,setCatalog]=useState([]),[requests,setRequests]=useState([]),[confirmRole,setConfirmRole]=useState(null),[saved,setSaved]=useState(""),[error,setError]=useState("");
   useEffect(()=>{Promise.all([api("role-catalog"),api("me/role-requests")]).then(([c,r])=>{setCatalog(c);setRequests(r);}).catch(e=>setError(e.message));},[]);
-  const toggle=key=>setChosen(rows=>rows.includes(key)?rows.filter(x=>x!==key):[...rows,key]);
   const names=Object.fromEntries((user.roles||[]).map(key=>[key,true]));
   const pending=new Set(requests.filter(x=>x.status==="pending").map(x=>x.role_key));
-  return <section className="card role-application-panel"><h2>Žiadať o ďalšiu rolu</h2><p className="muted">Žiadosť posúdi superadmin. Podanie žiadosti nemení tvoje oprávnenia.</p>
-    {error&&<p className="error" role="alert">{error}</p>}{catalog.map(role=><label className="role-application-row" key={role.key}><input type="checkbox" checked={chosen.includes(role.key)} disabled={names[role.key]||pending.has(role.key)} onChange={()=>toggle(role.key)}/>
-      <span><strong>{role.name}</strong><span className="meta">{role.description}</span><span className="role-capabilities">{(role.capabilities||[]).map(feature=><span className="role-capability" key={feature.name}><span>{feature.name}</span><span className={"badge "+(feature.available?"positive":"planned-role")}>{feature.available?"Dostupné":"Zatiaľ nedostupné"}</span></span>)}</span></span>
-      {(names[role.key]||pending.has(role.key))&&<span className="badge">{names[role.key]?"Už pridelená":"Čaká na schválenie"}</span>}</label>)}
-    <Action className="primary section-space" disabled={!chosen.length} run={async()=>{await api("me/role-requests","POST",{roles:chosen});setSaved("Žiadosť bola odoslaná vedúcemu klubu a superadminovi.");setChosen([]);setRequests(await api("me/role-requests"));}}>{saved||"Odoslať žiadosť"}</Action>
+  async function submit(role){await api("me/role-requests","POST",{roles:[role.key]});setConfirmRole(null);setSaved("Žiadosť bola odoslaná vedeniu klubu.");setRequests(await api("me/role-requests"));}
+  return <section className="card role-application-panel"><h2>Ďalšie klubové roly</h2>
+    {error&&<p className="error" role="alert">{error}</p>}{saved&&<p className="success" role="status">{saved}</p>}
+    {catalog.filter(role=>role.available).map(role=>{const owned=names[role.key],waiting=pending.has(role.key);return <details className="role-application-option" key={role.key}>
+      <summary><strong>{role.name}</strong>{(owned||waiting)&&<span className="badge">{owned?"Už pridelená":"Čaká na schválenie"}</span>}</summary>
+      <p>{role.description}</p>
+      <div className="role-capabilities">{(role.capabilities||[]).map(feature=><span className="role-capability" key={feature.name}><span>{feature.name}</span><span className={"badge "+(feature.available?"positive":"planned-role")}>{feature.available?"Dostupné":"Zatiaľ nedostupné"}</span></span>)}</div>
+      <Action className="primary section-space" disabled={owned||waiting} run={()=>setConfirmRole(role)}>{owned?"Už pridelená":waiting?"Čaká na schválenie":"Požiadať o rolu"}</Action>
+    </details>})}
     {requests.filter(row=>row.status!=="pending").length>0&&<details className="section-space"><summary>Predchádzajúce žiadosti</summary><ul className="records">{requests.filter(row=>row.status!=="pending").map(row=><li key={row.id}><strong>{row.name}</strong><span className="badge">{row.status==="approved"?"Schválená":"Zamietnutá"}</span></li>)}</ul></details>}
+    {confirmRole&&<Modal title="Odoslať žiadosť o rolu?" close={()=>setConfirmRole(null)}><p>Žiadosť o rolu „{confirmRole.name}“ bude poslaná vedeniu klubu na posúdenie.</p><div className="actions"><Action className="primary" run={()=>submit(confirmRole)}>Potvrdiť a odoslať</Action><button onClick={()=>setConfirmRole(null)}>Zrušiť</button></div></Modal>}
   </section>;
 }
 

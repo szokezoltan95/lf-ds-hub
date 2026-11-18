@@ -7,6 +7,7 @@ export const ukrainianExtra = {
 };
 
 Object.assign(englishExtra, {
+  "Administrátor": "Administrator",
   "+ Nové miesto": "+ New location",
   "+ Poznámka trénerovi": "+ Note for coach",
   "Aplikácia vo vývoji": "App under development",
@@ -14,6 +15,7 @@ Object.assign(englishExtra, {
   "Naskenuj kód batérie LF-B alebo GS1-128 so sériovým číslom v AI 21.": "Scan an LF-B or GS1-128 battery code with its serial number in AI 21."
 });
 Object.assign(ukrainianExtra, {
+  "Administrátor": "Адміністратор",
   "+ Nové miesto": "+ Нове місце",
   "+ Poznámka trénerovi": "+ Примітка тренеру",
   "Aplikácia vo vývoji": "Застосунок у розробці",
@@ -39,6 +41,33 @@ for (const team of ["A", "B"]) {
 }
 Object.assign(englishExtra, lineupEnglish);
 Object.assign(ukrainianExtra, lineupUkrainian);
+
+Object.assign(englishExtra, {
+  "Bez prístupu": "No access", "Iba čítanie": "Read only", "Úprava": "Edit",
+  "Ďalšie klubové roly": "Additional club roles", "Požiadať o rolu": "Request role",
+  "Odoslať žiadosť o rolu?": "Send role request?", "Potvrdiť a odoslať": "Confirm and send",
+  "Žiadosť o rolu „": "The request for “", "“ bude poslaná vedeniu klubu na posúdenie.": "” will be sent to the club leadership for review.",
+  "Žiadosť bola odoslaná vedeniu klubu.": "Your request has been sent to the club leadership.",
+  "Oznamy spravujú tréneri a vedenie klubu. Pri úprave sa potvrdenia prečítania vynulujú.": "Announcements are managed by coaches and club leadership. Editing resets read confirmations.",
+  "Tento úkon môže vykonať iba poverený správca.": "Only an authorized administrator can perform this action.",
+  "Batériu môže vyradiť iba tréner alebo poverený správca.": "Only a coach or authorized administrator can retire a battery.",
+  "Iba poverený správca môže priradiť roly pri pozvánke.": "Only an authorized administrator can assign roles in an invitation.",
+  "K tejto časti aplikácie nemáš dostatočné oprávnenie.": "You do not have sufficient permission for this part of the app.",
+  "Vyber aspoň jednu rolu.": "Select at least one role."
+});
+Object.assign(ukrainianExtra, {
+  "Bez prístupu": "Немає доступу", "Iba čítanie": "Лише читання", "Úprava": "Редагування",
+  "Ďalšie klubové roly": "Додаткові ролі клубу", "Požiadať o rolu": "Подати запит на роль",
+  "Odoslať žiadosť o rolu?": "Надіслати запит на роль?", "Potvrdiť a odoslať": "Підтвердити й надіслати",
+  "Žiadosť o rolu „": "Запит на роль «", "“ bude poslaná vedeniu klubu na posúdenie.": "» буде надіслано керівництву клубу на розгляд.",
+  "Žiadosť bola odoslaná vedeniu klubu.": "Ваш запит надіслано керівництву клубу.",
+  "Oznamy spravujú tréneri a vedenie klubu. Pri úprave sa potvrdenia prečítania vynulujú.": "Оголошеннями керують тренери й керівництво клубу. Після редагування підтвердження прочитання скидаються.",
+  "Tento úkon môže vykonať iba poverený správca.": "Цю дію може виконати лише уповноважений адміністратор.",
+  "Batériu môže vyradiť iba tréner alebo poverený správca.": "Вивести акумулятор з експлуатації може лише тренер або уповноважений адміністратор.",
+  "Iba poverený správca môže priradiť roly pri pozvánke.": "Лише уповноважений адміністратор може призначати ролі в запрошенні.",
+  "K tejto časti aplikácie nemáš dostatočné oprávnenie.": "Ви не маєте достатніх прав для цього розділу застосунку.",
+  "Vyber aspoň jednu rolu.": "Виберіть принаймні одну роль."
+});
 
 Object.assign(englishExtra, {
   "Akú zostavu upravuješ?": "Which lineup do you want to edit?", "Zostava na udalosť": "Event lineup", "Toto je priebežná zostava tímu. Udalostná zostava sa upravuje samostatne.": "This is the team's ongoing base lineup. Event lineups are edited separately."

@@ -87,6 +87,7 @@ ROLE_CAPABILITIES = {
     "content_creator": [("Nahrávanie klubových fotografií a videí", False),
                         ("Mediálna galéria a evidencia súhlasov", False)],
 }
+PLAYER_READ_ONLY_PAGES = {"announcements", "team", "documents"}
 
 
 def seed_access_control(conn):
@@ -96,15 +97,21 @@ def seed_access_control(conn):
             name=excluded.name,description=excluded.description,available=excluded.available,
             admin_access=excluded.admin_access""", (key, name, description, available, admin_access))
         with conn.cursor() as cursor:
-            cursor.executemany("""INSERT INTO role_menu_permissions(role_key,menu_key,enabled)
-                VALUES (%s,%s,%s) ON CONFLICT(role_key,menu_key) DO NOTHING""",
-                [(key, page, page in pages) for page in MENU_KEYS])
+            cursor.executemany("""INSERT INTO role_menu_permissions(role_key,menu_key,enabled,access_level)
+                VALUES (%s,%s,%s,%s) ON CONFLICT(role_key,menu_key) DO NOTHING""",
+                [(key, page, page in pages,
+                  "none" if page not in pages else "read" if key == "player" and page in PLAYER_READ_ONLY_PAGES else "edit")
+                 for page in MENU_KEYS])
 
 
-def menu_for_path(path):
+def menu_for_path(path, method="GET"):
     path = path.split("/api/", 1)[-1]
     if path.startswith(("trainings", "places")):
-        return "attendance" if "/attendance" in path else "lineups" if "/lineup" in path else "calendar"
+        if "/attendance" in path:
+            return "attendance"
+        if "/lineup" in path:
+            return "team" if method in {"GET", "HEAD"} else "lineups"
+        return "calendar"
     if path.startswith(("attendance",)):
         return "attendance"
     if path.startswith(("scan",)):
@@ -114,7 +121,7 @@ def menu_for_path(path):
     if path.startswith("role-requests"):
         return "members"
     if path.startswith(("lineup",)):
-        return "lineups"
+        return "team" if method in {"GET", "HEAD"} else "lineups"
     if path.startswith(("drills",)):
         return "drills"
     if path.startswith(("announcements", "announcement-")):
@@ -129,7 +136,7 @@ def menu_for_path(path):
 
 
 def sync_account_roles(conn, member_id, roles):
-    roles = sorted(set(roles) | {"player"})
+    roles = sorted(set(roles))
     account_role = "coach" if any(ROLE_DEFINITIONS[key][3] for key in roles) else "member"
     conn.execute("UPDATE members SET club_roles=%s,role=%s WHERE id=%s",
                  (roles, account_role, member_id))
@@ -140,8 +147,17 @@ def effective_menu(conn, user):
         return list(MENU_KEYS)
     roles = user.get("club_roles") or ["player"]
     rows = conn.execute("""SELECT DISTINCT menu_key FROM role_menu_permissions
-        WHERE role_key=ANY(%s) AND enabled""", (roles,)).fetchall()
+        WHERE role_key=ANY(%s) AND access_level<>'none'""", (roles,)).fetchall()
     return sorted({row["menu_key"] for row in rows} | {"home"})
+
+
+def effective_permission(conn, user, menu_key):
+    if user["role"] == "superadmin":
+        return "edit"
+    levels = conn.execute("""SELECT access_level FROM role_menu_permissions
+        WHERE role_key=ANY(%s) AND menu_key=%s""", (user.get("club_roles") or [], menu_key)).fetchall()
+    rank = {"none": 0, "read": 1, "edit": 2}
+    return max((row["access_level"] for row in levels), key=lambda value: rank[value], default="none")
 Short = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 Email = Annotated[str, StringConstraints(strip_whitespace=True, to_lower=True, max_length=254,
                                         pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")]
@@ -261,9 +277,13 @@ def identity(request: Request, conn: DB):
         raise HTTPException(401, "Prihlás sa do portálu.")
     member["roles"] = member.get("club_roles") or ([] if member["role"] == "superadmin" else ["player"])
     member["menu_access"] = effective_menu(conn, member)
-    menu_key = menu_for_path(request.url.path)
-    if menu_key and member["role"] != "superadmin" and menu_key not in member["menu_access"]:
-        raise HTTPException(403, "K tejto časti aplikácie nemáš prístup.")
+    menu_key = menu_for_path(request.url.path, request.method)
+    if menu_key and member["role"] != "superadmin":
+        level = effective_permission(conn, member, menu_key)
+        read_receipt = request.method == "POST" and bool(re.fullmatch(
+            rf"{re.escape(PREFIX)}/api/announcements/\d+/read", request.url.path))
+        if level == "none" or (request.method not in {"GET", "HEAD", "OPTIONS"} and level != "edit" and not read_receipt):
+            raise HTTPException(403, "K tejto časti aplikácie nemáš dostatočné oprávnenie.")
     return member
 
 
@@ -281,7 +301,7 @@ Staff = Annotated[dict, Depends(staff, scope="function")]
 
 def superadmin(user: User):
     if user["role"] != "superadmin":
-        raise HTTPException(403, "Tento úkon môže vykonať iba superadmin.")
+        raise HTTPException(403, "Tento úkon môže vykonať iba poverený správca.")
     return user
 
 
@@ -310,6 +330,7 @@ class Accept(BaseModel):
 
 class CoachAccount(Invite):
     password: Password
+    roles: list[str] = Field(default_factory=list, max_length=12)
 
 
 class AccountRole(BaseModel):
@@ -329,7 +350,7 @@ class RoleDecision(BaseModel):
 
 
 class RoleMenuConfig(BaseModel):
-    permissions: dict[str, bool]
+    permissions: dict[str, Literal["none", "read", "edit"]]
 
 
 class TrialBannerSetting(BaseModel):
@@ -351,13 +372,13 @@ def public_settings(conn: DB):
 @api.get("/role-config")
 def get_role_config(conn: DB, _admin: Superadmin):
     rows = conn.execute("""SELECT c.role_key,c.name,c.description,c.available,c.admin_access,
-        p.menu_key,p.enabled FROM role_catalog c JOIN role_menu_permissions p USING(role_key)
+        p.menu_key,p.access_level FROM role_catalog c JOIN role_menu_permissions p USING(role_key)
         ORDER BY c.role_key,p.menu_key""").fetchall()
     result = {}
     for row in rows:
         item = result.setdefault(row["role_key"], {"key":row["role_key"],"name":row["name"],
             "description":row["description"],"available":row["available"],"admin_access":row["admin_access"],"permissions":{}})
-        item["permissions"][row["menu_key"]] = row["enabled"]
+        item["permissions"][row["menu_key"]] = row["access_level"]
     for key, item in result.items():
         item["capabilities"] = [{"name":name,"available":available} for name,available in ROLE_CAPABILITIES[key]]
     return {"roles":list(result.values()),"menus":list(MENU_KEYS)}
@@ -378,9 +399,10 @@ def update_role_config(role_key: str, data: RoleMenuConfig, conn: DB, _admin: Su
     if role_key not in ROLE_DEFINITIONS or set(data.permissions) != set(MENU_KEYS):
         raise HTTPException(422, "Nastavenie obsahuje neznámu rolu alebo položku menu.")
     with conn.cursor() as cursor:
-        cursor.executemany("""INSERT INTO role_menu_permissions(role_key,menu_key,enabled)
-            VALUES (%s,%s,%s) ON CONFLICT(role_key,menu_key) DO UPDATE SET enabled=excluded.enabled""",
-            [(role_key, key, value) for key, value in data.permissions.items()])
+        cursor.executemany("""INSERT INTO role_menu_permissions(role_key,menu_key,enabled,access_level)
+            VALUES (%s,%s,%s,%s) ON CONFLICT(role_key,menu_key) DO UPDATE SET
+            enabled=excluded.enabled,access_level=excluded.access_level""",
+            [(role_key, key, value != "none", value) for key, value in data.permissions.items()])
     return {"ok":True}
 
 
@@ -564,22 +586,22 @@ class MemberRoles(BaseModel):
 @api.put("/members/{member_id}/roles")
 def update_member_roles(member_id: int, data: MemberRoles, conn: DB, _admin: Superadmin):
     roles = set(data.roles)
-    if not roles <= set(ROLE_DEFINITIONS):
+    if not roles or not roles <= set(ROLE_DEFINITIONS):
         raise HTTPException(422, "Zoznam obsahuje neznámu rolu.")
     current = conn.execute("SELECT role FROM members WHERE id=%s AND role IN ('member','coach') FOR UPDATE",
                            (member_id,)).fetchone()
     if not current:
         raise HTTPException(404, "Člena sa nenašlo.")
     sync_account_roles(conn, member_id, roles)
-    return {"roles":sorted(roles or {"player"})}
+    return {"roles":sorted(roles)}
 
 
 @api.post("/members/invite")
 def invite(data: Invite, conn: DB, user: Staff):
     if user["role"] != "superadmin" and data.roles != ["player"]:
-        raise HTTPException(403, "Iba superadmin môže priradiť roly pri pozvánke.")
-    roles = sorted(set(data.roles) | {"player"})
-    if not set(roles) <= set(ROLE_DEFINITIONS):
+        raise HTTPException(403, "Iba poverený správca môže priradiť roly pri pozvánke.")
+    roles = sorted(set(data.roles))
+    if not roles or not set(roles) <= set(ROLE_DEFINITIONS):
         raise HTTPException(422, "Pozvánka obsahuje neznámu rolu.")
     account_role = "coach" if any(ROLE_DEFINITIONS[role][3] for role in roles) else "member"
     token = secrets.token_urlsafe(32)
@@ -600,10 +622,15 @@ def invite(data: Invite, conn: DB, user: Staff):
 
 @api.post("/members/coaches")
 def create_coach(data: CoachAccount, conn: DB, _admin: Superadmin):
+    roles = set(data.roles) | {"coach"}
+    if not roles <= set(ROLE_DEFINITIONS):
+        raise HTTPException(422, "Zoznam obsahuje neznámu rolu.")
+    roles = sorted(roles)
+    account_role = "coach" if any(ROLE_DEFINITIONS[key][3] for key in roles) else "member"
     member = conn.execute(
         """INSERT INTO members (email, name, role, club_roles, password_hash)
-        VALUES (%s, %s, 'coach', ARRAY['player','coach']::text[], %s) ON CONFLICT (email) DO NOTHING RETURNING id""",
-        (data.email, data.name, password_hash(data.password)),
+        VALUES (%s, %s, %s, %s, %s) ON CONFLICT (email) DO NOTHING RETURNING id""",
+        (data.email, data.name, account_role, roles, password_hash(data.password)),
     ).fetchone()
     if not member:
         raise HTTPException(409, "Tento e-mail už patrí existujúcemu účtu.")
@@ -621,7 +648,7 @@ def set_role(member_id: int, data: AccountRole, conn: DB, _admin: Superadmin):
     if member["role"] != data.role:
         conn.execute(
             """UPDATE members SET role=%s, club_roles=%s, invite_hash=NULL, invite_until=NULL
-            WHERE id=%s""", (data.role, ["player","coach"] if data.role == "coach" else ["player"], member_id),
+            WHERE id=%s""", (data.role, ["coach"] if data.role == "coach" else ["player"], member_id),
         )
     return {"ok": True}
 
@@ -1754,7 +1781,7 @@ def add_event(code: Code, data: BatteryEvent, conn: DB, user: User):
     if status == "retired" or (status == "damaged" and data.action not in {"damaged", "retired"}):
         raise HTTPException(409, "Batéria je poškodená alebo vyradená.")
     if data.action == "retired" and user["role"] not in STAFF_ROLES:
-        raise HTTPException(403, "Batériu môže vyradiť iba tréner alebo superadmin.")
+        raise HTTPException(403, "Batériu môže vyradiť iba tréner alebo poverený správca.")
     # A stable request id makes retrying a scanned action safe after a lost response.
     inserted = conn.execute(
         """INSERT INTO battery_events (code,actor_id,action,note,request_id) VALUES (%s,%s,%s,%s,%s)
