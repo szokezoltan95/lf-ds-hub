@@ -9,12 +9,16 @@ export const ukrainianExtra = {
 Object.assign(englishExtra, {
   "+ Nové miesto": "+ New location",
   "+ Poznámka trénerovi": "+ Note for coach",
-  "Aplikácia vo vývoji": "App under development"
+  "Aplikácia vo vývoji": "App under development",
+  "Skenuj kód LF-B alebo GS1-128; pri GS1 môže byť kód LF-B priamo v údajoch alebo číselné sériové číslo v AI 21. Neznámu batériu môžeš pridať.": "Scan an LF-B or GS1-128 code. GS1 may contain the LF-B code directly or a numeric serial number in AI 21. Unknown batteries can be added.",
+  "Naskenuj kód batérie LF-B alebo GS1-128 so sériovým číslom v AI 21.": "Scan an LF-B or GS1-128 battery code with its serial number in AI 21."
 });
 Object.assign(ukrainianExtra, {
   "+ Nové miesto": "+ Нове місце",
   "+ Poznámka trénerovi": "+ Примітка тренеру",
-  "Aplikácia vo vývoji": "Застосунок у розробці"
+  "Aplikácia vo vývoji": "Застосунок у розробці",
+  "Skenuj kód LF-B alebo GS1-128; pri GS1 môže byť kód LF-B priamo v údajoch alebo číselné sériové číslo v AI 21. Neznámu batériu môžeš pridať.": "Скануйте код LF-B або GS1-128. GS1 може містити код LF-B або числовий серійний номер у полі AI 21. Невідомий акумулятор можна додати.",
+  "Naskenuj kód batérie LF-B alebo GS1-128 so sériovým číslom v AI 21.": "Скануйте код акумулятора LF-B або GS1-128 із серійним номером у полі AI 21."
 });
 
 const lineupEnglish = {

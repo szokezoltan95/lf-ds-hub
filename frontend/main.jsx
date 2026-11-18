@@ -1251,7 +1251,7 @@ function ClubScanner({user,initialEvent,refresh}) {
         <button role="tab" aria-selected={mode==="batteries"} className={mode==="batteries"?"selected":""} onClick={()=>{setMode("batteries");setPendingMember(null);setResult(null);setError("");}}>Batérie</button>
         <button role="tab" aria-selected={mode==="attendance"} className={mode==="attendance"?"selected":""} onClick={()=>{setMode("attendance");setPendingMember(null);setResult(null);setError("");}}>Dochádzka</button>
       </div>}
-      <p className="muted">{mode==="attendance" ? "Naskenuj členský QR. Prítomnosť sa zapíše automaticky." : staff ? "Skenuj kód LF-B na batérii. Neznámu batériu môžeš pridať." : "Naskenuj existujúcu batériu LF-B a zapíš jej použitie."}</p>
+      <p className="muted">{mode==="attendance" ? "Naskenuj členský QR. Prítomnosť sa zapíše automaticky." : staff ? "Skenuj kód LF-B alebo GS1-128; pri GS1 môže byť kód LF-B priamo v údajoch alebo číselné sériové číslo v AI 21. Neznámu batériu môžeš pridať." : "Naskenuj kód batérie LF-B alebo GS1-128 so sériovým číslom v AI 21."}</p>
       {staff && mode==="attendance" && <div className="scan-event-picker">
         <label>Deň udalosti<input type="date" value={day} onChange={event=>{setEventId(null);setDay(event.target.value);}} disabled={busy} /></label>
         <label>Dochádzka na udalosť<select value={eventsLoading ? "" : eventId || ""} disabled={eventsLoading || busy} onChange={event=>setEventId(Number(event.target.value) || null)}>

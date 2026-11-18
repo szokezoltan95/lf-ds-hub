@@ -1778,14 +1778,46 @@ class ScanRequest(BaseModel):
 
 
 def scan_value(value):
-    # Old battery QR labels contain a portal URL; barcode labels contain just LF-B… .
+    # Old battery QR labels contain a portal URL; Code 128/GS1-128 labels can
+    # contain LF-B… directly or carry it as the GS1 serial (AI 21).
     if value.startswith(('https://','http://')):
         link=urlsplit(value)
         if (link.scheme,link.netloc,link.path.rstrip('/')) != (url.scheme,url.netloc,PREFIX):
             raise HTTPException(422,'Kód nepatrí tomuto klubu.')
         parameters=parse_qs(link.fragment)
         value=parameters.get('battery',[''])[0]
-    if value.startswith('LF-B'):
+
+    value=value.strip()
+    # ZXing may expose the Code 128 symbology identifier (]C1) and FNC1 as
+    # ASCII Group Separator. Human-readable GS1 labels use parenthesized AIs.
+    gs1=value[3:] if value.startswith(']C1') else value
+    direct=re.search(r'LF-B[0-9]{2,6}(?![0-9])',gs1,re.IGNORECASE)
+    if direct:
+        value=direct.group(0).upper()
+    elif gs1.startswith('('):
+        # HRI form: (01)…(21)serial(91)… .
+        fields=re.findall(r'\((\d{2,4})\)(.*?)(?=\(\d{2,4}\)|$)',gs1)
+        serial=next((field.strip() for ai,field in fields if ai=='21'),None)
+        if serial and re.fullmatch(r'[0-9]{2,6}',serial):
+            value='LF-B'+serial
+    else:
+        # Raw GS1 element strings use FNC1 separators for variable-length
+        # fields. Walk common fixed-length AIs so AI 21 can follow GTIN (01).
+        parts=gs1.split('\x1d')
+        serial=None
+        for part in parts:
+            if part.startswith('21'):
+                serial=part[2:]
+                break
+        if serial is None and gs1.startswith('01') and len(gs1)>=16:
+            rest=gs1[16:]
+            if rest.startswith('21'):
+                serial=rest[2:].split('\x1d',1)[0]
+        if serial and re.fullmatch(r'[0-9]{2,6}',serial):
+            value='LF-B'+serial
+
+    if value.upper().startswith('LF-B'):
+        value=value.upper()
         try:
             return 'battery',TypeAdapter(Code).validate_python(value)
         except ValueError:
