@@ -92,10 +92,14 @@ PLAYER_READ_ONLY_PAGES = {"announcements", "team", "documents"}
 
 def seed_access_control(conn):
     for key, (name, description, available, admin_access, pages) in ROLE_DEFINITIONS.items():
-        conn.execute("""INSERT INTO role_catalog(role_key,name,description,available,admin_access)
-            VALUES (%s,%s,%s,%s,%s) ON CONFLICT(role_key) DO UPDATE SET
+        can_create_invites = key in {"coach", "club_leader", "deputy_leader"}
+        can_assign_invite_roles = key in {"club_leader", "deputy_leader"}
+        conn.execute("""INSERT INTO role_catalog(role_key,name,description,available,admin_access,
+            can_create_invites,can_assign_invite_roles)
+            VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(role_key) DO UPDATE SET
             name=excluded.name,description=excluded.description,available=excluded.available,
-            admin_access=excluded.admin_access""", (key, name, description, available, admin_access))
+            admin_access=excluded.admin_access""",
+            (key, name, description, available, admin_access, can_create_invites, can_assign_invite_roles))
         with conn.cursor() as cursor:
             cursor.executemany("""INSERT INTO role_menu_permissions(role_key,menu_key,enabled,access_level)
                 VALUES (%s,%s,%s,%s) ON CONFLICT(role_key,menu_key) DO NOTHING""",
