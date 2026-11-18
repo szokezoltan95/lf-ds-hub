@@ -95,9 +95,10 @@ def seed_access_control(conn):
             VALUES (%s,%s,%s,%s,%s) ON CONFLICT(role_key) DO UPDATE SET
             name=excluded.name,description=excluded.description,available=excluded.available,
             admin_access=excluded.admin_access""", (key, name, description, available, admin_access))
-        conn.executemany("""INSERT INTO role_menu_permissions(role_key,menu_key,enabled)
-            VALUES (%s,%s,%s) ON CONFLICT(role_key,menu_key) DO NOTHING""",
-            [(key, page, page in pages) for page in MENU_KEYS])
+        with conn.cursor() as cursor:
+            cursor.executemany("""INSERT INTO role_menu_permissions(role_key,menu_key,enabled)
+                VALUES (%s,%s,%s) ON CONFLICT(role_key,menu_key) DO NOTHING""",
+                [(key, page, page in pages) for page in MENU_KEYS])
 
 
 def menu_for_path(path):
@@ -376,9 +377,10 @@ def get_role_catalog(conn: DB, user: User):
 def update_role_config(role_key: str, data: RoleMenuConfig, conn: DB, _admin: Superadmin):
     if role_key not in ROLE_DEFINITIONS or set(data.permissions) != set(MENU_KEYS):
         raise HTTPException(422, "Nastavenie obsahuje neznámu rolu alebo položku menu.")
-    conn.executemany("""INSERT INTO role_menu_permissions(role_key,menu_key,enabled)
-        VALUES (%s,%s,%s) ON CONFLICT(role_key,menu_key) DO UPDATE SET enabled=excluded.enabled""",
-        [(role_key, key, value) for key, value in data.permissions.items()])
+    with conn.cursor() as cursor:
+        cursor.executemany("""INSERT INTO role_menu_permissions(role_key,menu_key,enabled)
+            VALUES (%s,%s,%s) ON CONFLICT(role_key,menu_key) DO UPDATE SET enabled=excluded.enabled""",
+            [(role_key, key, value) for key, value in data.permissions.items()])
     return {"ok":True}
 
 
