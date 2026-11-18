@@ -212,8 +212,19 @@ CREATE TABLE IF NOT EXISTS role_catalog (
     name text NOT NULL,
     description text NOT NULL,
     available boolean NOT NULL DEFAULT true,
-    admin_access boolean NOT NULL DEFAULT false
+    admin_access boolean NOT NULL DEFAULT false,
+    can_create_invites boolean NOT NULL DEFAULT false,
+    can_assign_invite_roles boolean NOT NULL DEFAULT false
 );
+ALTER TABLE role_catalog ADD COLUMN IF NOT EXISTS can_create_invites boolean NOT NULL DEFAULT false;
+ALTER TABLE role_catalog ADD COLUMN IF NOT EXISTS can_assign_invite_roles boolean NOT NULL DEFAULT false;
+DO $ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version='2026-11-18-invite-role-permissions') THEN
+        UPDATE role_catalog SET can_create_invites = role_key IN ('coach','club_leader','deputy_leader');
+        UPDATE role_catalog SET can_assign_invite_roles = role_key IN ('club_leader','deputy_leader');
+        INSERT INTO schema_migrations(version) VALUES ('2026-11-18-invite-role-permissions');
+    END IF;
+END $;
 CREATE TABLE IF NOT EXISTS role_menu_permissions (
     role_key text NOT NULL REFERENCES role_catalog(role_key) ON DELETE CASCADE,
     menu_key text NOT NULL,
