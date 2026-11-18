@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 33696)
-Total output lines: 1750
-
 import React, {useEffect, useRef, useState} from "react";
 import {createRoot} from "react-dom/client";
 import {Drone, Menu, X, House, CalendarDays, MessageCircle, Megaphone, Users, Battery, ShieldCheck, Construction, BookOpen, Timer,
@@ -801,7 +798,166 @@ function Messages({user, conversations, refresh, initialContact}) {
   return <div className={"chat card flush " + (selected ? "conversation-open" : "")}>
     <aside className="conversation-list">
       <div className="chat-list-actions"><button className="primary" onClick={() => {setRecipientQuery(""); setNewMessage(true);}}><Plus size={17} />Nová správa</button>
-        {user.role === "coach" && <button className="icon-button" aria-label="Nová skupina" onClick={() => setGroupEditor({})}><Users size={20} />…3696 tokens truncated…evelopment(await api("members/" + selected.id + "/development"));}}>
+        {user.role === "coach" && <button className="icon-button" aria-label="Nová skupina" onClick={() => setGroupEditor({})}><Users size={20} /></button>}
+      </div>
+      <label className="search"><Search size={18} /><input type="search" aria-label="Hľadať konverzáciu" placeholder="Hľadať konverzáciu…" value={query} onChange={event => setQuery(event.target.value)} /></label>
+      {error && !selected && <p className="error chat-list-error" role="alert">{error}</p>}
+      {rows.filter(row => row.name.toLowerCase().includes(query.toLowerCase())).map(row => {
+        const group = row.type === "group";
+        const key = conversationKey(row);
+        return <button className={"conversation-row " + (selectedKey === key ? "active" : "")} key={key}
+          onClick={() => openConversation({type: group ? "group" : "private", id: group ? row.group_id : row.contact_id})}>
+          {group ? <span className="avatar group-avatar"><Users size={21} /></span> : <Avatar name={row.name} />}
+          <span className="grow"><strong>{row.name}</strong><span className="preview">{row.body ? (group && row.sender ? row.sender + ": " : "") + row.body :
+            row.system_key === "coaches" ? "Skupina trénerov" : group ? "Skupinová konverzácia" : "Začať konverzáciu"}</span></span>
+          <span className="conversation-meta">{row.created_at && <small>{clock(row.created_at)}</small>}{row.unread > 0 && <span className="counter">{row.unread}</span>}</span>
+        </button>;
+      })}
+      {rows.length === 0 && <Empty icon={MessageCircle}>Začni konverzáciu tlačidlom Nová správa.</Empty>}
+    </aside>
+    <section className="conversation-pane">
+      {selected ? <>
+        <div className="chat-head">
+          <button className="icon-button chat-back" aria-label="Späť na konverzácie" onClick={() => setSelected(null)}><ChevronLeft /></button>
+          {selected.type === "group" ? <span className="avatar group-avatar"><Users size={19} /></span> : <Avatar name={activeConversation?.name || person?.name || "Kontakt"} />}
+          <strong className="grow">{activeConversation?.name || person?.name || "Konverzácia"}</strong>
+          {selected.type === "group" && <Action className="icon-button" run={async () => setGroupInfo(await api("chat-groups/" + selected.id))}>
+            <Settings2 size={19} /><span className="sr-only">Účastníci a nastavenia skupiny</span>
+          </Action>}
+        </div>
+        <div className="message-stream" ref={scroller}>
+          {error && <p className="error" role="alert">{error}</p>}
+          {more && <Action className="text-button" run={async () => {
+            const key = selectedKey;
+            const page = await api(messagePath(selected) + "&before=" + messages.at(-1).id);
+            if (activeKey.current === key) {setMessages([...messages, ...page]); setMore(page.length === 200);}
+          }}>Staršie správy</Action>}
+          {messages.length ? [...messages].reverse().map(item => <div className={"message " + (item.sender_id === user.id ? "outgoing" : "")} key={item.id}>
+            {selected.type === "group" && item.sender_id !== user.id && <strong className="message-author">{item.sender}</strong>}
+            <p>{item.body}</p><span>{date(item.created_at)}{selected.type === "private" && item.sender_id === user.id && item.read_at && <CheckCheck size={13} />}</span>
+          </div>) : <p className="muted small">Tu sa začína vaša konverzácia.</p>}
+        </div>
+        {canSend ? <div className="composer"><Form key={selectedKey} label={<><Send size={18} /><span className="sr-only">Odoslať správu</span></>} reset submit={async data => {
+          const key = selectedKey;
+          const destination = selected.type === "group" ? {group_id: selected.id} : {recipient_id: selected.id};
+          await api("messages", "POST", {...destination, body: data.body});
+          const rows = await api(messagePath(selected));
+          if (activeKey.current === key) {scrollPending.current = true; setMessages(rows); await markRead(selected, rows);}
+          await refresh();
+        }}><label className="sr-only" htmlFor="message-body">Správa</label><textarea id="message-body" name="body" rows="1" maxLength="4000" placeholder="Napíš správu…" required /></Form></div> :
+          <p className="notice">Do tejto konverzácie už nemožno posielať správy.</p>}
+      </> : <Empty icon={MessageCircle}>Vyber konverzáciu alebo vytvor novú správu.</Empty>}
+    </section>
+    {newMessage && <Modal title="Nová správa" close={() => setNewMessage(false)}>
+      <label className="search"><Search size={18} /><input type="search" aria-label="Hľadať adresáta" value={recipientQuery} placeholder="Hľadať člena alebo trénera…" onChange={event => setRecipientQuery(event.target.value)} /></label>
+      {user.role === "coach" && <button className="button section-space" onClick={() => {setNewMessage(false); setGroupEditor({});}}><Users size={18} />Vytvoriť skupinu</button>}
+      <ul className="people-list recipient-list">{contacts.filter(person => person.name.toLowerCase().includes(recipientQuery.toLowerCase())).map(person =>
+        <li key={person.id}><button className="person-link" onClick={() => openConversation({type: "private", id: person.id})}><Avatar name={person.name} /><span className="grow"><strong>{person.name}</strong><span className="meta">{roles[person.role]}</span></span><ChevronRight size={18} /></button></li>)}</ul>
+      {contacts.length === 0 && <p className="muted section-space">Zatiaľ žiadne dostupné kontakty.</p>}
+    </Modal>}
+    {groupInfo && <Modal title={groupInfo.name} close={() => setGroupInfo(null)}>
+      <p className="muted">{groupInfo.members.length} účastníkov</p>
+      {groupInfo.system_key && <p className="small">Účastníci tejto skupiny sa určujú automaticky podľa rolí v klube.</p>}
+      <ul className="people-list">{groupInfo.members.map(person => <li key={person.id}><Avatar name={person.name} /><span className="grow"><strong>{person.name}</strong><span className="meta">{roles[person.role]}</span></span></li>)}</ul>
+      {groupInfo.can_manage && <button className="primary section-space" onClick={() => {setGroupEditor(groupInfo); setGroupInfo(null);}}><Pencil size={17} />Upraviť názov a účastníkov</button>}
+    </Modal>}
+    {groupEditor && <GroupEditor group={groupEditor.id ? groupEditor : null} contacts={contacts} user={user} close={() => setGroupEditor(null)}
+      done={async group_id => {setGroupEditor(null); await refresh(); openConversation({type: "group", id: group_id});}} />}
+  </div>;
+}
+
+function Batteries({staff, initialCode, openScanner}) {
+  const [items, setItems] = useState([]);
+  const [selected, setSelected] = useState(initialCode || null);
+  const [events, setEvents] = useState([]);
+  const [query, setQuery] = useState("");
+  const [create, setCreate] = useState(false);
+  const [action, setAction] = useState(null);
+  const [error, setError] = useState("");
+  async function load() {setItems(await api("batteries"));}
+  useEffect(() => {load().catch(error => setError(error.message));}, []);
+  useEffect(() => {
+    let current = true;
+    setEvents([]);
+    if (selected) api("batteries/" + encodeURIComponent(selected) + "/events")
+      .then(rows => {if (current) setEvents(rows);}).catch(error => {if (current) setError(error.message);});
+    return () => {current = false;};
+  }, [selected]);
+  const battery = items.find(item => item.code === selected);
+  return <>
+    <div className="toolbar"><label className="search"><Search size={18} /><input type="search" aria-label="Hľadať batériu" placeholder="Kód alebo označenie…" value={query} onChange={event => setQuery(event.target.value)} /></label>
+      <button onClick={()=>openScanner()}><ScanLine size={18} />Skenovať batériu</button>
+      {staff && <button className="primary" onClick={() => setCreate(true)}><Plus size={18} />Batéria</button>}</div>
+    {error && <p className="error" role="alert">{error}</p>}
+    <div className="equipment-grid">{items.filter(b => (b.code + " " + b.label).toLowerCase().includes(query.toLowerCase())).map(b =>
+      <button className="card equipment-card" key={b.code} onClick={() => {setSelected(b.code); setAction(null);}}><Battery size={25} /><strong>{b.code}</strong><span className="muted">{b.label}</span>
+        <span className={"badge " + (["damaged", "retired"].includes(b.status) ? "warning" : "positive")}>{batteryLabels[b.status] || "Bez záznamu"}</span>
+        <span className="meta">{b.charges} evidovaných nabití</span>
+      </button>)}</div>
+    {items.length === 0 && <Empty icon={Battery}>Zatiaľ žiadne batérie. QR štítok otvorí detail priamo v aplikácii.</Empty>}
+    {selected && <Modal title={battery ? battery.code : "Batéria"} close={() => {setSelected(null); setAction(null);}}>
+      {battery ? <>
+        <p className="muted">{battery.label}</p><p><span className="badge">{batteryLabels[battery.status] || "Bez záznamu"}</span></p>
+        {staff && <a className="button section-space" href={new URL("api/batteries/" + battery.code + "/label.svg", base)} download={battery.code + ".svg"}><Download size={17} />QR štítok</a>}
+        {battery.status !== "retired" && <div className="battery-actions section-space">
+          {Object.entries(batteryLabels).filter(([value]) => (staff || value === "used") &&
+            (battery.status !== "damaged" || value === "retired" || value === "damaged")).map(([value, text]) =>
+              <button key={value} className={action === value ? "selected" : ""} onClick={() => setAction(value)}>{text}</button>)}
+        </div>}
+        {action && <Form label={"Zapísať · " + batteryLabels[action]} submit={async data => {
+          await api("batteries/" + battery.code + "/events", "POST", {action, note: data.note});
+          setEvents(await api("batteries/" + battery.code + "/events")); setAction(null); await load();
+        }}><label>Poznámka (voliteľná)<input name="note" maxLength="1000" /></label></Form>}
+        <h3 className="section-space">História</h3><ul className="timeline">{events.map(event => <li key={event.id}>
+          <strong>{batteryLabels[event.action]}</strong><span className="meta">{date(event.created_at)} · {event.name}</span>
+          {event.note && <p className="body small">{event.note}</p>}
+        </li>)}</ul>
+      </> : <p>Batéria sa načítava alebo sa nenašla.</p>}
+    </Modal>}
+    {create && <Modal title="Nová batéria" close={() => setCreate(false)}><Form label="Pridať batériu" submit={async data => {
+      await api("batteries", "POST", data); await load(); setCreate(false); setSelected(data.code);
+    }}><label>Kód<input name="code" pattern="LF-B[0-9]{2,6}" placeholder="LF-B01" required /></label><label>Označenie<input name="label" maxLength="120" required /></label></Form></Modal>}
+  </>;
+}
+
+function DrillLibrary() {
+  const [items, setItems] = useState([]);
+  const [query, setQuery] = useState("");
+  const [error, setError] = useState("");
+  async function load() {setItems(await api("drills"));}
+  useEffect(() => {load().catch(e => setError(e.message));}, []);
+  return <>
+    <div className="toolbar"><label className="search"><Search size={18} /><input aria-label="Hľadať cvičenie" placeholder="Hľadať cvičenie…" value={query} onChange={e => setQuery(e.target.value)} /></label></div>
+    {error && <p className="error" role="alert">{error}</p>}
+    <div className="drill-grid">{items.filter(item => (item.title + " " + item.objective + " " + item.equipment).toLowerCase().includes(query.toLowerCase())).map(item => <article className="card drill-card" key={item.id}>
+      <div className="toolbar"><BookOpen /><strong className="grow">{item.title}</strong><span className="badge">{item.duration_minutes} min</span></div>
+      {item.objective && <p>{item.objective}</p>}{item.equipment && <span className="meta">Pomôcky: {item.equipment}</span>}
+    </article>)}</div>
+    {items.length === 0 && <Empty icon={BookOpen}>Knižnica cvičení je zatiaľ prázdna. Cvičenia pridáš v úpravách plánu tréningu.</Empty>}
+  </>;
+}
+
+function PlayerDevelopmentPage() {
+  const [members, setMembers] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [development, setDevelopment] = useState(null);
+  const [query, setQuery] = useState("");
+  const [error, setError] = useState("");
+  async function loadMembers() {setMembers((await api("members")).filter(member => member.role === "member"));}
+  async function open(member) {setSelected(member); setDevelopment(await api("members/" + member.id + "/development"));}
+  useEffect(() => {loadMembers().catch(e => setError(e.message));}, []);
+  return <>
+    <div className="toolbar"><label className="search"><Search size={18} /><input aria-label="Hľadať hráča" placeholder="Hľadať hráča…" value={query} onChange={e => setQuery(e.target.value)} /></label></div>
+    {error && <p className="error" role="alert">{error}</p>}
+    <div className="card flush"><ul className="people-list">{members.filter(m => m.name.toLowerCase().includes(query.toLowerCase())).map(member => <li key={member.id}>
+      <button className="person-link" onClick={() => open(member)}><Avatar name={member.name} /><span className="grow"><strong>{member.name}</strong><span className="meta">{member.active ? "Aktívny člen" : "Neaktívny člen"}</span></span><ChevronRight size={18} /></button>
+    </li>)}</ul></div>
+    {selected && <Modal title={selected.name} close={() => {setSelected(null); setDevelopment(null);}}>
+      {!development ? <p className="muted">Načítava sa…</p> : <>
+        <section className="development-section"><h3>Súkromná poznámka trénerov</h3><Form label="Uložiť poznámku" submit={async ({note}) => {await api("members/" + selected.id + "/development/note", "PUT", {note}); setDevelopment({...development, note});}}><label>Poznámka<textarea name="note" rows="4" maxLength="4000" defaultValue={development.note} /></label></Form></section>
+        <section className="development-section section-space"><h3>Zručnosti</h3>{development.skills.length === 0 && <p className="muted">Zručnosti zatiaľ nie sú ohodnotené.</p>}
+          {development.skills.map(skill => <div className="skill-row" key={skill.skill}><strong>{skill.skill}</strong><span className="skill-level">{[1,2,3,4].map(level => <button type="button" aria-label={skill.skill + " " + level} className={level <= skill.level ? "filled" : ""} key={level} onClick={async () => {await api("members/" + selected.id + "/development/skills", "PUT", {...skill, level}); setDevelopment(await api("members/" + selected.id + "/development"));}}>●</button>)}</span></div>)}
+          <Form reset label="Pridať zručnosť" submit={async values => {await api("members/" + selected.id + "/development/skills", "PUT", {...values, level: Number(values.level)}); setDevelopment(await api("members/" + selected.id + "/development"));}}>
             <label>Zručnosť<input name="skill" maxLength="120" required /></label><label>Úroveň<select name="level" defaultValue="1">{["Na začiatku", "Základy", "Rozvíja sa", "Samostatný", "Istý"].map((label, i) => <option key={i} value={i}>{label}</option>)}</select></label><label>Poznámka<input name="note" maxLength="1000" /></label>
           </Form>
         </section>
