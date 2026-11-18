@@ -435,8 +435,8 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
   const [requests,setRequests]=useState([]),[config,setConfig]=useState([]),[menus,setMenus]=useState([]);
   const [inviteRoles,setInviteRoles]=useState(["player"]),[editRoles,setEditRoles]=useState([]),[bannerEnabled,setBannerEnabled]=useState(true);
   const canReview=user.role==="superadmin"||user.roles?.includes("club_leader")||user.roles?.includes("deputy_leader");
-  const canCreateInvites=superadmin||user.can_create_invites;
-  const canAssignInviteRoles=superadmin||user.can_assign_invite_roles;
+  const canCreateInvites=staff&&(superadmin||user.can_create_invites);
+  const canAssignInviteRoles=staff&&(superadmin||user.can_assign_invite_roles);
   const inviteRoleOptions=superadmin?config:catalog;
   async function load() {setMembers(await api("members"));}
   async function loadRequests() {if(canReview)setRequests(await api("role-requests"));}
@@ -506,8 +506,9 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
         {config.map(role=><details className="role-config-row" key={role.key}><summary><strong>{role.name}</strong><span className="meta">{role.available?"Dostupná rola":"Funkcie roly zatiaľ nie sú dostupné"}</span></summary><p>{role.description}</p>
           <div className="role-capabilities">{(role.capabilities||[]).map(feature=><span className="role-capability" key={feature.name}><span>{feature.name}</span><span className={"badge "+(feature.available?"positive":"planned-role")}>{feature.available?"Dostupné":"Zatiaľ nedostupné"}</span></span>)}</div>
           <div className="role-invite-permissions">
-            <label className="checkbox"><input type="checkbox" checked={role.can_create_invites} onChange={e=>setConfig(rows=>rows.map(row=>row.key===role.key?{...row,can_create_invites:e.target.checked,can_assign_invite_roles:e.target.checked?row.can_assign_invite_roles:false}:row))}/>Môže vytvárať pozvánky</label>
-            <label className="checkbox"><input type="checkbox" checked={role.can_assign_invite_roles} disabled={!role.can_create_invites} onChange={e=>setConfig(rows=>rows.map(row=>row.key===role.key?{...row,can_assign_invite_roles:e.target.checked}:row))}/>Môže priraďovať roly v pozvánkach</label>
+            <label className="checkbox"><input type="checkbox" checked={role.can_create_invites} disabled={!role.admin_access} onChange={e=>setConfig(rows=>rows.map(row=>row.key===role.key?{...row,can_create_invites:e.target.checked,can_assign_invite_roles:e.target.checked?row.can_assign_invite_roles:false}:row))}/>Môže vytvárať pozvánky</label>
+            <label className="checkbox"><input type="checkbox" checked={role.can_assign_invite_roles} disabled={!role.admin_access||!role.can_create_invites} onChange={e=>setConfig(rows=>rows.map(row=>row.key===role.key?{...row,can_assign_invite_roles:e.target.checked}:row))}/>Môže priraďovať roly v pozvánkach</label>
+            {!role.admin_access&&<span className="meta">Tieto oprávnenia vyžadujú administrátorský prístup.</span>}
           </div>
           <div className="role-menu-grid">{menus.map(menu=><label className="role-menu-setting" key={menu}><span>{navLabel[menu]}</span><select value={role.permissions[menu]||"none"} onChange={e=>setConfig(rows=>rows.map(row=>row.key===role.key?{...row,permissions:{...row.permissions,[menu]:e.target.value}}:row))}><option value="none">Bez prístupu</option><option value="read">Iba čítanie</option><option value="edit">Úprava</option></select></label>)}</div>
           <Action className="primary section-space" run={async()=>{await api("role-config/"+role.key,"PUT",{permissions:role.permissions,can_create_invites:role.can_create_invites,can_assign_invite_roles:role.can_assign_invite_roles});}}>Uložiť prístupy</Action>
