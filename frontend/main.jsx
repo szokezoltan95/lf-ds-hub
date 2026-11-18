@@ -967,6 +967,75 @@ function PlayerDevelopmentPage() {
   </>;
 }
 
+const roleNames = {Striker: "Striker", Attacker: "Striker", Defender: "Defender", Keeper: "Goalkeeper", Goalkeeper: "Goalkeeper", Substitute: "Náhradník"};
+function TeamFormationMap({players, roster}) {
+  const [selected, setSelected] = useState(null);
+  const plotted = [];
+  for (const team of ["A", "B"]) for (const role of ["Goalkeeper", "Defender", "Striker", "Substitute"]) {
+    const group = players.filter(player => player.team === team && (roleNames[player.position] || player.position || "Substitute") === role);
+    group.forEach((player, index) => {
+      const isLeft = team === "A";
+      const baseX = role === "Goalkeeper" ? (isLeft ? 105 : 895) : role === "Defender" ? (isLeft ? 330 : 670) : role === "Striker" ? (isLeft ? 440 : 560) : (isLeft ? 230 : 770);
+      const y = role === "Substitute" ? (isLeft ? 42 : 518) : 95 + (index + 1) * 370 / (group.length + 1);
+      plotted.push({player, x: baseX, y, index});
+    });
+  }
+  const active = selected && plotted.find(item => item.player.member_id === selected);
+  return <>
+    <div className="pitch-wrap"><svg className="pitch" viewBox="0 0 1000 560" role="img" aria-label="Rozostavenie hráčov na ihrisku">
+      <rect x="25" y="15" width="950" height="530" rx="24" className="pitch-surface" />
+      <rect x="45" y="35" width="910" height="490" rx="12" className="pitch-lines" />
+      <line x1="500" y1="35" x2="500" y2="525" className="pitch-mark" />
+      <circle cx="500" cy="280" r="88" className="pitch-mark" />
+      <rect x="45" y="160" width="100" height="240" className="pitch-mark" />
+      <rect x="855" y="160" width="100" height="240" className="pitch-mark" />
+      <rect x="15" y="225" width="30" height="110" className="pitch-goal" />
+      <rect x="955" y="225" width="30" height="110" className="pitch-goal" />
+      {plotted.map(({player,x,y}) => {
+        const person = roster.find(item => item.id === player.member_id);
+        return <g key={player.member_id} className={"pitch-player team-" + player.team} role="button" tabIndex="0"
+          aria-label={(person?.name || "Hráč") + ", " + (roleNames[player.position] || player.position || "Náhradník") + ", tím " + player.team}
+          onClick={() => setSelected(player.member_id)} onKeyDown={event => {if (event.key === "Enter" || event.key === " ") {event.preventDefault();setSelected(player.member_id);}}}>
+          <circle cx={x} cy={y} r="30" /><text x={x} y={y+5}>{initials(person?.name || "?")}</text>
+        </g>;
+      })}
+    </svg></div>
+    <div className="pitch-legend"><span><i className="team-dot team-a-dot" />Tím A</span><span><i className="team-dot team-b-dot" />Tím B</span></div>
+    {active && <div className="card pitch-selection"><Avatar name={roster.find(item => item.id === active.player.member_id)?.name || "Hráč"} />
+      <div className="grow"><strong>{roster.find(item => item.id === active.player.member_id)?.name || "Hráč"}</strong><span className="meta">Tím {active.player.team} · {roleNames[active.player.position] || active.player.position || "Náhradník"}</span></div>
+      <button className="text-button" onClick={() => setSelected(null)}>Zavrieť</button></div>}
+    <div className="lineup-columns">{["A", "B"].map(team => <section className="card lineup-team" key={team}><h2>Tím {team}</h2>
+      {players.filter(player => player.team === team).map(player => <button className="lineup-roster-player" key={player.member_id} onClick={() => setSelected(player.member_id)}>
+        <Avatar name={roster.find(member => member.id === player.member_id)?.name || "Hráč"} /><span className="grow"><strong>{roster.find(member => member.id === player.member_id)?.name || "Hráč"}</strong><span className="meta">{roleNames[player.position] || player.position || "Náhradník"}</span></span><ChevronRight size={17} />
+      </button>)}{players.filter(player => player.team === team).length === 0 && <p className="muted">Zatiaľ bez hráčov.</p>}
+    </section>)}</div>
+  </>;
+}
+
+function TeamSheet({trainings}) {
+  const events = trainings.filter(event => !event.cancelled && (event.kind === "match" || event.kind === "training")).sort((a,b) => new Date(b.starts_at)-new Date(a.starts_at));
+  const [eventId, setEventId] = useState("");
+  const [roster, setRoster] = useState([]);
+  const [players, setPlayers] = useState([]);
+  const [error, setError] = useState("");
+  useEffect(() => {if (!eventId && events.length) setEventId(String(events.find(event => new Date(event.starts_at) >= new Date())?.id || events[0].id));}, [events.length]);
+  useEffect(() => {
+    if (!eventId) return;
+    let active = true;
+    api("trainings/" + eventId + "/lineup").then(data => {if (active) {setRoster(data.roster); setPlayers(data.players);}}).catch(e => {if (active) setError(e.message);});
+    return () => {active = false;};
+  }, [eventId]);
+  const event = events.find(item => String(item.id) === eventId);
+  return <>
+    <section className="card lineup-picker"><label>Udalosť<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="">Vyber tréning alebo zápas</option>{events.map(item => <option key={item.id} value={item.id}>{date(item.starts_at)} · {item.title}</option>)}</select></label></section>
+    {error && <p className="error" role="alert">{error}</p>}
+    {event && <><div className="section-heading"><h2>{event.title}</h2><span className="meta">{date(event.starts_at)}</span></div>
+      {players.length ? <TeamFormationMap players={players} roster={roster} /> : <Empty icon={Users}>Tréner zatiaľ nepripravil zostavu na túto udalosť.</Empty>}
+    </>}
+    {!event && events.length === 0 && <Empty icon={Users}>Zatiaľ nie sú naplánované tréningy ani zápasy.</Empty>}
+  </>;
+}
+
 function LineupPlanner({trainings}) {
   const events = trainings.filter(event => event.kind === "match" || event.kind === "training").sort((a,b) => new Date(b.starts_at)-new Date(a.starts_at));
   const [eventId, setEventId] = useState("");
@@ -986,11 +1055,12 @@ function LineupPlanner({trainings}) {
     {error && <p className="error" role="alert">{error}</p>}
     {eventId && <>
       <div className="lineup-columns">{["A", "B"].map(team => <section className="card lineup-team" key={team}><h2>Tím {team}</h2>
-        {players.filter(player => player.team === team).map(player => <div className="lineup-player" key={player.member_id}><strong>{roster.find(member => member.id === player.member_id)?.name || "Člen"}</strong><select aria-label="Pozícia" value={player.position || ""} onChange={e => update(player.member_id, {position: e.target.value})}><option value="">Bez pozície</option>{["Attacker", "Defender", "Goalkeeper", "Náhradník"].map(position => <option key={position}>{position}</option>)}</select><button className="text-button" onClick={() => setPlayers(players.filter(item => item.member_id !== player.member_id))}>Odobrať</button></div>)}
+        {players.filter(player => player.team === team).map(player => <div className="lineup-player" key={player.member_id}><strong>{roster.find(member => member.id === player.member_id)?.name || "Člen"}</strong><select aria-label="Pozícia" value={roleNames[player.position] || player.position || ""} onChange={e => update(player.member_id, {position: e.target.value})}><option value="">Bez pozície</option>{["Striker", "Defender", "Goalkeeper", "Substitute"].map(position => <option key={position}>{position}</option>)}</select><button className="text-button" onClick={() => setPlayers(players.filter(item => item.member_id !== player.member_id))}>Odobrať</button></div>)}
       </section>)}</div>
       <section className="card"><h2>Členovia</h2><ul className="people-list">{roster.map(member => <li key={member.id}><Avatar name={member.name} /><strong className="grow">{member.name}</strong>
         {assigned.has(member.id) ? <span className="badge positive">Tím {players.find(p => p.member_id === member.id)?.team}</span> : <div className="actions"><button onClick={() => setPlayers([...players, {member_id: member.id, team: "A", position: ""}])}>+ Tím A</button><button onClick={() => setPlayers([...players, {member_id: member.id, team: "B", position: ""}])}>+ Tím B</button></div>}</li>)}</ul>
       </section>
+      {players.length > 0 && <section className="section-space"><h2>Náhľad rozostavenia</h2><TeamFormationMap players={players} roster={roster} /></section>}
       <div className="toolbar end"><Action className="primary" run={async () => {await api("trainings/" + eventId + "/lineup", "PUT", {players});}}>Uložiť zostavu</Action></div>
     </>}
     {!eventId && <Empty icon={Users}>Vyber udalosť a vytvor zostavu tímov A a B.</Empty>}
@@ -1296,7 +1366,7 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
 const navigation = [
   ["home", "Domov", House], ["calendar", "Kalendár", CalendarDays], ["attendance", "Dochádzka", ClipboardCheck], ["scanner", "Skenovať", ScanLine],
   ["messages", "Správy", MessageCircle], ["announcements", "Oznamy", Megaphone],
-  ["members", "Členovia", Users], ["development", "Rozvoj hráčov", Users], ["lineups", "Zostavy", ClipboardCheck], ["drills", "Knižnica cvičení", BookOpen], ["equipment", "Vybavenie", Battery],
+  ["members", "Členovia", Users], ["team", "Tímy", Users], ["development", "Rozvoj hráčov", Users], ["lineups", "Zostavy", ClipboardCheck], ["drills", "Knižnica cvičení", BookOpen], ["equipment", "Vybavenie", Battery],
   ["documents", "Dokumenty", FileText], ["management", "Správa používateľov", ShieldCheck],
 ];
 
@@ -1374,7 +1444,7 @@ function App() {
   const [notifications, setNotifications] = useState(false);
   const staff = user?.role === "coach" || user?.role === "superadmin";
   const superadmin = user?.role === "superadmin";
-  const visibleNavigation = navigation.filter(([key]) => (key !== "members" || staff) && (key !== "development" || staff) && (key !== "lineups" || staff) && (key !== "drills" || staff) && (key !== "attendance" || staff) && (key !== "management" || superadmin) && (key !== "messages" || !superadmin));
+  const visibleNavigation = navigation.filter(([key]) => (key !== "members" || staff) && (key !== "team" || user?.role !== "superadmin") && (key !== "development" || staff) && (key !== "lineups" || staff) && (key !== "drills" || staff) && (key !== "attendance" || staff) && (key !== "management" || superadmin) && (key !== "messages" || !superadmin));
   const allowedPages = [...visibleNavigation.map(([key]) => key), "profile"];
   const currentPage = allowedPages.includes(page) ? page : "home";
   const title = currentPage === "profile" ? "Môj profil a nastavenia" : visibleNavigation.find(([key]) => key === currentPage)?.[1];
@@ -1545,6 +1615,7 @@ function App() {
           {currentPage === "messages" && <Messages key={user.id + ":" + contact + ":" + route} user={user} conversations={data.conversations} refresh={refresh} initialContact={contact} />}
           {currentPage === "announcements" && <Bulletin items={data.announcements} staff={staff} refresh={refresh} />}
           {currentPage === "members" && staff && <Members key="members" userId={user.id} superadmin={superadmin} onMessage={messageMember} onCard={setCardMember} />}
+          {currentPage === "team" && user.role !== "superadmin" && <TeamSheet trainings={data.trainings} />}
           {currentPage === "development" && staff && <PlayerDevelopmentPage />}
           {currentPage === "lineups" && staff && <LineupPlanner trainings={data.trainings} />}
           {currentPage === "drills" && staff && <DrillLibrary />}

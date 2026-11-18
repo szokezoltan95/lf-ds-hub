@@ -712,7 +712,7 @@ class TrainingLineupInput(BaseModel):
 
 
 @api.get("/trainings/{training_id}/lineup")
-def get_training_lineup(training_id: int, conn: DB, _staff: Staff):
+def get_training_lineup(training_id: int, conn: DB, _user: User):
     if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
         raise HTTPException(404, "Udalosť sa nenašla.")
     saved = conn.execute("SELECT players FROM training_lineups WHERE training_id=%s", (training_id,)).fetchone()

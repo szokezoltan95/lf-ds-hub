@@ -18,6 +18,13 @@ Object.assign(ukrainianExtra, {
 });
 
 Object.assign(englishExtra, {
+  "Tímy": "Teams", "Vyber tréning alebo zápas": "Choose a practice or match", "Tréner zatiaľ nepripravil zostavu na túto udalosť.": "The coach has not prepared a lineup for this event yet.", "Zatiaľ nie sú naplánované tréningy ani zápasy.": "No practices or matches are scheduled yet.", "Rozostavenie hráčov na ihrisku": "Player formation on the field", "Striker": "Striker", "Tím A": "Team A", "Tím B": "Team B", "Tím ": "Team ", "Zatiaľ bez hráčov.": "No players yet.", "Keeper": "Goalkeeper"
+});
+Object.assign(ukrainianExtra, {
+  "Tímy": "Команди", "Vyber tréning alebo zápas": "Виберіть тренування або матч", "Tréner zatiaľ nepripravil zostavu na túto udalosť.": "Тренер ще не підготував склад на цю подію.", "Zatiaľ nie sú naplánované tréningy ani zápasy.": "Тренування або матчі ще не заплановані.", "Rozostavenie hráčov na ihrisku": "Розташування гравців на майданчику", "Striker": "Нападник", "Tím A": "Команда A", "Tím B": "Команда B", "Tím ": "Команда ", "Zatiaľ bez hráčov.": "Гравців поки немає.", "Keeper": "Воротар"
+});
+
+Object.assign(englishExtra, {
   "Rozvoj hráčov": "Player development", "Zostavy": "Lineups", "Knižnica cvičení": "Drill library", "Hľadať cvičenie…": "Search drills…", "Hľadať hráča…": "Search players…", "Knižnica cvičení je zatiaľ prázdna. Cvičenia pridáš v úpravách plánu tréningu.": "The drill library is empty. Add drills while editing a training plan.", "Aktívny člen": "Active member", "Neaktívny člen": "Inactive member", "Súkromná poznámka trénerov": "Private coaches' note", "Uložiť poznámku": "Save note", "Zručnosti zatiaľ nie sú ohodnotené.": "No skills have been rated yet.", "Úroveň": "Level", "Zručnosť": "Skill", "Na začiatku": "Starting out", "Základy": "Basics", "Rozvíja sa": "Developing", "Samostatný": "Independent", "Istý": "Confident", "Tréningový feedback (": "Training feedback (", "Vyber tréning alebo zápas": "Choose a practice or match", "Tím A": "Team A", "Tím B": "Team B", "Bez pozície": "No position", "Odobrať": "Remove", "Členovia": "Members", "Vyber udalosť a vytvor zostavu tímov A a B.": "Choose an event and create team A and B lineups.", "Zostava obsahuje neaktívneho alebo neplatného člena.": "The lineup includes an inactive or invalid member.", "Attacker": "Attacker", "Defender": "Defender", "Goalkeeper": "Goalkeeper", "Náhradník": "Substitute"
 });
 Object.assign(ukrainianExtra, {

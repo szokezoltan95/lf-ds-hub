@@ -409,3 +409,22 @@ details p {font-size: 13px; margin-top: 12px;}
 .lineup-player { display: grid; grid-template-columns: minmax(0,1fr) minmax(100px,.8fr) auto; align-items: center; gap: .5rem; padding: .5rem 0; border-bottom: 1px solid var(--line); }
 .lineup-player select { min-width: 0; }
 @media (max-width: 720px) { .lineup-columns { grid-template-columns: 1fr; } .lineup-player { grid-template-columns: minmax(0,1fr) auto; } .lineup-player select { grid-row: 2; grid-column: 1; } }
+.pitch-wrap { width: 100%; overflow-x: auto; border-radius: 1.25rem; }
+.pitch { display: block; width: 100%; min-width: 480px; height: auto; border-radius: 1.25rem; }
+.pitch-surface { fill: #e8f2e8; stroke: #b4ccb4; stroke-width: 4; }
+.pitch-lines { fill: #d5e8d3; stroke: #fff; stroke-width: 4; }
+.pitch-mark { fill: none; stroke: #fff; stroke-width: 4; }
+.pitch-goal { fill: #f8fbf5; stroke: #fff; stroke-width: 4; }
+.pitch-player { cursor: pointer; }
+.pitch-player circle { stroke: #fff; stroke-width: 5; filter: drop-shadow(0 2px 2px #15374655); }
+.pitch-player.team-A circle { fill: #0879a5; }
+.pitch-player.team-B circle { fill: #d77a45; }
+.pitch-player text { fill: #fff; text-anchor: middle; font-size: 19px; font-weight: 700; pointer-events: none; }
+.pitch-player:focus circle { stroke: #17364b; stroke-width: 8; }
+.pitch-legend { display: flex; gap: 1rem; margin: -.4rem 0 1rem; }
+.pitch-legend span { display: flex; align-items: center; gap: .4rem; }
+.team-dot { width: .75rem; height: .75rem; border-radius: 50%; }
+.team-a-dot { background: #0879a5; }
+.team-b-dot { background: #d77a45; }
+.pitch-selection { display: flex; align-items: center; gap: .75rem; }
+.lineup-roster-player { width: 100%; display: flex; justify-content: flex-start; text-align: left; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
