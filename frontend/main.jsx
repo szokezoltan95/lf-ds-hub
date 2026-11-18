@@ -429,7 +429,7 @@ function Calendar({trainings, staff, places, refresh, openTraining}) {
 }
 function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,userId}) {
   const [members,setMembers]=useState([]),[query,setQuery]=useState(""),[filter,setFilter]=useState("active");
-  const [selected,setSelected]=useState(null),[form,setForm]=useState(false),[link,setLink]=useState("");
+  const [selected,setSelected]=useState(null),[form,setForm]=useState(false),[link,setLink]=useState(""),[inviteTarget,setInviteTarget]=useState(null);
   const [attendance,setAttendance]=useState([]),[development,setDevelopment]=useState(null),[error,setError]=useState("");
   const [section,setSection]=useState("members"),[catalog,setCatalog]=useState([]),[requested,setRequested]=useState([]);
   const [requests,setRequests]=useState([]),[config,setConfig]=useState([]),[menus,setMenus]=useState([]);
@@ -459,7 +459,7 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
     {!superadmin&&canReview&&<button className="card quick-link role-request-alert" onClick={()=>setSection(section==="requests"?"members":"requests")}><ShieldCheck/><span className="grow"><strong>Žiadosti o pridanie rolí</strong><span className="meta">{requests.length?"Čakajúce žiadosti: "+requests.length:"Žiadne čakajúce žiadosti"}</span></span>{requests.length>0&&<span className="counter">{requests.length}</span>}</button>}
     {section==="members"&&<>
       <div className="toolbar"><label className="search"><Search size={18}/><input type="search" aria-label="Hľadať člena" placeholder="Hľadať podľa mena…" value={query} onChange={e=>setQuery(e.target.value)}/></label>
-        {staff&&<button className="primary" onClick={()=>{setLink("");setInviteRoles(["player"]);setForm(true);}}><Plus size={18}/>Pozvať člena</button>}</div>
+        {staff&&<button className="primary" onClick={()=>{setLink("");setInviteTarget(null);setInviteRoles(["player"]);setForm(true);}}><Plus size={18}/>Pozvať člena</button>}</div>
       <div className="chips">{[["active","Aktívni"],["coaches","Tréneri"],["invited","Pozvaní"],["inactive","Neaktívni"],["all","Všetci"]].map(([value,text])=><button key={value} className={filter===value?"selected":""} onClick={()=>setFilter(value)}>{text}</button>)}</div>
       {error&&<p className="error" role="alert">{error}</p>}
       <div className="card flush"><ul className="people-list">{found.map(member=><li key={member.id}><button className="person-link" onClick={()=>{setSelected(member);setLink("");}}>
@@ -470,7 +470,7 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
       {form&&<Modal title="Pozvať člena" close={()=>setForm(false)}>{link?<InviteLink link={link}/>:<Form label="Vytvoriť pozvánku" submit={async data=>{
         if(superadmin&&!inviteRoles.length)throw new Error("Vyber aspoň jednu rolu.");
         const result=await api("members/invite","POST",{...data,roles:superadmin?inviteRoles:["player"]});await load();setLink(result.invite_url);
-      }}><label>Meno<input name="name" maxLength="120" autoComplete="name" required/></label><label>E-mail<input name="email" type="email" maxLength="254" autoComplete="email" required/></label>
+      }}><label>Meno<input name="name" maxLength="120" autoComplete="name" defaultValue={inviteTarget?.name||""} required/></label><label>E-mail<input name="email" type="email" maxLength="254" autoComplete="email" defaultValue={inviteTarget?.email||""} required/></label>
         {superadmin&&<fieldset className="role-checkboxes"><legend>Roly pri pozvánke</legend>{config.map(item=><label className="checkbox" key={item.key}><input type="checkbox" checked={inviteRoles.includes(item.key)} onChange={()=>toggle(setInviteRoles,inviteRoles,item.key)}/>{item.name}{!item.available&&<span className="badge">Funkcia zatiaľ nedostupná</span>}</label>)}</fieldset>}
       </Form>}</Modal>}
       {selected&&<Modal title={selected.name} close={()=>setSelected(null)}><div className="profile-heading"><Avatar name={selected.name}/><div><span className="badge">Člen klubu</span><p>{selected.email||"admin"}</p><p>{(selected.roles||[]).map(roleName).join(" · ")}</p></div></div>
@@ -479,7 +479,7 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
           {staff&&<>
           {(superadmin||selected.role==="member")&&<Action run={async()=>{await api("members/"+selected.id+"/active","PUT",{active:!selected.active});setSelected({...selected,active:!selected.active});await load();}}>{selected.active?"Deaktivovať":"Aktivovať"}</Action>}
           {(superadmin||selected.role==="member")&&selected.active&&selected.registered&&<Action run={async()=>{const r=await api("members/"+selected.id+"/reset","POST");setLink(r.invite_url);}}>Obnoviť heslo</Action>}
-          {selected.active&&!selected.registered&&<Action run={async()=>{const r=await api("members/invite","POST",{name:selected.name,email:selected.email,roles:superadmin?(selected.roles||["player"]):["player"]});setLink(r.invite_url);}}>Nová pozvánka</Action>}
+          {selected.active&&!selected.registered&&<Action run={async()=>{setInviteTarget(selected);setInviteRoles(selected.roles||["player"]);setLink("");setForm(true);setSelected(null);}}>Nová pozvánka</Action>}
           </>}
         </div>{link&&<InviteLink link={link}/>}
         {superadmin&&<section className="section-space"><h3>Funkčné roly</h3>{config.map(role=><label className="checkbox role-member-checkbox" key={role.key}><input type="checkbox" checked={editRoles.includes(role.key)} onChange={()=>toggle(setEditRoles,editRoles,role.key)}/>{role.name}{!role.available&&<span className="badge">Funkcia zatiaľ nedostupná</span>}</label>)}
