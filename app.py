@@ -619,7 +619,8 @@ def update_member_roles(member_id: int, data: MemberRoles, conn: DB, _admin: Sup
 def invite(data: Invite, conn: DB, user: Staff):
     if user["role"] != "superadmin" and not user.get("can_create_invites"):
         raise HTTPException(403, "Nemáš oprávnenie vytvárať pozvánky.")
-    if user["role"] != "superadmin" and not user.get("can_assign_invite_roles") and data.roles != ["player"]:
+    can_assign_roles = user["role"] == "superadmin" or user.get("can_assign_invite_roles", False)
+    if not can_assign_roles and data.roles != ["player"]:
         raise HTTPException(403, "Nemáš oprávnenie priraďovať roly pri pozvánke.")
     roles = sorted(set(data.roles))
     if not roles or not set(roles) <= set(ROLE_DEFINITIONS):
@@ -634,7 +635,7 @@ def invite(data: Invite, conn: DB, user: Staff):
         club_roles=CASE WHEN %s THEN excluded.club_roles ELSE members.club_roles END
         WHERE members.role IN ('member','coach') AND members.active AND members.password_hash IS NULL
         RETURNING id""", (data.email, data.name, account_role, roles, digest(token),
-                              user["role"] == "superadmin", user["role"] == "superadmin")
+                              can_assign_roles, can_assign_roles)
     ).fetchone()
     if not member:
         raise HTTPException(409, "Tento e-mail už patrí existujúcemu účtu.")
