@@ -191,6 +191,41 @@ UPDATE announcements SET title=regexp_replace(title, '^Zmena tréningu: ', 'Zmen
 ALTER TABLE members ADD COLUMN IF NOT EXISTS push_messages boolean NOT NULL DEFAULT true;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS push_calendar boolean NOT NULL DEFAULT true;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS push_announcements boolean NOT NULL DEFAULT true;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS club_roles text[] NOT NULL DEFAULT ARRAY['player']::text[];
+UPDATE members SET club_roles=ARRAY['player','coach'] WHERE role='coach' AND club_roles=ARRAY['player']::text[];
+UPDATE members SET club_roles=ARRAY['player'] WHERE role='member' AND cardinality(club_roles)=0;
+
+CREATE TABLE IF NOT EXISTS role_catalog (
+    role_key text PRIMARY KEY,
+    name text NOT NULL,
+    description text NOT NULL,
+    available boolean NOT NULL DEFAULT true,
+    admin_access boolean NOT NULL DEFAULT false
+);
+CREATE TABLE IF NOT EXISTS role_menu_permissions (
+    role_key text NOT NULL REFERENCES role_catalog(role_key) ON DELETE CASCADE,
+    menu_key text NOT NULL,
+    enabled boolean NOT NULL DEFAULT false,
+    PRIMARY KEY(role_key,menu_key)
+);
+CREATE TABLE IF NOT EXISTS role_requests (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    member_id bigint NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    role_key text NOT NULL REFERENCES role_catalog(role_key),
+    status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    decided_at timestamptz,
+    decided_by bigint REFERENCES members(id) ON DELETE SET NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS role_requests_pending_unique
+ON role_requests(member_id,role_key) WHERE status='pending';
+CREATE TABLE IF NOT EXISTS hub_settings (
+    setting_key text PRIMARY KEY,
+    value jsonb NOT NULL
+);
+INSERT INTO hub_settings(setting_key,value) VALUES ('trial_banner_enabled','true'::jsonb)
+ON CONFLICT(setting_key) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS push_keys (
     id integer PRIMARY KEY CHECK (id=1), private_key text NOT NULL, public_key text NOT NULL
 );

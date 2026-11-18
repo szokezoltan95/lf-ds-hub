@@ -367,6 +367,38 @@ details p {font-size: 13px; margin-top: 12px;}
 .qr-profile-button {display:flex;align-items:center;gap:14px;width:100%;text-align:left;color:#10354b;}
 .qr-profile-button > span {flex:1;font-weight:600;}
 @media (max-width:480px) {.topbar {gap:6px;padding-inline:10px;}.topbar .icon-button {min-width:36px;width:36px;padding:6px;}.brand {gap:6px;}.brand strong {font-size:14px;}.brand small {font-size:9px;}.development-banner {padding:12px;gap:10px;margin-bottom:16px;}}
+
+.member-admin-tabs {display:flex;gap:8px;overflow-x:auto;margin:0 0 16px;padding:4px;background:#eaf1f6;border-radius:12px;}
+.member-admin-tabs button {flex:1;min-width:max-content;padding:10px 14px;border:0;border-radius:9px;background:transparent;color:var(--ink);font:inherit;cursor:pointer;}
+.member-admin-tabs button.selected {background:#fff;box-shadow:0 1px 4px #1232;font-weight:600;}
+.role-request-alert {width:100%;text-align:left;margin:0 0 14px;}
+.role-checkboxes {margin:16px 0;padding:14px;border:1px solid var(--line);border-radius:10px;}
+.role-checkboxes legend {font-weight:600;padding:0 6px;}
+.role-member-checkbox {padding:10px 0;border-bottom:1px solid var(--line);}
+.role-member-checkbox:last-of-type {border-bottom:0;}
+.role-requests-panel h2,.role-permissions-panel h2 {margin-top:0;}
+.role-request-row {display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--line);}
+.role-request-row:last-child {border-bottom:0;}
+.role-config-row {padding:14px 0;border-bottom:1px solid var(--line);}
+.role-config-row:last-child {border-bottom:0;}
+.role-config-row summary {cursor:pointer;display:flex;justify-content:space-between;gap:12px;align-items:center;}
+.role-menu-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:8px 14px;margin:14px 0;}
+.role-menu-grid .checkbox {font-size:14px;}
+.role-capabilities {display:grid;gap:5px;margin-top:8px;}
+.role-capability {display:flex;justify-content:space-between;align-items:center;gap:12px;padding:5px 0;font-size:13px;}
+.role-capability .badge {flex-shrink:0;}
+.planned-role {background:#fff0d8;color:#8a5411;}
+.role-application-row {display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);}
+.role-application-row:last-of-type {border-bottom:0;}
+.role-application-row > input {margin-top:4px;}
+.role-application-row > span:first-of-type {flex:1;min-width:0;}
+@media(max-width:600px) {
+ .member-admin-tabs button {padding:9px 10px;font-size:13px;}
+ .role-request-row {align-items:flex-start;flex-wrap:wrap;}
+ .role-config-row summary {align-items:flex-start;flex-direction:column;gap:4px;}
+ .role-menu-grid {grid-template-columns:repeat(2,minmax(0,1fr));}
+ .role-capability {align-items:flex-start;flex-direction:column;gap:4px;}
+}
 .scanner-mode {display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;background:#edf3f7;border-radius:12px;margin-bottom:14px;}
 .scanner-mode button {min-height:44px;border:0;background:transparent;border-radius:9px;font-weight:600;}
 .scanner-mode button[aria-selected="true"] {background:white;box-shadow:0 1px 5px #10354b20;color:#10354b;}

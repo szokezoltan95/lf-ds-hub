@@ -39,6 +39,108 @@ ORIGIN = f"{url.scheme}://{url.netloc}"
 COOKIE = "lf_ds_hub_session"
 CLUB_ZONE = ZoneInfo("Europe/Bratislava")
 STAFF_ROLES = ("superadmin", "coach")
+MENU_KEYS = ("home", "calendar", "attendance", "scanner", "messages", "announcements", "members",
+             "team", "development", "lineups", "drills", "equipment", "documents")
+ROLE_DEFINITIONS = {
+    "player": ("Hráč", "Zúčastňuje sa na činnosti tímu a používa členskú aplikáciu.", True, False,
+               ("home", "calendar", "scanner", "messages", "announcements", "team", "equipment", "documents")),
+    "coach": ("Tréner", "Plánuje tréningy, vedie dochádzku a pripravuje zostavy.", True, True,
+              MENU_KEYS),
+    "club_leader": ("Vedúci klubu", "Koordinuje chod klubu a jeho členov.", True, True, MENU_KEYS),
+    "deputy_leader": ("Zástupca vedúceho klubu", "Zastupuje vedúceho a pomáha riadiť klub.", True, True, MENU_KEYS),
+    "administrator": ("Administratívny pracovník", "Pomáha s členskou evidenciou, oznamami a dokumentmi.", True, True,
+                      ("home", "calendar", "messages", "announcements", "members", "documents")),
+    "equipment_technician": ("Technik vybavenia", "Eviduje klubovú techniku a jej používanie.", True, True,
+                              ("home", "calendar", "scanner", "messages", "equipment", "documents")),
+    "social_media_manager": ("Správca sociálnych sietí", "Pripravuje klubové oznamy a komunikačné podklady.", True, True,
+                             ("home", "messages", "announcements", "documents")),
+    "competition_coordinator": ("Koordinátor súťaží", "Koordinuje zápasy, nominácie a súťažné zostavy.", True, True,
+                                ("home", "calendar", "attendance", "members", "team", "lineups", "announcements", "documents")),
+    "recruitment_coordinator": ("Koordinátor náboru", "Komunikuje so záujemcami a organizuje nábor.", False, False, ()),
+    "safety_coordinator": ("Bezpečnostný a prevádzkový koordinátor", "Spravuje bezpečnostné postupy a poučenia.", False, False, ()),
+    "team_coordinator": ("Koordinátor tímov", "Koordinuje zloženie tímov a priradenie hráčov.", True, True,
+                         ("home", "calendar", "members", "team", "lineups")),
+    "content_creator": ("Fotograf / tvorca obsahu", "Pripravuje fotografie a klubový obsah.", False, False, ()),
+}
+ROLE_CAPABILITIES = {
+    "player": [("Klubový kalendár a potvrdenie účasti", True), ("Správy, oznamy a dokumenty", True),
+               ("Osobný členský QR kód", True), ("Záznam použitia batérií", True)],
+    "coach": [("Plánovanie a správa udalostí", True), ("Dochádzka a skenovanie členských QR kódov", True),
+              ("Tímové zostavy a rozvoj hráčov", True), ("Plány tréningov a knižnica cvičení", True),
+              ("Oznamy, vybavenie a dokumenty", True)],
+    "club_leader": [("Klubová administrácia a evidencia členov", True), ("Kalendár, dochádzka a zostavy", True),
+                    ("Oznamy, vybavenie a dokumenty", True), ("Schvaľovanie žiadostí o roly", False)],
+    "deputy_leader": [("Zastupovanie pri klubovej administrácii", True), ("Kalendár, dochádzka a zostavy", True),
+                      ("Oznamy, vybavenie a dokumenty", True), ("Schvaľovanie žiadostí o roly", False)],
+    "administrator": [("Pozývanie členov a základná správa členskej evidencie", True),
+                      ("Oznamy a klubové dokumenty", True), ("Správa rolí", False)],
+    "equipment_technician": [("Evidencia batérií a techniky", True), ("Záznamy používania a skenovanie", True),
+                             ("Servisné záznamy a hlásenie porúch", False)],
+    "social_media_manager": [("Oznamy v aplikácii", True), ("Správa sociálnych sietí", False),
+                             ("Nahrávanie mediálnych galérií", False)],
+    "competition_coordinator": [("Kalendár zápasov a súťaží", True), ("Dochádzka a nominácie", True),
+                                ("Zostavy na zápasy", True), ("Registrácia na turnaje", False)],
+    "recruitment_coordinator": [("Evidencia záujemcov a náborové formuláre", False),
+                                ("Pozvánky a náborová komunikácia", False)],
+    "safety_coordinator": [("Bezpečnostné pokyny a poučenia", False), ("Evidencia školení a incidentov", False)],
+    "team_coordinator": [("Zobrazenie tímov a klubových zostáv", True), ("Samostatná správa súpisiek tímov", False)],
+    "content_creator": [("Nahrávanie klubových fotografií a videí", False),
+                        ("Mediálna galéria a evidencia súhlasov", False)],
+}
+
+
+def seed_access_control(conn):
+    for key, (name, description, available, admin_access, pages) in ROLE_DEFINITIONS.items():
+        conn.execute("""INSERT INTO role_catalog(role_key,name,description,available,admin_access)
+            VALUES (%s,%s,%s,%s,%s) ON CONFLICT(role_key) DO UPDATE SET
+            name=excluded.name,description=excluded.description,available=excluded.available,
+            admin_access=excluded.admin_access""", (key, name, description, available, admin_access))
+        conn.executemany("""INSERT INTO role_menu_permissions(role_key,menu_key,enabled)
+            VALUES (%s,%s,%s) ON CONFLICT(role_key,menu_key) DO NOTHING""",
+            [(key, page, page in pages) for page in MENU_KEYS])
+
+
+def menu_for_path(path):
+    path = path.split("/api/", 1)[-1]
+    if path.startswith(("trainings", "places")):
+        return "attendance" if "/attendance" in path else "lineups" if "/lineup" in path else "calendar"
+    if path.startswith(("attendance",)):
+        return "attendance"
+    if path.startswith(("scan",)):
+        return "scanner"
+    if path.startswith(("members",)):
+        return "development" if "/development" in path else "members"
+    if path.startswith("role-requests"):
+        return "members"
+    if path.startswith(("lineup",)):
+        return "lineups"
+    if path.startswith(("drills",)):
+        return "drills"
+    if path.startswith(("announcements", "announcement-")):
+        return "announcements"
+    if path.startswith(("documents",)):
+        return "documents"
+    if path.startswith(("conversations", "contacts", "chat-groups", "messages")):
+        return "messages"
+    if path.startswith(("batteries",)):
+        return "equipment"
+    return None
+
+
+def sync_account_roles(conn, member_id, roles):
+    roles = sorted(set(roles) | {"player"})
+    account_role = "coach" if any(ROLE_DEFINITIONS[key][3] for key in roles) else "member"
+    conn.execute("UPDATE members SET club_roles=%s,role=%s WHERE id=%s",
+                 (roles, account_role, member_id))
+
+
+def effective_menu(conn, user):
+    if user["role"] == "superadmin":
+        return list(MENU_KEYS)
+    roles = user.get("club_roles") or ["player"]
+    rows = conn.execute("""SELECT DISTINCT menu_key FROM role_menu_permissions
+        WHERE role_key=ANY(%s) AND enabled""", (roles,)).fetchall()
+    return sorted({row["menu_key"] for row in rows} | {"home"})
 Short = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 Email = Annotated[str, StringConstraints(strip_whitespace=True, to_lower=True, max_length=254,
                                         pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")]
@@ -93,6 +195,7 @@ async def lifespan(_app):
     with connect() as conn:
         conn.execute("SELECT pg_advisory_xact_lock(81364, 1)")
         conn.execute((ROOT / "schema.sql").read_text(), prepare=False)
+        seed_access_control(conn)
         account = conn.execute(
             "SELECT id, password_hash FROM members WHERE role='superadmin' FOR UPDATE"
         ).fetchone()
@@ -149,12 +252,17 @@ async def invalid_request(_request, _error):
 def identity(request: Request, conn: DB):
     token = request.cookies.get(COOKIE, "")
     member = conn.execute(
-        """SELECT m.id, m.name, m.email, m.role, m.pwa_show_card, m.pwa_show_popup, m.push_messages, m.push_calendar, m.push_announcements FROM sessions s
+        """SELECT m.id, m.name, m.email, m.role, m.club_roles, m.pwa_show_card, m.pwa_show_popup, m.push_messages, m.push_calendar, m.push_announcements FROM sessions s
         JOIN members m ON m.id = s.member_id
         WHERE s.token_hash = %s AND s.expires_at > now() AND m.active""", (digest(token),)
     ).fetchone()
     if not member:
         raise HTTPException(401, "Prihlás sa do portálu.")
+    member["roles"] = member.get("club_roles") or ([] if member["role"] == "superadmin" else ["player"])
+    member["menu_access"] = effective_menu(conn, member)
+    menu_key = menu_for_path(request.url.path)
+    if menu_key and member["role"] != "superadmin" and menu_key not in member["menu_access"]:
+        raise HTTPException(403, "K tejto časti aplikácie nemáš prístup.")
     return member
 
 
@@ -190,11 +298,13 @@ class Login(BaseModel):
 class Invite(BaseModel):
     name: Short
     email: Email
+    roles: list[str] = Field(default_factory=lambda: ["player"], max_length=12)
 
 
 class Accept(BaseModel):
     token: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{43}$")]
     password: Password
+    email: Email
 
 
 class CoachAccount(Invite):
@@ -209,10 +319,122 @@ class Active(BaseModel):
     active: bool
 
 
+class RoleRequests(BaseModel):
+    roles: list[str] = Field(min_length=1, max_length=12)
+
+
+class RoleDecision(BaseModel):
+    status: Literal["approved", "rejected"]
+
+
+class RoleMenuConfig(BaseModel):
+    permissions: dict[str, bool]
+
+
+class TrialBannerSetting(BaseModel):
+    enabled: bool
+
+
 @api.get("/health")
 def health(conn: DB):
     conn.execute("SELECT 1")
     return {"status": "ok"}
+
+
+@api.get("/public/settings")
+def public_settings(conn: DB):
+    row = conn.execute("SELECT value FROM hub_settings WHERE setting_key='trial_banner_enabled'").fetchone()
+    return {"trial_banner_enabled": bool(row["value"]) if row else True}
+
+
+@api.get("/role-config")
+def get_role_config(conn: DB, _admin: Superadmin):
+    rows = conn.execute("""SELECT c.role_key,c.name,c.description,c.available,c.admin_access,
+        p.menu_key,p.enabled FROM role_catalog c JOIN role_menu_permissions p USING(role_key)
+        ORDER BY c.role_key,p.menu_key""").fetchall()
+    result = {}
+    for row in rows:
+        item = result.setdefault(row["role_key"], {"key":row["role_key"],"name":row["name"],
+            "description":row["description"],"available":row["available"],"admin_access":row["admin_access"],"permissions":{}})
+        item["permissions"][row["menu_key"]] = row["enabled"]
+    for key, item in result.items():
+        item["capabilities"] = [{"name":name,"available":available} for name,available in ROLE_CAPABILITIES[key]]
+    return {"roles":list(result.values()),"menus":list(MENU_KEYS)}
+
+
+@api.get("/role-catalog")
+def get_role_catalog(conn: DB, user: User):
+    if user["role"] == "superadmin":
+        raise HTTPException(403, "Systémový účet sa nezúčastňuje na klubových rolách.")
+    rows=conn.execute("SELECT role_key AS key,name,description,available FROM role_catalog ORDER BY name").fetchall()
+    for row in rows:
+        row["capabilities"]=[{"name":name,"available":available} for name,available in ROLE_CAPABILITIES[row["key"]]]
+    return rows
+
+
+@api.put("/role-config/{role_key}")
+def update_role_config(role_key: str, data: RoleMenuConfig, conn: DB, _admin: Superadmin):
+    if role_key not in ROLE_DEFINITIONS or set(data.permissions) != set(MENU_KEYS):
+        raise HTTPException(422, "Nastavenie obsahuje neznámu rolu alebo položku menu.")
+    conn.executemany("""INSERT INTO role_menu_permissions(role_key,menu_key,enabled)
+        VALUES (%s,%s,%s) ON CONFLICT(role_key,menu_key) DO UPDATE SET enabled=excluded.enabled""",
+        [(role_key, key, value) for key, value in data.permissions.items()])
+    return {"ok":True}
+
+
+@api.put("/admin/trial-banner")
+def set_trial_banner(data: TrialBannerSetting, conn: DB, _admin: Superadmin):
+    conn.execute("""INSERT INTO hub_settings(setting_key,value) VALUES ('trial_banner_enabled',%s)
+        ON CONFLICT(setting_key) DO UPDATE SET value=excluded.value""", (Jsonb(data.enabled),))
+    return {"trial_banner_enabled":data.enabled}
+
+
+@api.post("/me/role-requests")
+def create_role_requests(data: RoleRequests, conn: DB, user: User):
+    if user["role"] == "superadmin":
+        raise HTTPException(403, "Systémový účet nemôže žiadať o klubové roly.")
+    roles = set(data.roles)
+    if not roles or not roles <= set(ROLE_DEFINITIONS):
+        raise HTTPException(422, "Žiadosť obsahuje neznámu rolu.")
+    existing = set(user["roles"])
+    if roles & existing:
+        raise HTTPException(409, "O niektorú z vybraných rolí už máš pridelenú.")
+    for role_key in roles:
+        conn.execute("INSERT INTO role_requests(member_id,role_key) VALUES (%s,%s) ON CONFLICT DO NOTHING",
+                     (user["id"], role_key))
+    return {"ok":True}
+
+
+@api.get("/me/role-requests")
+def own_role_requests(conn: DB, user: User):
+    return conn.execute("""SELECT r.id,r.role_key,c.name,c.description,c.available,r.status,r.created_at
+        FROM role_requests r JOIN role_catalog c USING(role_key) WHERE r.member_id=%s
+        ORDER BY r.created_at DESC""", (user["id"],)).fetchall()
+
+
+@api.get("/role-requests")
+def role_requests(conn: DB, user: Staff):
+    if user["role"] != "superadmin" and "club_leader" not in user["roles"] and "deputy_leader" not in user["roles"]:
+        raise HTTPException(403, "Žiadosti o roly môže prezerať iba vedenie klubu.")
+    return conn.execute("""SELECT r.id,r.member_id,m.name AS member_name,m.email,r.role_key,c.name AS role_name,
+        r.created_at,r.status FROM role_requests r JOIN members m ON m.id=r.member_id
+        JOIN role_catalog c USING(role_key) WHERE r.status='pending' ORDER BY r.created_at,r.id""").fetchall()
+
+
+@api.put("/role-requests/{request_id}")
+def decide_role_request(request_id: int, data: RoleDecision, conn: DB, _admin: Superadmin):
+    request = conn.execute("""SELECT member_id,role_key FROM role_requests
+        WHERE id=%s AND status='pending' FOR UPDATE""", (request_id,)).fetchone()
+    if not request:
+        raise HTTPException(404, "Čakajúca žiadosť sa nenašla.")
+    conn.execute("UPDATE role_requests SET status=%s,decided_at=now(),decided_by=%s WHERE id=%s",
+                 (data.status, _admin["id"], request_id))
+    if data.status == "approved":
+        row = conn.execute("SELECT club_roles FROM members WHERE id=%s AND active FOR UPDATE",
+                           (request["member_id"],)).fetchone()
+        if row:
+            sync_account_roles(conn, request["member_id"], set(row["club_roles"] or []) | {request["role_key"]})
+    return {"ok":True}
 
 
 @api.post("/login")
@@ -323,9 +545,9 @@ def own_attendance(conn: DB, user: User):
 
 
 @api.get("/members")
-def members(conn: DB, _staff: Staff):
+def members(conn: DB, _user: User):
     return conn.execute(
-        """SELECT m.id, m.email, m.name, m.role, m.active,
+        """SELECT m.id, m.email, m.name, m.role, m.club_roles AS roles, m.active,
         m.password_hash IS NOT NULL AS registered,
         (SELECT count(*) FROM participation WHERE member_id=m.id AND attended=true) AS attended_count,
         (SELECT count(*) FROM participation WHERE member_id=m.id AND attended IS NOT NULL) AS recorded_count
@@ -333,16 +555,41 @@ def members(conn: DB, _staff: Staff):
     ).fetchall()
 
 
+class MemberRoles(BaseModel):
+    roles: list[str] = Field(min_length=1, max_length=12)
+
+
+@api.put("/members/{member_id}/roles")
+def update_member_roles(member_id: int, data: MemberRoles, conn: DB, _admin: Superadmin):
+    roles = set(data.roles)
+    if not roles <= set(ROLE_DEFINITIONS):
+        raise HTTPException(422, "Zoznam obsahuje neznámu rolu.")
+    current = conn.execute("SELECT role FROM members WHERE id=%s AND role IN ('member','coach') FOR UPDATE",
+                           (member_id,)).fetchone()
+    if not current:
+        raise HTTPException(404, "Člena sa nenašlo.")
+    sync_account_roles(conn, member_id, roles)
+    return {"roles":sorted(roles or {"player"})}
+
+
 @api.post("/members/invite")
-def invite(data: Invite, conn: DB, _staff: Staff):
+def invite(data: Invite, conn: DB, user: Staff):
+    if user["role"] != "superadmin" and data.roles != ["player"]:
+        raise HTTPException(403, "Iba superadmin môže priradiť roly pri pozvánke.")
+    roles = sorted(set(data.roles) | {"player"})
+    if not set(roles) <= set(ROLE_DEFINITIONS):
+        raise HTTPException(422, "Pozvánka obsahuje neznámu rolu.")
+    account_role = "coach" if any(ROLE_DEFINITIONS[role][3] for role in roles) else "member"
     token = secrets.token_urlsafe(32)
     member = conn.execute(
-        """INSERT INTO members (email, name, role, invite_hash, invite_until)
-        VALUES (%s, %s, 'member', %s, now() + interval '7 days')
+        """INSERT INTO members (email, name, role, club_roles, invite_hash, invite_until)
+        VALUES (%s, %s, %s, %s, %s, now() + interval '7 days')
         ON CONFLICT (email) DO UPDATE SET name = excluded.name, invite_hash = excluded.invite_hash,
-        invite_until = excluded.invite_until
-        WHERE members.role = 'member' AND members.active AND members.password_hash IS NULL
-        RETURNING id""", (data.email, data.name, digest(token))
+        invite_until = excluded.invite_until, role=CASE WHEN %s THEN excluded.role ELSE members.role END,
+        club_roles=CASE WHEN %s THEN excluded.club_roles ELSE members.club_roles END
+        WHERE members.role IN ('member','coach') AND members.active AND members.password_hash IS NULL
+        RETURNING id""", (data.email, data.name, account_role, roles, digest(token),
+                              user["role"] == "superadmin", user["role"] == "superadmin")
     ).fetchone()
     if not member:
         raise HTTPException(409, "Tento e-mail už patrí existujúcemu účtu.")
@@ -352,8 +599,8 @@ def invite(data: Invite, conn: DB, _staff: Staff):
 @api.post("/members/coaches")
 def create_coach(data: CoachAccount, conn: DB, _admin: Superadmin):
     member = conn.execute(
-        """INSERT INTO members (email, name, role, password_hash)
-        VALUES (%s, %s, 'coach', %s) ON CONFLICT (email) DO NOTHING RETURNING id""",
+        """INSERT INTO members (email, name, role, club_roles, password_hash)
+        VALUES (%s, %s, 'coach', ARRAY['player','coach']::text[], %s) ON CONFLICT (email) DO NOTHING RETURNING id""",
         (data.email, data.name, password_hash(data.password)),
     ).fetchone()
     if not member:
@@ -371,17 +618,16 @@ def set_role(member_id: int, data: AccountRole, conn: DB, _admin: Superadmin):
         raise HTTPException(404, "Aktivovaný účet sa nenašiel.")
     if member["role"] != data.role:
         conn.execute(
-            """UPDATE members SET role=%s, invite_hash=NULL, invite_until=NULL
-            WHERE id=%s""", (data.role, member_id),
+            """UPDATE members SET role=%s, club_roles=%s, invite_hash=NULL, invite_until=NULL
+            WHERE id=%s""", (data.role, ["player","coach"] if data.role == "coach" else ["player"], member_id),
         )
-        conn.execute("DELETE FROM sessions WHERE member_id=%s", (member_id,))
     return {"ok": True}
 
 
 @api.delete("/members/{member_id}")
 def delete_member(member_id: int, conn: DB, _admin: Superadmin):
     member = conn.execute(
-        "SELECT email FROM members WHERE id=%s AND role='member' FOR UPDATE", (member_id,),
+        "SELECT email FROM members WHERE id=%s AND role IN ('member','coach') FOR UPDATE", (member_id,),
     ).fetchone()
     if not member:
         raise HTTPException(404, "Člen sa nenašiel.")
@@ -415,12 +661,22 @@ def accept(data: Accept, conn: DB):
     ).fetchone()
     if not member:
         raise HTTPException(400, "Pozvánka je neplatná alebo už vypršala.")
-    conn.execute(
-        """UPDATE members SET password_hash = %s, invite_hash = NULL, invite_until = NULL
-        WHERE id = %s""", (password_hash(data.password), member["id"])
-    )
+    try:
+        conn.execute("""UPDATE members SET email=%s,password_hash = %s, invite_hash = NULL, invite_until = NULL
+            WHERE id = %s""", (data.email, password_hash(data.password), member["id"]))
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(409, "Tento e-mail už patrí existujúcemu účtu.") from None
     conn.execute("DELETE FROM sessions WHERE member_id = %s", (member["id"],))
     return {"ok": True}
+
+
+@api.get("/members/invite-info/{token}")
+def invite_info(token: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{43}$")], conn: DB):
+    member = conn.execute("""SELECT email,name,club_roles FROM members WHERE invite_hash=%s
+        AND invite_until>now() AND active""", (digest(token),)).fetchone()
+    if not member:
+        raise HTTPException(400, "Pozvánka je neplatná alebo už vypršala.")
+    return {"email":member["email"],"name":member["name"],"roles":member["club_roles"]}
 
 
 @api.put("/members/{member_id}/active")
@@ -480,7 +736,7 @@ def trainings(conn: DB, user: User):
             'unanswered', count(*) FILTER (WHERE r.response IS NULL),
             'attendance_pending', count(*) FILTER (WHERE r.attended IS NULL))
          FROM members m LEFT JOIN participation r ON r.member_id=m.id AND r.training_id=t.id
-         WHERE m.role='member' AND m.active AND m.password_hash IS NOT NULL) AS counts
+         WHERE 'player'=ANY(m.club_roles) AND m.active AND m.password_hash IS NOT NULL) AS counts
         FROM trainings t
         LEFT JOIN participation p ON p.training_id = t.id AND p.member_id = %s
         ORDER BY (t.starts_at >= now()) DESC,
@@ -576,7 +832,7 @@ def club_date(timestamp):
 
 @api.put("/trainings/{training_id}/rsvp")
 def rsvp(training_id: int, data: RSVP, conn: DB, user: User):
-    if user["role"] != "member":
+    if "player" not in user["roles"]:
         raise HTTPException(403, "Účasť potvrdzujú členovia.")
     training = lock_training(conn, training_id)
     if training["cancelled"] or training["starts_at"] <= datetime.now(timezone.utc):
@@ -596,7 +852,7 @@ def roster(training_id: int, conn: DB, _staff: Staff):
     return conn.execute(
         """SELECT m.id, m.name, p.response, p.note, p.attended FROM members m
         LEFT JOIN participation p ON p.member_id=m.id AND p.training_id=%s
-        WHERE (m.role='member' AND m.active AND m.password_hash IS NOT NULL) OR p.member_id IS NOT NULL
+        WHERE ('player'=ANY(m.club_roles) AND m.active AND m.password_hash IS NOT NULL) OR p.member_id IS NOT NULL
         ORDER BY m.name, m.id""",
         (training_id,)
     ).fetchall()
@@ -608,7 +864,7 @@ def attendance(training_id: int, member_id: int, data: Attendance, conn: DB, _st
     if training["cancelled"] or training["starts_at"] > datetime.now(timezone.utc):
         raise HTTPException(409, "Dochádzku možno zapísať od začiatku udalosti.")
     if not conn.execute(
-        "SELECT 1 FROM members WHERE id=%s AND (role='member' OR EXISTS (SELECT 1 FROM participation WHERE member_id=%s AND training_id=%s))",
+        "SELECT 1 FROM members WHERE id=%s AND ('player'=ANY(club_roles) OR EXISTS (SELECT 1 FROM participation WHERE member_id=%s AND training_id=%s))",
         (member_id, member_id, training_id),
     ).fetchone():
         raise HTTPException(404, "Člen sa nenašiel.")
@@ -633,7 +889,7 @@ def bulk_attendance(training_id: int, data: BulkAttendance, conn: DB, _staff: St
     ids = set(data.member_ids)
     allowed = conn.execute(
         """SELECT id FROM members WHERE id=ANY(%s) AND
-        (role='member' OR EXISTS (SELECT 1 FROM participation WHERE member_id=members.id AND training_id=%s))""",
+        ('player'=ANY(club_roles) OR EXISTS (SELECT 1 FROM participation WHERE member_id=members.id AND training_id=%s))""",
         (list(ids), training_id),
     ).fetchall()
     if len(allowed) != len(ids):
@@ -666,11 +922,11 @@ def attendance_matrix(conn: DB, _staff: Staff, date_from: CalendarDate | None = 
         (selected_kinds, include_cancelled, date_from, date_from, date_to, date_to),
     ).fetchall()
     members = conn.execute(
-        "SELECT id,name,active FROM members WHERE role='member' ORDER BY lower(name),id"
+        "SELECT id,name,active FROM members WHERE 'player'=ANY(club_roles) ORDER BY lower(name),id"
     ).fetchall()
     attendance = conn.execute(
         """SELECT p.training_id,p.member_id,p.attended FROM participation p
-        JOIN members m ON m.id=p.member_id WHERE m.role='member'
+        JOIN members m ON m.id=p.member_id WHERE 'player'=ANY(m.club_roles)
         AND p.training_id=ANY(%s) AND p.attended IS NOT NULL""",
         ([event["id"] for event in events],),
     ).fetchall()
@@ -744,7 +1000,7 @@ def clean_lineup(conn, entries):
         players.append({"member_id": member_id, "team": team, "slot": slot,
                         "position": position, "substitute": substitute})
     valid_ids = {row["id"] for row in conn.execute(
-        "SELECT id FROM members WHERE id=ANY(%s) AND role='member' AND active AND password_hash IS NOT NULL", (list(seen),)
+        "SELECT id FROM members WHERE id=ANY(%s) AND 'player'=ANY(club_roles) AND active AND password_hash IS NOT NULL", (list(seen),)
     ).fetchall()} if seen else set()
     if seen != valid_ids:
         raise HTTPException(422, "Zostava obsahuje neaktívneho alebo neplatného člena.")
@@ -755,7 +1011,7 @@ def clean_lineup(conn, entries):
 def get_general_lineup(conn: DB, _user: User):
     saved = conn.execute("SELECT players FROM club_lineup WHERE id=1").fetchone()
     roster = conn.execute(
-        """SELECT id,name FROM members WHERE role='member' AND active AND password_hash IS NOT NULL
+        """SELECT id,name FROM members WHERE 'player'=ANY(club_roles) AND active AND password_hash IS NOT NULL
         ORDER BY lower(name),id"""
     ).fetchall()
     return {"players": saved["players"] if saved else [], "source": "general", "roster": roster}
@@ -779,7 +1035,7 @@ def get_training_lineup(training_id: int, conn: DB, _user: User):
     saved = conn.execute("SELECT players FROM training_lineups WHERE training_id=%s", (training_id,)).fetchone()
     general = conn.execute("SELECT players FROM club_lineup WHERE id=1").fetchone()
     roster = conn.execute(
-        """SELECT id,name FROM members WHERE role='member' AND active AND password_hash IS NOT NULL
+        """SELECT id,name FROM members WHERE 'player'=ANY(club_roles) AND active AND password_hash IS NOT NULL
         ORDER BY lower(name),id"""
     ).fetchall()
     return {"players": saved["players"] if saved else general["players"] if general else [],
@@ -873,7 +1129,7 @@ def save_training_workspace(training_id: int, data: TrainingWorkspaceInput, conn
 
 @api.put("/trainings/{training_id}/feedback")
 def save_training_feedback(training_id: int, data: TrainingFeedbackInput, conn: DB, user: User):
-    if user["role"] != "member":
+    if "player" not in user["roles"]:
         raise HTTPException(403, "Spätnú väzbu odovzdávajú členovia.")
     eligible = conn.execute(
         """SELECT t.starts_at <= now() AS started, t.cancelled, p.attended
@@ -896,7 +1152,7 @@ def save_training_feedback(training_id: int, data: TrainingFeedbackInput, conn: 
 
 @api.get("/members/{member_id}/development")
 def member_development(member_id: int, conn: DB, _staff: Staff):
-    if not conn.execute("SELECT 1 FROM members WHERE id=%s AND role='member'", (member_id,)).fetchone():
+    if not conn.execute("SELECT 1 FROM members WHERE id=%s AND 'player'=ANY(club_roles)", (member_id,)).fetchone():
         raise HTTPException(404, "Člen sa nenašiel.")
     note = conn.execute("SELECT note,updated_at FROM member_coach_notes WHERE member_id=%s", (member_id,)).fetchone()
     skills = conn.execute("SELECT skill,level,note,updated_at FROM member_skills WHERE member_id=%s ORDER BY lower(skill)", (member_id,)).fetchall()
@@ -910,7 +1166,7 @@ def member_development(member_id: int, conn: DB, _staff: Staff):
 
 @api.put("/members/{member_id}/development/note")
 def save_member_coach_note(member_id: int, data: MemberCoachNoteInput, conn: DB, user: Staff):
-    if not conn.execute("SELECT 1 FROM members WHERE id=%s AND role='member'", (member_id,)).fetchone():
+    if not conn.execute("SELECT 1 FROM members WHERE id=%s AND 'player'=ANY(club_roles)", (member_id,)).fetchone():
         raise HTTPException(404, "Člen sa nenašiel.")
     conn.execute(
         """INSERT INTO member_coach_notes(member_id,note,updated_by) VALUES (%s,%s,%s)
@@ -922,7 +1178,7 @@ def save_member_coach_note(member_id: int, data: MemberCoachNoteInput, conn: DB,
 
 @api.put("/members/{member_id}/development/skills")
 def save_member_skill(member_id: int, data: MemberSkillInput, conn: DB, user: Staff):
-    if not conn.execute("SELECT 1 FROM members WHERE id=%s AND role='member'", (member_id,)).fetchone():
+    if not conn.execute("SELECT 1 FROM members WHERE id=%s AND 'player'=ANY(club_roles)", (member_id,)).fetchone():
         raise HTTPException(404, "Člen sa nenašiel.")
     conn.execute(
         """INSERT INTO member_skills(member_id,skill,level,note,updated_by) VALUES (%s,%s,%s,%s,%s)
@@ -1591,7 +1847,7 @@ def scan(data:ScanRequest, conn:DB, user:User):
         if event['cancelled'] or event['starts_at']>datetime.now(timezone.utc) or (event['ends_at'] and event['ends_at']<datetime.now(timezone.utc)):
             raise HTTPException(409,'Dochádzku možno zapísať iba počas prebiehajúcej alebo začatej nezrušenej udalosti.')
     person=conn.execute(
-        "SELECT id,name FROM members WHERE card_token=%s AND role='member' AND active FOR UPDATE",(code,),
+        "SELECT id,name FROM members WHERE card_token=%s AND 'player'=ANY(club_roles) AND active FOR UPDATE",(code,),
     ).fetchone()
     if not person:
         raise HTTPException(404,'Členský QR už neplatí alebo člen nie je aktívny.')
@@ -1610,7 +1866,7 @@ def scan(data:ScanRequest, conn:DB, user:User):
 def digital_card(conn,member_id):
     card=conn.execute(
         """UPDATE members SET card_token=COALESCE(card_token,%s)
-        WHERE id=%s AND role='member' AND active RETURNING id,name,card_token""",
+        WHERE id=%s AND 'player'=ANY(club_roles) AND active RETURNING id,name,card_token""",
         (secrets.token_urlsafe(32),member_id),
     ).fetchone()
     if not card:
@@ -1658,14 +1914,14 @@ def card_qr(conn,member_id):
 
 @api.get('/me/card')
 def my_card(conn:DB,user:User):
-    if user['role']!='member':
+    if 'player' not in user['roles']:
         raise HTTPException(403,'Členský QR je určený členom tímu.')
     return digital_card(conn,user['id'])
 
 
 @api.get('/me/card.svg')
 def my_card_qr(conn:DB,user:User):
-    if user['role']!='member':
+    if 'player' not in user['roles']:
         raise HTTPException(403,'Členský QR je určený členom tímu.')
     return card_qr(conn,user['id'])
 
@@ -1682,7 +1938,7 @@ def member_card_qr(member_id:int,conn:DB,_staff:Staff):
 
 @api.post('/members/{member_id}/card/reset')
 def reset_member_card(member_id:int,conn:DB,_staff:Staff):
-    if not conn.execute("UPDATE members SET card_token=%s WHERE id=%s AND role='member' AND active",
+    if not conn.execute("UPDATE members SET card_token=%s WHERE id=%s AND 'player'=ANY(club_roles) AND active",
                         (secrets.token_urlsafe(32),member_id)).rowcount:
         raise HTTPException(404,'Aktívny člen sa nenašiel.')
     return digital_card(conn,member_id)
