@@ -712,7 +712,7 @@ class TrainingLineupInput(BaseModel):
 
 
 def clean_lineup(conn, entries):
-    players, seen = [], set()
+    players, seen, used_slots = [], set(), set()
     for entry in entries:
         try:
             member_id = int(entry.get("member_id"))
@@ -721,11 +721,30 @@ def clean_lineup(conn, entries):
         if member_id in seen:
             continue
         seen.add(member_id)
-        players.append({"member_id": member_id,
-                        "team": "A" if entry.get("team") == "A" else "B",
-                        "position": str(entry.get("position", ""))[:40]})
+        team = "A" if entry.get("team") == "A" else "B"
+        position = str(entry.get("position", ""))[:40]
+        substitute = bool(entry.get("substitute")) or position == "Substitute"
+        try:
+            slot = int(entry.get("slot")) if entry.get("slot") is not None else None
+        except (TypeError, ValueError):
+            slot = None
+        if substitute:
+            slot, position = None, "Substitute"
+        else:
+            if slot is None:
+                role = "Striker" if position in {"Attacker", "Striker"} else "Defender"
+                choices = (1, 2) if role == "Striker" else (3, 4, 5)
+                slot = next((number for number in choices if (team, number) not in used_slots), None)
+                if slot is None:
+                    slot = next((number for number in range(1, 6) if (team, number) not in used_slots), None)
+            if slot not in range(1, 6) or (team, slot) in used_slots:
+                raise HTTPException(422, "Každá hráčska pozícia môže mať iba jedného hráča.")
+            used_slots.add((team, slot))
+            position = "Striker" if slot in (1, 2) else "Defender"
+        players.append({"member_id": member_id, "team": team, "slot": slot,
+                        "position": position, "substitute": substitute})
     valid_ids = {row["id"] for row in conn.execute(
-        "SELECT id FROM members WHERE id=ANY(%s) AND role='member' AND active", (list(seen),)
+        "SELECT id FROM members WHERE id=ANY(%s) AND role='member' AND active AND password_hash IS NOT NULL", (list(seen),)
     ).fetchall()} if seen else set()
     if seen != valid_ids:
         raise HTTPException(422, "Zostava obsahuje neaktívneho alebo neplatného člena.")

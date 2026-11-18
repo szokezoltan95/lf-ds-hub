@@ -17,6 +17,25 @@ Object.assign(ukrainianExtra, {
   "Aplikácia vo vývoji": "Застосунок у розробці"
 });
 
+const lineupEnglish = {
+  "Drone Soccer · Class 20": "Drone Soccer · Class 20", "Schéma uzavretej drone soccer arény Class 20": "Diagram of an enclosed Class 20 drone soccer arena", "PILOTI A": "TEAM A PILOTS", "PILOTI B": "TEAM B PILOTS", "BRÁNA A": "GOAL A", "BRÁNA B": "GOAL B", "Náhradníci sú v pilotnej zóne": "Substitutes are in the pilot area", "Nezaradení hráči": "Unassigned players", "Všetci členovia sú zaradení alebo sú náhradníkmi.": "All members are assigned or listed as substitutes.", "Priradiť hráča": "Assign player", "Pridať náhradníka": "Add substitute", "Hráč, ktorý už je v zostave, sa presunie na nové miesto.": "A player already in the lineup will be moved to the new slot.", "Nezaradený": "Unassigned", "Voľné miesto": "Empty slot", "Zmeniť": "Change", "Striker 1": "Striker 1", "Striker 2": "Striker 2", "Defender 1": "Defender 1", "Defender 2": "Defender 2", "Defender 3": "Defender 3", "Každá hráčska pozícia môže mať iba jedného hráča.": "Each player slot can contain only one player."
+};
+const lineupUkrainian = {
+  "Drone Soccer · Class 20": "Drone Soccer · Class 20", "Schéma uzavretej drone soccer arény Class 20": "Схема закритої арени Drone Soccer Class 20", "PILOTI A": "ПІЛОТИ A", "PILOTI B": "ПІЛОТИ B", "BRÁNA A": "ВОРОТА A", "BRÁNA B": "ВОРОТА B", "Náhradníci sú v pilotnej zóne": "Запасні гравці перебувають у зоні пілотів", "Nezaradení hráči": "Гравці без призначення", "Všetci členovia sú zaradení alebo sú náhradníkmi.": "Усіх учасників розподілено або внесено до запасу.", "Priradiť hráča": "Призначити гравця", "Pridať náhradníka": "Додати запасного гравця", "Hráč, ktorý už je v zostave, sa presunie na nové miesto.": "Гравець, уже включений до складу, переміститься на нове місце.", "Nezaradený": "Не призначено", "Voľné miesto": "Вільне місце", "Zmeniť": "Змінити", "Striker 1": "Страйкер 1", "Striker 2": "Страйкер 2", "Defender 1": "Захисник 1", "Defender 2": "Захисник 2", "Defender 3": "Захисник 3", "Každá hráčska pozícia môže mať iba jedného hráča.": "На кожній позиції може бути лише один гравець."
+};
+for (const team of ["A", "B"]) {
+  lineupEnglish[`Tím ${team}`] = `Team ${team}`;
+  lineupUkrainian[`Tím ${team}`] = `Команда ${team}`;
+  lineupEnglish[`Pridať náhradníka · Tím ${team}`] = `Add substitute · Team ${team}`;
+  lineupUkrainian[`Pridať náhradníka · Tím ${team}`] = `Додати запасного · Команда ${team}`;
+  for (const position of ["Striker 1", "Striker 2", "Defender 1", "Defender 2", "Defender 3"]) {
+    lineupEnglish[`Priradiť hráča · Tím ${team} · ${position}`] = `Assign player · Team ${team} · ${position}`;
+    lineupUkrainian[`Priradiť hráča · Tím ${team} · ${position}`] = `Призначити гравця · Команда ${team} · ${lineupUkrainian[position]}`;
+  }
+}
+Object.assign(englishExtra, lineupEnglish);
+Object.assign(ukrainianExtra, lineupUkrainian);
+
 Object.assign(englishExtra, {
   "Akú zostavu upravuješ?": "Which lineup do you want to edit?", "Zostava na udalosť": "Event lineup", "Toto je priebežná zostava tímu. Udalostná zostava sa upravuje samostatne.": "This is the team's ongoing base lineup. Event lineups are edited separately."
 });
