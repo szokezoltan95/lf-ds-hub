@@ -282,3 +282,9 @@ CREATE TABLE IF NOT EXISTS training_lineups (
     updated_by bigint REFERENCES members(id) ON DELETE SET NULL,
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS club_lineup (
+    id integer PRIMARY KEY DEFAULT 1 CHECK (id=1),
+    players jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(players)='array'),
+    updated_by bigint REFERENCES members(id) ON DELETE SET NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);

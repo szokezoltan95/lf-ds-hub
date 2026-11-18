@@ -1014,45 +1014,49 @@ function TeamFormationMap({players, roster}) {
 
 function TeamSheet({trainings}) {
   const events = trainings.filter(event => !event.cancelled && (event.kind === "match" || event.kind === "training")).sort((a,b) => new Date(b.starts_at)-new Date(a.starts_at));
-  const [eventId, setEventId] = useState("");
+  const [eventId, setEventId] = useState("general");
   const [roster, setRoster] = useState([]);
   const [players, setPlayers] = useState([]);
+  const [source, setSource] = useState("general");
   const [error, setError] = useState("");
-  useEffect(() => {if (!eventId && events.length) setEventId(String(events.find(event => new Date(event.starts_at) >= new Date())?.id || events[0].id));}, [events.length]);
   useEffect(() => {
     if (!eventId) return;
     let active = true;
-    api("trainings/" + eventId + "/lineup").then(data => {if (active) {setRoster(data.roster); setPlayers(data.players);}}).catch(e => {if (active) setError(e.message);});
+    api(eventId === "general" ? "lineup/general" : "trainings/" + eventId + "/lineup").then(data => {if (active) {setRoster(data.roster); setPlayers(data.players); setSource(data.source);}}).catch(e => {if (active) setError(e.message);});
     return () => {active = false;};
   }, [eventId]);
   const event = events.find(item => String(item.id) === eventId);
   return <>
-    <section className="card lineup-picker"><label>Udalosť<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="">Vyber tréning alebo zápas</option>{events.map(item => <option key={item.id} value={item.id}>{date(item.starts_at)} · {item.title}</option>)}</select></label></section>
+    <section className="card lineup-picker"><label>Zostava<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="general">Základná zostava tímu</option>{events.map(item => <option key={item.id} value={item.id}>{date(item.starts_at)} · {item.title}</option>)}</select></label></section>
     {error && <p className="error" role="alert">{error}</p>}
-    {event && <><div className="section-heading"><h2>{event.title}</h2><span className="meta">{date(event.starts_at)}</span></div>
-      {players.length ? <TeamFormationMap players={players} roster={roster} /> : <Empty icon={Users}>Tréner zatiaľ nepripravil zostavu na túto udalosť.</Empty>}
+    {eventId === "general" && <div className="notice">Základná zostava priebežne vyjadruje, s kým tréner počíta a na akej pozícii.</div>}
+    {event && source === "general" && <div className="notice">Pre túto udalosť zatiaľ nie je uložená samostatná zostava; zobrazuje sa základná zostava tímu.</div>}
+    {(event || eventId === "general") && <><div className="section-heading"><h2>{event?.title || "Základná zostava tímu"}</h2>{event && <span className="meta">{date(event.starts_at)}</span>}</div>
+      {players.length ? <TeamFormationMap players={players} roster={roster} /> : <Empty icon={Users}>{eventId === "general" ? "Základná zostava ešte nie je pripravená." : "Tréner zatiaľ nepripravil zostavu na túto udalosť."}</Empty>}
     </>}
-    {!event && events.length === 0 && <Empty icon={Users}>Zatiaľ nie sú naplánované tréningy ani zápasy.</Empty>}
+    {!event && eventId !== "general" && events.length === 0 && <Empty icon={Users}>Zatiaľ nie sú naplánované tréningy ani zápasy.</Empty>}
   </>;
 }
 
 function LineupPlanner({trainings}) {
   const events = trainings.filter(event => event.kind === "match" || event.kind === "training").sort((a,b) => new Date(b.starts_at)-new Date(a.starts_at));
-  const [eventId, setEventId] = useState("");
+  const [eventId, setEventId] = useState("general");
   const [roster, setRoster] = useState([]);
   const [players, setPlayers] = useState([]);
+  const [source, setSource] = useState("general");
   const [error, setError] = useState("");
   useEffect(() => {
     if (!eventId) return;
     let active = true;
-    api("trainings/" + eventId + "/lineup").then(data => {if (active) {setRoster(data.roster); setPlayers(data.players);}}).catch(e => {if (active) setError(e.message);});
+    api(eventId === "general" ? "lineup/general" : "trainings/" + eventId + "/lineup").then(data => {if (active) {setRoster(data.roster); setPlayers(data.players); setSource(data.source);}}).catch(e => {if (active) setError(e.message);});
     return () => {active = false;};
   }, [eventId]);
   const assigned = new Set(players.map(item => item.member_id));
   function update(member_id, patch) {setPlayers(current => current.map(player => player.member_id === member_id ? {...player, ...patch} : player));}
   return <>
-    <section className="card lineup-picker"><label>Udalosť<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="">Vyber tréning alebo zápas</option>{events.map(event => <option key={event.id} value={event.id}>{date(event.starts_at)} · {event.title}</option>)}</select></label></section>
+    <section className="card lineup-picker"><label>Upravovaná zostava<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="general">Základná zostava tímu</option>{events.map(event => <option key={event.id} value={event.id}>{date(event.starts_at)} · {event.title}</option>)}</select></label></section>
     {error && <p className="error" role="alert">{error}</p>}
+    {eventId !== "general" && source === "general" && <div className="notice">Upravuješ zostavu na konkrétnu udalosť. Začínaš zo základnej zostavy; zmeny sa uložia iba pre túto udalosť.</div>}
     {eventId && <>
       <div className="lineup-columns">{["A", "B"].map(team => <section className="card lineup-team" key={team}><h2>Tím {team}</h2>
         {players.filter(player => player.team === team).map(player => <div className="lineup-player" key={player.member_id}><strong>{roster.find(member => member.id === player.member_id)?.name || "Člen"}</strong><select aria-label="Pozícia" value={roleNames[player.position] || player.position || ""} onChange={e => update(player.member_id, {position: e.target.value})}><option value="">Bez pozície</option>{["Striker", "Defender", "Goalkeeper", "Substitute"].map(position => <option key={position}>{position}</option>)}</select><button className="text-button" onClick={() => setPlayers(players.filter(item => item.member_id !== player.member_id))}>Odobrať</button></div>)}
@@ -1061,9 +1065,8 @@ function LineupPlanner({trainings}) {
         {assigned.has(member.id) ? <span className="badge positive">Tím {players.find(p => p.member_id === member.id)?.team}</span> : <div className="actions"><button onClick={() => setPlayers([...players, {member_id: member.id, team: "A", position: ""}])}>+ Tím A</button><button onClick={() => setPlayers([...players, {member_id: member.id, team: "B", position: ""}])}>+ Tím B</button></div>}</li>)}</ul>
       </section>
       {players.length > 0 && <section className="section-space"><h2>Náhľad rozostavenia</h2><TeamFormationMap players={players} roster={roster} /></section>}
-      <div className="toolbar end"><Action className="primary" run={async () => {await api("trainings/" + eventId + "/lineup", "PUT", {players});}}>Uložiť zostavu</Action></div>
+      <div className="toolbar end"><Action className="primary" run={async () => {await api(eventId === "general" ? "lineup/general" : "trainings/" + eventId + "/lineup", "PUT", {players}); setSource(eventId === "general" ? "general" : "event");}}>Uložiť zostavu</Action></div>
     </>}
-    {!eventId && <Empty icon={Users}>Vyber udalosť a vytvor zostavu tímov A a B.</Empty>}
   </>;
 }
 

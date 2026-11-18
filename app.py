@@ -711,25 +711,9 @@ class TrainingLineupInput(BaseModel):
     players: Annotated[list[dict], Field(max_length=40)] = []
 
 
-@api.get("/trainings/{training_id}/lineup")
-def get_training_lineup(training_id: int, conn: DB, _user: User):
-    if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
-        raise HTTPException(404, "Udalosť sa nenašla.")
-    saved = conn.execute("SELECT players FROM training_lineups WHERE training_id=%s", (training_id,)).fetchone()
-    roster = conn.execute(
-        """SELECT id,name FROM members WHERE role='member' AND active AND password_hash IS NOT NULL
-        ORDER BY lower(name),id"""
-    ).fetchall()
-    return {"players": saved["players"] if saved else [], "roster": roster}
-
-
-@api.put("/trainings/{training_id}/lineup")
-def save_training_lineup(training_id: int, data: TrainingLineupInput, conn: DB, user: Staff):
-    if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
-        raise HTTPException(404, "Udalosť sa nenašla.")
-    players = []
-    seen = set()
-    for entry in data.players:
+def clean_lineup(conn, entries):
+    players, seen = [], set()
+    for entry in entries:
         try:
             member_id = int(entry.get("member_id"))
         except (TypeError, ValueError):
@@ -745,6 +729,49 @@ def save_training_lineup(training_id: int, data: TrainingLineupInput, conn: DB, 
     ).fetchall()} if seen else set()
     if seen != valid_ids:
         raise HTTPException(422, "Zostava obsahuje neaktívneho alebo neplatného člena.")
+    return players
+
+
+@api.get("/lineup/general")
+def get_general_lineup(conn: DB, _user: User):
+    saved = conn.execute("SELECT players FROM club_lineup WHERE id=1").fetchone()
+    roster = conn.execute(
+        """SELECT id,name FROM members WHERE role='member' AND active AND password_hash IS NOT NULL
+        ORDER BY lower(name),id"""
+    ).fetchall()
+    return {"players": saved["players"] if saved else [], "source": "general", "roster": roster}
+
+
+@api.put("/lineup/general")
+def save_general_lineup(data: TrainingLineupInput, conn: DB, user: Staff):
+    players = clean_lineup(conn, data.players)
+    conn.execute(
+        """INSERT INTO club_lineup(id,players,updated_by) VALUES (1,%s,%s)
+        ON CONFLICT(id) DO UPDATE SET players=excluded.players,updated_by=excluded.updated_by,updated_at=now()""",
+        (Jsonb(players), user["id"]),
+    )
+    return {"ok": True}
+
+
+@api.get("/trainings/{training_id}/lineup")
+def get_training_lineup(training_id: int, conn: DB, _user: User):
+    if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
+        raise HTTPException(404, "Udalosť sa nenašla.")
+    saved = conn.execute("SELECT players FROM training_lineups WHERE training_id=%s", (training_id,)).fetchone()
+    general = conn.execute("SELECT players FROM club_lineup WHERE id=1").fetchone()
+    roster = conn.execute(
+        """SELECT id,name FROM members WHERE role='member' AND active AND password_hash IS NOT NULL
+        ORDER BY lower(name),id"""
+    ).fetchall()
+    return {"players": saved["players"] if saved else general["players"] if general else [],
+            "source": "event" if saved else "general", "roster": roster}
+
+
+@api.put("/trainings/{training_id}/lineup")
+def save_training_lineup(training_id: int, data: TrainingLineupInput, conn: DB, user: Staff):
+    if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
+        raise HTTPException(404, "Udalosť sa nenašla.")
+    players = clean_lineup(conn, data.players)
     conn.execute(
         """INSERT INTO training_lineups(training_id,players,updated_by) VALUES (%s,%s,%s)
         ON CONFLICT(training_id) DO UPDATE SET players=excluded.players,updated_by=excluded.updated_by,updated_at=now()""",

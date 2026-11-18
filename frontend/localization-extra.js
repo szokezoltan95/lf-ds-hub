@@ -18,6 +18,13 @@ Object.assign(ukrainianExtra, {
 });
 
 Object.assign(englishExtra, {
+  "Základná zostava tímu": "Team's base lineup", "Základná zostava": "Base lineup", "Základná zostava priebežne vyjadruje, s kým tréner počíta a na akej pozícii.": "The base lineup shows which players the coach currently plans to use and in which positions.", "Zostava": "Lineup", "Upravovaná zostava": "Lineup being edited", "Pre túto udalosť zatiaľ nie je uložená samostatná zostava; zobrazuje sa základná zostava tímu.": "No event-specific lineup has been saved yet; the team's base lineup is shown.", "Upravuješ zostavu na konkrétnu udalosť. Začínaš zo základnej zostavy; zmeny sa uložia iba pre túto udalosť.": "You are editing the lineup for a specific event. It starts from the base lineup; changes will apply only to this event.", "Základná zostava ešte nie je pripravená.": "The base lineup has not been prepared yet."
+});
+Object.assign(ukrainianExtra, {
+  "Základná zostava tímu": "Базовий склад команди", "Základná zostava": "Базовий склад", "Základná zostava priebežne vyjadruje, s kým tréner počíta a na akej pozícii.": "Базовий склад показує, на яких гравців і позиції наразі розраховує тренер.", "Zostava": "Склад", "Upravovaná zostava": "Склад для редагування", "Pre túto udalosť zatiaľ nie je uložená samostatná zostava; zobrazuje sa základná zostava tímu.": "Для цієї події ще не збережено окремий склад; показано базовий склад команди.", "Upravuješ zostavu na konkrétnu udalosť. Začínaš zo základnej zostavy; zmeny sa uložia iba pre túto udalosť.": "Ви редагуєте склад для конкретної події. Він починається з базового складу; зміни стосуватимуться лише цієї події.", "Základná zostava ešte nie je pripravená.": "Базовий склад ще не підготовлений."
+});
+
+Object.assign(englishExtra, {
   "Tímy": "Teams", "Vyber tréning alebo zápas": "Choose a practice or match", "Tréner zatiaľ nepripravil zostavu na túto udalosť.": "The coach has not prepared a lineup for this event yet.", "Zatiaľ nie sú naplánované tréningy ani zápasy.": "No practices or matches are scheduled yet.", "Rozostavenie hráčov na ihrisku": "Player formation on the field", "Striker": "Striker", "Tím A": "Team A", "Tím B": "Team B", "Tím ": "Team ", "Zatiaľ bez hráčov.": "No players yet.", "Keeper": "Goalkeeper"
 });
 Object.assign(ukrainianExtra, {
