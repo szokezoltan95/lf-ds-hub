@@ -10,12 +10,15 @@ import "@fontsource/dm-sans/latin-ext-600.css";
 import "./style.css";
 import {CameraScanner} from "./scanner.jsx";
 import {usePwaInstall, promptInstallation, installationPlatform} from "./install.js";
+import {detectLanguage, initialLanguage, localizeText, translateNode, translatePage} from "./localization.js";
 
 const base = new URL("./", location.href);
+let activeLanguage = initialLanguage();
+const uiLocale = () => activeLanguage === "sk" ? "sk-SK" : activeLanguage === "uk" ? "uk-UA" : "en-GB";
 const labels = {yes: "Prídem", no: "Neprídem", maybe: "Ešte neviem"};
 const batteryLabels = {used: "Použitá", charged: "Nabitá", stored: "V sklade", damaged: "Poškodená", retired: "Vyradená"};
 const timeZone = "Europe/Bratislava";
-const date = value => new Date(value).toLocaleString("sk-SK", {dateStyle: "medium", timeStyle: "short", timeZone});
+const date = value => new Date(value).toLocaleString(uiLocale(), {dateStyle: "medium", timeStyle: "short", timeZone});
 const past = t => new Date(t.starts_at) <= new Date();
 const hash = () => new URLSearchParams(location.hash.slice(1));
 const trainingParts = new Intl.DateTimeFormat("sv-SE", {
@@ -40,7 +43,7 @@ async function api(path, method = "GET", body) {
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    const error = new Error(typeof payload.detail === "string" ? payload.detail :
+    const error = new Error(typeof payload.detail === "string" ? localizeText(payload.detail, activeLanguage) :
       response.status === 422 ? "Skontroluj vyplnené údaje." : "Požiadavka sa nepodarila.");
     error.status = response.status;
     throw error;
@@ -114,7 +117,7 @@ const roles = {superadmin: "Superadmin", coach: "Tréner", member: "Člen"};
 const initials = name => name.split(" ").filter(Boolean).map(part => part[0]).slice(0, 2).join("").toUpperCase();
 const dayKey = timestamp => clubLocal(timestamp).slice(0, 10);
 const today = () => dayKey(new Date());
-const clock = timestamp => new Date(timestamp).toLocaleTimeString("sk-SK", {hour: "2-digit", minute: "2-digit", timeZone});
+const clock = timestamp => new Date(timestamp).toLocaleTimeString(uiLocale(), {hour: "2-digit", minute: "2-digit", timeZone});
 const upcoming = training => !training.cancelled && !past(training);
 
 function Avatar({name}) {
@@ -211,8 +214,8 @@ function TrainingCard({training, staff, refresh, open, prominent = false}) {
   const day = new Date(training.starts_at);
   return <article className={"card training-card event-" + (training.kind || "training") + " " + (prominent ? "prominent " : "") + (training.cancelled ? "cancelled" : "")}>
     <button className="event-link" onClick={open}>
-      <span className="date-tile"><strong>{day.toLocaleDateString("sk-SK", {day: "numeric", timeZone})}</strong>
-        <span>{day.toLocaleDateString("sk-SK", {month: "short", timeZone})}</span></span>
+      <span className="date-tile"><strong>{day.toLocaleDateString(uiLocale(), {day: "numeric", timeZone})}</strong>
+        <span>{day.toLocaleDateString(uiLocale(), {month: "short", timeZone})}</span></span>
       <span className="event-text"><span className={"badge event-type " + (training.kind || "training")}>{kinds[training.kind] || "Tréning"}</span><strong>{training.title}</strong>
         <span className="meta"><Clock size={14} />{clock(training.starts_at)}{training.ends_at && " – " + clock(training.ends_at)}</span>
         <span className="meta"><MapPin size={14} />{training.location}</span>
@@ -261,12 +264,12 @@ function TrainingDetail({training, staff, places, close, refresh, openScanner}) 
         {staff && !training.cancelled && <div className="actions section-space">
           <button onClick={() => setEdit(true)}><Pencil size={17} />Upraviť</button>
           <Action className="danger" run={async () => {
-            if (!window.confirm("Zrušiť udalosť a zverejniť oznam pre tím? Udalosť zostane v kalendári označená ako zrušená.")) return;
+            if (!window.confirm(localizeText("Zrušiť udalosť a zverejniť oznam pre tím? Udalosť zostane v kalendári označená ako zrušená.", activeLanguage))) return;
             await api("trainings/" + training.id + "/cancel", "POST"); await refresh();
           }}>Zrušiť udalosť</Action>
         </div>}
         {staff && training.can_delete && <div className="section-space"><Action className="danger" run={async () => {
-          if (!window.confirm("Natrvalo vymazať túto udalosť aj jej prihlášky, dochádzku a súvisiace automatické oznamy? Bez odoslania upozornenia. Táto akcia sa nedá vrátiť.")) return;
+          if (!window.confirm(localizeText("Natrvalo vymazať túto udalosť aj jej prihlášky, dochádzku a súvisiace automatické oznamy? Bez odoslania upozornenia. Táto akcia sa nedá vrátiť.", activeLanguage))) return;
           await api("trainings/" + training.id, "DELETE"); close(); await refresh();
         }}>Vymazať bez upozornenia</Action></div>}
       </> : <>
@@ -324,7 +327,7 @@ function Calendar({trainings, staff, places, refresh, openTraining}) {
       <button key={value} className={period === value ? "selected" : ""} onClick={() => setPeriod(value)}>{text}</button>)}</div> :
       <section className="card calendar">
         <div className="month-heading"><button className="icon-button" aria-label="Predchádzajúci mesiac" onClick={() => moveMonth(-1)}><ChevronLeft /></button>
-          <h2>{start.toLocaleDateString("sk-SK", {month: "long", year: "numeric", timeZone: "UTC"})}</h2>
+          <h2>{start.toLocaleDateString(uiLocale(), {month: "long", year: "numeric", timeZone: "UTC"})}</h2>
           <button className="icon-button" aria-label="Nasledujúci mesiac" onClick={() => moveMonth(1)}><ChevronRight /></button></div>
         <div className="calendar-grid">{["Po", "Ut", "St", "Št", "Pi", "So", "Ne"].map(day => <span className="weekday" key={day}>{day}</span>)}
           {Array.from({length: padding}, (_, i) => <span key={"pad" + i} />)}
@@ -347,7 +350,7 @@ function Calendar({trainings, staff, places, refresh, openTraining}) {
         {staff && selectedDay && <button className="text-button" onClick={() => setCreate(true)}><Plus size={16} />Pridať udalosť na {selectedDay.split("-").reverse().join(".")}</button>}
       </section>}
     <div className="event-list">{shown.length ? shown.map((t, i) => <React.Fragment key={t.id}>
-      {(i === 0 || dayKey(shown[i - 1].starts_at) !== dayKey(t.starts_at)) && <h2 className="day-heading">{new Date(t.starts_at).toLocaleDateString("sk-SK", {weekday: "long", day: "numeric", month: "long", timeZone})}</h2>}
+      {(i === 0 || dayKey(shown[i - 1].starts_at) !== dayKey(t.starts_at)) && <h2 className="day-heading">{new Date(t.starts_at).toLocaleDateString(uiLocale(), {weekday: "long", day: "numeric", month: "long", timeZone})}</h2>}
       <TrainingCard training={t} staff={staff} refresh={refresh} open={() => openTraining(t.id)} />
     </React.Fragment>) : <Empty>V tomto období nie sú žiadne udalosti.</Empty>}</div>
     {create && <Modal title="Nová udalosť" close={() => setCreate(false)}><TrainingForm initialDay={selectedDay} places={places} done={async () => {setCreate(false); await refresh();}} /></Modal>}
@@ -423,12 +426,12 @@ function Members({superadmin, management = false, onMessage, onCard, userId}) {
       {superadmin && management && selected.role !== "superadmin" && <section className="section-space"><h3>Správa účtu</h3><div className="actions">
         {selected.registered && <Action run={async () => {
           const role = selected.role === "coach" ? "member" : "coach";
-          if (!window.confirm("Zmeniť rolu účtu na „" + roles[role] + "“?")) return;
+          if (!window.confirm(localizeText("Zmeniť rolu účtu na „", activeLanguage) + localizeText(roles[role], activeLanguage) + "“?")) return;
           await api("members/" + selected.id + "/role", "PUT", {role});
           setSelected({...selected, role}); setLink(""); await load();
         }}>{selected.role === "coach" ? "Zmeniť na člena" : "Povýšiť na trénera"}</Action>}
         {selected.role === "member" && <Action className="danger" run={async () => {
-          if (!window.confirm("Natrvalo odstrániť účet „" + selected.name + "“, jeho dochádzku a súkromné správy?")) return;
+          if (!window.confirm(localizeText("Natrvalo odstrániť účet „", activeLanguage) + selected.name + localizeText("“, jeho dochádzku a súkromné správy?", activeLanguage))) return;
           await api("members/" + selected.id, "DELETE"); setSelected(null); await load();
         }}>Natrvalo odstrániť člena</Action>}
       </div></section>}
@@ -598,7 +601,7 @@ function Bulletin({items, staff, refresh}) {
           <Action className="text-button" run={async()=>{await api("announcements/"+item.id+"/pin","PUT",{pinned:!item.pinned});await refresh();}}><Pin size={16} />{item.pinned ? "Odopnúť" : "Pripnúť"}</Action>
           <button onClick={()=>setEditor(item)}><Pencil size={16} />Upraviť</button>
           <Action className="danger" run={async()=>{
-            if(!window.confirm("Natrvalo vymazať oznam aj prílohy? Bez odoslania upozornenia.")) return;
+            if(!window.confirm(localizeText("Natrvalo vymazať oznam aj prílohy? Bez odoslania upozornenia.", activeLanguage))) return;
             await api("announcements/"+item.id,"DELETE");await refresh();
           }}>Vymazať</Action>
         </>}
@@ -839,7 +842,7 @@ function Documents({staff}) {
     <div className="card flush"><ul className="people-list">{items.map(item => <li key={item.id}><FileText /><div className="grow"><strong>{item.title}</strong><span className="meta">PDF · {date(item.created_at)}</span></div>
       <a className="icon-button" href={new URL("api/documents/" + item.id + "/download", base)} aria-label={"Stiahnuť " + item.title}><Download size={19} /></a>
       {staff && <Action className="icon-button danger" run={async () => {
-        if (!window.confirm("Odstrániť dokument „" + item.title + "“?")) return;
+        if (!window.confirm(localizeText("Odstrániť dokument „", activeLanguage) + item.title + "“?")) return;
         await api("documents/" + item.id, "DELETE"); await load();
       }}><X size={18} /><span className="sr-only">Odstrániť {item.title}</span></Action>}
     </li>)}</ul>{items.length === 0 && <Empty icon={FileText}>Klubové dokumenty sa zobrazia tu.</Empty>}</div>
@@ -880,7 +883,7 @@ function MemberQr({member,close}) {
       <p>Ukáž tento kód trénerovi na zápis dochádzky.</p>
       {navigator.clipboard && <Action run={()=>navigator.clipboard.writeText(card.payload)}>Kopírovať členský kód</Action>}
       {!own && <div className="section-space"><Action className="danger" run={async()=>{
-        if(!window.confirm("Obnoviť členský QR? Starý kód okamžite prestane platiť. Člen si nový zobrazí vo svojej appke.")) return;
+        if(!window.confirm(localizeText("Obnoviť členský QR? Starý kód okamžite prestane platiť. Člen si nový zobrazí vo svojej appke.", activeLanguage))) return;
         setCard(await api(path+"/reset","POST"));setVersion(value=>value+1);
       }}>Obnoviť QR kód</Action></div>}
     </div> : !error && <Empty>Načítava sa QR kód…</Empty>}
@@ -1070,7 +1073,7 @@ function PushSettings({user,reloadUser}) {
   </section>;
 }
 
-function Profile({user, reloadUser, installation, install, saveInstallPreferences, openCard}) {
+function Profile({user, reloadUser, installation, install, saveInstallPreferences, openCard, languagePreference, onLanguageChange}) {
   const [attendance, setAttendance] = useState([]);
   const [edit, setEdit] = useState(null);
   const [error, setError] = useState("");
@@ -1085,6 +1088,15 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
     </section>
     {saved && <p className="success" role="status">{saved}</p>}
     {error && <p className="error" role="alert">{error}</p>}
+    <section className="card language-settings"><h2>Jazyk aplikácie</h2>
+      <label>Jazyk aplikácie<select value={languagePreference} onChange={event=>onLanguageChange(event.target.value)}>
+        <option value="system">Podľa jazyka systému</option>
+        <option value="sk">Slovenčina</option>
+        <option value="en">English</option>
+        <option value="uk">Українська</option>
+      </select></label>
+      <p className="small muted">Zmena sa uloží iba v tomto zariadení.</p>
+    </section>
     {user.role === "member" && <section className="card"><h2>Moja dochádzka</h2>
       {attendance.length ? <><p className="big-number">{attended}<span> / {attendance.length}</span></p><p className="muted">navštívených udalostí so zaznamenanou dochádzkou</p>
         <ul className="records">{attendance.map(row => <li key={row.id}><div className="grow"><strong>{row.title}</strong><span className="meta">{date(row.starts_at)}</span></div><span className="badge">{row.attended ? "Prítomný" : "Neprítomný"}</span></li>)}</ul></> : <p className="muted">Tréner zatiaľ nezapísal dochádzku.</p>}
@@ -1128,7 +1140,7 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
   const notice = announcements.find(item => item.pinned) || announcements[0];
   return <>
     <div className="welcome"><div><h1>Ahoj, {user.name.split(" ")[0]}.</h1></div>
-      <span className="welcome-date">{new Date().toLocaleDateString("sk-SK", {weekday: "long", day: "numeric", month: "long", timeZone})}</span>
+      <span className="welcome-date">{new Date().toLocaleDateString(uiLocale(), {weekday: "long", day: "numeric", month: "long", timeZone})}</span>
     </div>
     <div className="home-grid">
       <section className="home-main"><div className="section-heading"><h2>Najbližšie v klube</h2><button className="text-button" onClick={() => navigate("calendar")}>Kalendár<ChevronRight size={16} /></button></div>
@@ -1159,12 +1171,15 @@ function Drawer({close, children}) {
   }, []);
   return <dialog ref={ref} className="drawer" aria-label="Navigácia" onCancel={event => {event.preventDefault(); close();}}
     onClick={event => {if (event.target === ref.current) close();}}>
-    <div className="drawer-head"><strong>LF DS Hub</strong><button aria-label="Zavrieť menu" className="icon-button" onClick={close}><X /></button></div>
+    <div className="drawer-head"><strong>Menu</strong><button aria-label="Zavrieť menu" className="icon-button" onClick={close}><X /></button></div>
     {children}
   </dialog>;
 }
 
 function App() {
+  const [language, setLanguage] = useState(initialLanguage);
+  const [languagePreference, setLanguagePreference] = useState(() => localStorage.getItem("lf-ds-hub-language") || "system");
+  activeLanguage = language;
   const installation = usePwaInstall();
   const platform = installationPlatform();
   const [installHelp, setInstallHelp] = useState(false);
@@ -1195,6 +1210,26 @@ function App() {
   const allowedPages = [...visibleNavigation.map(([key]) => key), "profile"];
   const currentPage = allowedPages.includes(page) ? page : "home";
   const title = currentPage === "profile" ? "Môj profil a nastavenia" : visibleNavigation.find(([key]) => key === currentPage)?.[1];
+  useEffect(() => {
+    document.documentElement.lang = language;
+    translatePage(document.body, language);
+    const observer = new MutationObserver(records => {
+      for (const record of records) {
+        if (record.type === "characterData" || record.type === "attributes") translateNode(record.target, language);
+        else for (const node of record.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE) translatePage(node, language);
+          else if (node.nodeType === Node.TEXT_NODE) translateNode(node, language);
+        }
+      }
+    });
+    observer.observe(document.body, {subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:["aria-label","placeholder","title","alt"]});
+    return () => observer.disconnect();
+  }, [language]);
+  function changeLanguagePreference(preference) {
+    localStorage.setItem("lf-ds-hub-language", preference);
+    setLanguagePreference(preference);
+    setLanguage(preference === "system" ? detectLanguage() : preference);
+  }
   async function install() {
     setInstallError("");
     setInstallPopup(false);
@@ -1345,7 +1380,7 @@ function App() {
           {currentPage === "management" && superadmin && <Members key="management" userId={user.id} superadmin management onMessage={messageMember} onCard={setCardMember} />}
           {currentPage === "equipment" && <Batteries key={user.id + ":" + activeBattery} staff={staff} initialCode={activeBattery} openScanner={openScanner} />}
           {currentPage === "documents" && <Documents staff={staff} />}
-          {currentPage === "profile" && <Profile user={user} reloadUser={loadUser} installation={installation} install={install} saveInstallPreferences={saveInstallPreferences} openCard={()=>setCardMember({self:true})} />}
+          {currentPage === "profile" && <Profile user={user} reloadUser={loadUser} installation={installation} install={install} saveInstallPreferences={saveInstallPreferences} openCard={()=>setCardMember({self:true})} languagePreference={languagePreference} onLanguageChange={changeLanguagePreference} />}
         </>}
       </>}
     </main>
