@@ -1045,6 +1045,11 @@ function LineupPlanner({trainings}) {
   const [players, setPlayers] = useState([]);
   const [source, setSource] = useState("general");
   const [error, setError] = useState("");
+  function chooseEventMode() {
+    if (eventId !== "general") return;
+    const next = events.find(event => new Date(event.starts_at) >= new Date()) || events[0];
+    setEventId(next ? String(next.id) : "");
+  }
   useEffect(() => {
     if (!eventId) return;
     let active = true;
@@ -1054,7 +1059,15 @@ function LineupPlanner({trainings}) {
   const assigned = new Set(players.map(item => item.member_id));
   function update(member_id, patch) {setPlayers(current => current.map(player => player.member_id === member_id ? {...player, ...patch} : player));}
   return <>
-    <section className="card lineup-picker"><label>Upravovaná zostava<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="general">Základná zostava tímu</option>{events.map(event => <option key={event.id} value={event.id}>{date(event.starts_at)} · {event.title}</option>)}</select></label></section>
+    <section className="card lineup-picker">
+      <h2>Akú zostavu upravuješ?</h2>
+      <div className="segmented lineup-mode-switch">
+        <button type="button" className={eventId === "general" ? "selected" : ""} aria-pressed={eventId === "general"} onClick={() => {setEventId("general");setError("");}}>Základná zostava tímu</button>
+        <button type="button" className={eventId !== "general" ? "selected" : ""} aria-pressed={eventId !== "general"} onClick={chooseEventMode}>Zostava na udalosť</button>
+      </div>
+      {eventId !== "general" && <label>Udalosť<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="">Vyber tréning alebo zápas</option>{events.map(event => <option key={event.id} value={event.id}>{date(event.starts_at)} · {event.title}</option>)}</select></label>}
+      {eventId === "general" && <p className="muted small">Toto je priebežná zostava tímu. Udalostná zostava sa upravuje samostatne.</p>}
+    </section>
     {error && <p className="error" role="alert">{error}</p>}
     {eventId !== "general" && source === "general" && <div className="notice">Upravuješ zostavu na konkrétnu udalosť. Začínaš zo základnej zostavy; zmeny sa uložia iba pre túto udalosť.</div>}
     {eventId && <>

@@ -18,6 +18,13 @@ Object.assign(ukrainianExtra, {
 });
 
 Object.assign(englishExtra, {
+  "Akú zostavu upravuješ?": "Which lineup do you want to edit?", "Zostava na udalosť": "Event lineup", "Toto je priebežná zostava tímu. Udalostná zostava sa upravuje samostatne.": "This is the team's ongoing base lineup. Event lineups are edited separately."
+});
+Object.assign(ukrainianExtra, {
+  "Akú zostavu upravuješ?": "Який склад ви хочете редагувати?", "Zostava na udalosť": "Склад на подію", "Toto je priebežná zostava tímu. Udalostná zostava sa upravuje samostatne.": "Це поточний базовий склад команди. Склади на окремі події редагуються окремо."
+});
+
+Object.assign(englishExtra, {
   "Základná zostava tímu": "Team's base lineup", "Základná zostava": "Base lineup", "Základná zostava priebežne vyjadruje, s kým tréner počíta a na akej pozícii.": "The base lineup shows which players the coach currently plans to use and in which positions.", "Zostava": "Lineup", "Upravovaná zostava": "Lineup being edited", "Pre túto udalosť zatiaľ nie je uložená samostatná zostava; zobrazuje sa základná zostava tímu.": "No event-specific lineup has been saved yet; the team's base lineup is shown.", "Upravuješ zostavu na konkrétnu udalosť. Začínaš zo základnej zostavy; zmeny sa uložia iba pre túto udalosť.": "You are editing the lineup for a specific event. It starts from the base lineup; changes will apply only to this event.", "Základná zostava ešte nie je pripravená.": "The base lineup has not been prepared yet."
 });
 Object.assign(ukrainianExtra, {
