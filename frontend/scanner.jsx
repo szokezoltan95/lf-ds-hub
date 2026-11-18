@@ -20,11 +20,24 @@ export function CameraScanner({running,onDecode,onError}) {
     (async()=>{
       try {
         if(!navigator.mediaDevices?.getUserMedia) throw new Error("Kamera nie je dostupná. Otvor hub cez HTTPS alebo zadaj kód ručne.");
-        const {BrowserMultiFormatReader}=await import("@zxing/browser");
+        const [{BrowserMultiFormatReader},{BarcodeFormat,DecodeHintType}]=await Promise.all([
+          import("@zxing/browser"),import("@zxing/library")
+        ]);
         if(disposed) return;
         stream=await navigator.mediaDevices.getUserMedia({audio:false,video:device ? {deviceId:{exact:device}} : {facingMode:{ideal:"environment"}}});
         if(disposed){release();return;}
-        const reader=new BrowserMultiFormatReader();
+        // Small labels are often scanned at an angle. Ask the decoder to try
+        // harder (including 90-degree rotations) and limit work to formats
+        // the hub actually uses.
+        const hints=new Map();
+        hints.set(DecodeHintType.TRY_HARDER,true);
+        hints.set(DecodeHintType.POSSIBLE_FORMATS,[BarcodeFormat.QR_CODE,BarcodeFormat.CODE_128]);
+        const track=stream.getVideoTracks()[0];
+        try {
+          const focusModes=track?.getCapabilities?.().focusMode;
+          if(focusModes?.includes("continuous")) await track.applyConstraints({advanced:[{focusMode:"continuous"}]});
+        } catch { /* Autofocus constraints are optional and browser-dependent. */ }
+        const reader=new BrowserMultiFormatReader(hints);
         controls=await reader.decodeFromStream(stream,video.current,(result)=>{
           if(result && !disposed) decode.current(result.getText());
         });
