@@ -276,6 +276,16 @@ def identity(request: Request, conn: DB):
     if not member:
         raise HTTPException(401, "Prihlás sa do portálu.")
     member["roles"] = member.get("club_roles") or ([] if member["role"] == "superadmin" else ["player"])
+    if member["role"] == "superadmin":
+        member["can_create_invites"] = True
+        member["can_assign_invite_roles"] = True
+    else:
+        invite_permissions = conn.execute("""SELECT
+            COALESCE(bool_or(can_create_invites),false) AS can_create,
+            COALESCE(bool_or(can_assign_invite_roles),false) AS can_assign
+            FROM role_catalog WHERE role_key=ANY(%s)""", (member["roles"],)).fetchone()
+        member["can_create_invites"] = invite_permissions["can_create"]
+        member["can_assign_invite_roles"] = invite_permissions["can_assign"]
     member["menu_access"] = effective_menu(conn, member)
     menu_key = menu_for_path(request.url.path, request.method)
     if menu_key and member["role"] != "superadmin":
@@ -351,6 +361,8 @@ class RoleDecision(BaseModel):
 
 class RoleMenuConfig(BaseModel):
     permissions: dict[str, Literal["none", "read", "edit"]]
+    can_create_invites: bool = False
+    can_assign_invite_roles: bool = False
 
 
 class TrialBannerSetting(BaseModel):
@@ -372,12 +384,15 @@ def public_settings(conn: DB):
 @api.get("/role-config")
 def get_role_config(conn: DB, _admin: Superadmin):
     rows = conn.execute("""SELECT c.role_key,c.name,c.description,c.available,c.admin_access,
-        p.menu_key,p.access_level FROM role_catalog c JOIN role_menu_permissions p USING(role_key)
+        c.can_create_invites,c.can_assign_invite_roles,p.menu_key,p.access_level
+        FROM role_catalog c JOIN role_menu_permissions p USING(role_key)
         ORDER BY c.role_key,p.menu_key""").fetchall()
     result = {}
     for row in rows:
         item = result.setdefault(row["role_key"], {"key":row["role_key"],"name":row["name"],
-            "description":row["description"],"available":row["available"],"admin_access":row["admin_access"],"permissions":{}})
+            "description":row["description"],"available":row["available"],"admin_access":row["admin_access"],
+            "can_create_invites":row["can_create_invites"],"can_assign_invite_roles":row["can_assign_invite_roles"],
+            "permissions":{}})
         item["permissions"][row["menu_key"]] = row["access_level"]
     for key, item in result.items():
         item["capabilities"] = [{"name":name,"available":available} for name,available in ROLE_CAPABILITIES[key]]
@@ -398,11 +413,15 @@ def get_role_catalog(conn: DB, user: User):
 def update_role_config(role_key: str, data: RoleMenuConfig, conn: DB, _admin: Superadmin):
     if role_key not in ROLE_DEFINITIONS or set(data.permissions) != set(MENU_KEYS):
         raise HTTPException(422, "Nastavenie obsahuje neznámu rolu alebo položku menu.")
+    if data.can_assign_invite_roles and not data.can_create_invites:
+        raise HTTPException(422, "Priraďovanie rolí vyžaduje povolené vytváranie pozvánok.")
     with conn.cursor() as cursor:
         cursor.executemany("""INSERT INTO role_menu_permissions(role_key,menu_key,enabled,access_level)
             VALUES (%s,%s,%s,%s) ON CONFLICT(role_key,menu_key) DO UPDATE SET
             enabled=excluded.enabled,access_level=excluded.access_level""",
             [(role_key, key, value != "none", value) for key, value in data.permissions.items()])
+    conn.execute("""UPDATE role_catalog SET can_create_invites=%s,can_assign_invite_roles=%s
+        WHERE role_key=%s""", (data.can_create_invites,data.can_assign_invite_roles,role_key))
     return {"ok":True}
 
 
@@ -598,8 +617,10 @@ def update_member_roles(member_id: int, data: MemberRoles, conn: DB, _admin: Sup
 
 @api.post("/members/invite")
 def invite(data: Invite, conn: DB, user: Staff):
-    if user["role"] != "superadmin" and data.roles != ["player"]:
-        raise HTTPException(403, "Iba poverený správca môže priradiť roly pri pozvánke.")
+    if user["role"] != "superadmin" and not user.get("can_create_invites"):
+        raise HTTPException(403, "Nemáš oprávnenie vytvárať pozvánky.")
+    if user["role"] != "superadmin" and not user.get("can_assign_invite_roles") and data.roles != ["player"]:
+        raise HTTPException(403, "Nemáš oprávnenie priraďovať roly pri pozvánke.")
     roles = sorted(set(data.roles))
     if not roles or not set(roles) <= set(ROLE_DEFINITIONS):
         raise HTTPException(422, "Pozvánka obsahuje neznámu rolu.")
