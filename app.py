@@ -417,6 +417,8 @@ def get_role_catalog(conn: DB, user: User):
 def update_role_config(role_key: str, data: RoleMenuConfig, conn: DB, _admin: Superadmin):
     if role_key not in ROLE_DEFINITIONS or set(data.permissions) != set(MENU_KEYS):
         raise HTTPException(422, "Nastavenie obsahuje neznámu rolu alebo položku menu.")
+    if (data.can_create_invites or data.can_assign_invite_roles) and not ROLE_DEFINITIONS[role_key][3]:
+        raise HTTPException(422, "Pozvánky môžu vytvárať iba roly s administrátorským prístupom.")
     if data.can_assign_invite_roles and not data.can_create_invites:
         raise HTTPException(422, "Priraďovanie rolí vyžaduje povolené vytváranie pozvánok.")
     with conn.cursor() as cursor:
