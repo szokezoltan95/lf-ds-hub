@@ -883,7 +883,7 @@ function shiftBatteryDay(day, offset) {
   return value.toISOString().slice(0, 10);
 }
 
-function BatteryTimeline({items, revision, openBattery}) {
+function BatteryTimeline({items, revision, openBattery, canEdit, onDelete}) {
   const today = clubLocal(Date.now()).slice(0, 10);
   const [end, setEnd] = useState(today);
   const [result, setResult] = useState(null);
@@ -941,7 +941,7 @@ function BatteryTimeline({items, revision, openBattery}) {
             <thead><tr><th scope="col">Batéria</th>{days.map(day =>
               <th key={day} scope="col"><time dateTime={day}>{dayFormat.format(new Date(day))}</time></th>)}</tr></thead>
             <tbody>{items.filter(item => byBattery.has(item.code)).map(item =>
-              <tr key={item.code}><th scope="row">{item.code}</th>{days.map(day => {
+              <tr key={item.code}><th scope="row"><span className="battery-timeline-code">{item.code}</span><span className={"badge battery-state-badge state-"+(item.status||"unknown")}>{batteryStateLabels[item.status] || "Neznámy stav"}</span></th>{days.map(day => {
                 const events = byBattery.get(item.code).get(day);
                 if (!events) return <td key={day}><span className="muted" aria-hidden="true">–</span><span className="sr-only">Bez záznamu</span></td>;
                 const actions = [...new Set(events.map(event => event.action))];
@@ -966,6 +966,7 @@ function BatteryTimeline({items, revision, openBattery}) {
           <strong className="battery-event-title"><i className={"battery-event-color action-" + event.action} aria-hidden="true" />{batteryLabels[event.action]}</strong>
           <span className="meta">{timeFormat.format(new Date(event.created_at))} · {event.name}</span>
           {event.note && <p className="body small">{event.note}</p>}
+          {canEdit && <button type="button" className="danger battery-delete-event" onClick={async()=>{await onDelete(event); setSelectedDay(null);}}>Odstrániť záznam</button>}
         </li>)}
       </ul>
       <button type="button" onClick={() => {openBattery(selectedDay.code); setSelectedDay(null);}}>Otvoriť detail batérie</button>
@@ -977,8 +978,7 @@ function Batteries({staff, initialCode, openScanner}) {
   const [items, setItems] = useState([]);
   const [selected, setSelected] = useState(initialCode || null);
   const [events, setEvents] = useState([]);
-  const [query, setQuery] = useState("");
-  const [stateFilter, setStateFilter] = useState("all");
+  const [view, setView] = useState("cards");
   const [create, setCreate] = useState(false);
   const [action, setAction] = useState(null);
   const [error, setError] = useState("");
@@ -996,21 +996,27 @@ function Batteries({staff, initialCode, openScanner}) {
     return () => {current = false;};
   }, [selected]);
   const battery = items.find(item => item.code === selected);
-  const visibleItems = items.filter(item => (item.code + " " + item.label).toLowerCase().includes(query.toLowerCase()) &&
-    (stateFilter === "all" || (stateFilter === "unknown" ? !item.status : item.status === stateFilter)));
+  const visibleItems = items;
   function openBattery(code) {setSelected(code); setAction(null);}
+  async function deleteEvent(event) {
+    if (!window.confirm("Odstrániť tento záznam z histórie batérie?")) return;
+    await api("batteries/" + encodeURIComponent(event.code) + "/events/" + event.id, "DELETE");
+    setEvents(await api("batteries/" + encodeURIComponent(event.code) + "/events"));
+    await load();
+  }
   return <>
-    <div className="toolbar"><label className="search"><Search size={18} /><input type="search" aria-label="Hľadať batériu" placeholder="Kód alebo označenie…" value={query} onChange={event => setQuery(event.target.value)} /></label>
-      <label className="battery-filter">Aktuálny stav<select value={stateFilter} onChange={event=>setStateFilter(event.target.value)}><option value="all">Všetky stavy</option><option value="unknown">Neznámy stav</option>{Object.entries(batteryStateLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
-      {staff && <button className="primary" onClick={() => setCreate(true)}><Plus size={18} />Batéria</button>}</div>
+    <div className="battery-toolbar"><div className="battery-view-toggle" role="group" aria-label="Zobrazenie batérií">
+      <button type="button" aria-pressed={view === "cards"} className={view === "cards" ? "selected" : ""} onClick={()=>setView("cards")}>Karty</button>
+      <button type="button" aria-pressed={view === "timeline"} className={view === "timeline" ? "selected" : ""} onClick={()=>setView("timeline")}>Časová os</button>
+    </div>{staff && <button className="primary" onClick={() => setCreate(true)}><Plus size={18} />Batéria</button>}</div>
     {error && <p className="error" role="alert">{error}</p>}
-    {items.length > 0 && <BatteryTimeline items={visibleItems} revision={revision} openBattery={openBattery} />}
-    <div className="equipment-grid">{visibleItems.map(b =>
+    {view === "timeline" && items.length > 0 && <BatteryTimeline items={visibleItems} revision={revision} openBattery={openBattery} canEdit={staff} onDelete={deleteEvent} />}
+    {view === "cards" && <div className="equipment-grid">{visibleItems.map(b =>
       <button className={"card equipment-card battery-state-card state-"+(b.status||"unknown")} key={b.code} onClick={() => openBattery(b.code)}><Battery size={25} /><strong>{b.code}</strong><span className="muted">{b.label}</span>
         <span className={"badge battery-state-badge state-"+(b.status||"unknown")}>{batteryStateLabels[b.status] || "Neznámy stav"}</span>
         <span className="meta">{b.status_at ? "Stav k " + date(b.status_at) : "Stav zatiaľ nebol určený"}</span>
         <span className="meta">{b.charges} evidovaných nabití</span>
-      </button>)}</div>
+      </button>)}</div>}
     {items.length === 0 && <Empty icon={Battery}>Zatiaľ žiadne batérie.</Empty>}
     {selected && <Modal title={battery ? battery.code : "Batéria"} close={() => {setSelected(null); setAction(null);}}>
       {battery ? <>
@@ -1024,6 +1030,7 @@ function Batteries({staff, initialCode, openScanner}) {
         <h3 className="section-space">História</h3><ul className="timeline">{events.map(event => <li key={event.id}>
           <strong>{batteryLabels[event.action]}</strong><span className="meta">{date(event.created_at)} · {event.name}</span>
           {event.note && <p className="body small">{event.note}</p>}
+          {staff && <button type="button" className="danger battery-delete-event" onClick={async()=>{await deleteEvent(event);}}>Odstrániť záznam</button>}
         </li>)}</ul>
       </> : <p>Batéria sa načítava alebo sa nenašla.</p>}
     </Modal>}

@@ -355,3 +355,5 @@ Object.assign(ukrainianExtra, {
   "V tomto období nie sú žiadne záznamy pre zobrazené batérie.": "За цей період немає записів для показаних акумуляторів.",
   "Otvoriť detail batérie": "Відкрити дані акумулятора"
 });
+Object.assign(englishExtra, {"Karty":"Cards", "Časová os":"Timeline", "Zobrazenie batérií":"Battery view", "Odstrániť záznam":"Delete record", "Odstrániť tento záznam z histórie batérie?":"Delete this battery history record?"});
+Object.assign(ukrainianExtra, {"Karty":"Картки", "Časová os":"Часова шкала", "Zobrazenie batérií":"Вигляд акумуляторів", "Odstrániť záznam":"Видалити запис", "Odstrániť tento záznam z histórie batérie?":"Видалити цей запис з історії акумулятора?"});

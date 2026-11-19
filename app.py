@@ -1836,6 +1836,14 @@ def events(code: Code, conn: DB, _user: User):
     ).fetchall()
 
 
+@api.delete("/batteries/{code}/events/{event_id}")
+def delete_battery_event(code: Code, event_id: int, conn: DB, user: User):
+    result = conn.execute("DELETE FROM battery_events WHERE code=%s AND id=%s", (code, event_id))
+    if not result.rowcount:
+        raise HTTPException(404, "Záznam sa nenašiel.")
+    return {"ok": True}
+
+
 @api.post("/batteries/{code}/events")
 def add_event(code: Code, data: BatteryEvent, conn: DB, user: User):
     if not conn.execute("SELECT 1 FROM batteries WHERE code=%s FOR UPDATE", (code,)).fetchone():
