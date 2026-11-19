@@ -872,6 +872,7 @@ function Batteries({staff, initialCode, openScanner}) {
   const [query, setQuery] = useState("");
   const [stateFilter, setStateFilter] = useState("all");
   const [create, setCreate] = useState(false);
+  const [chargerLabelOpen,setChargerLabelOpen]=useState(false),[chargerCode,setChargerCode]=useState("LF-C001");
   const [action, setAction] = useState(null);
   const [error, setError] = useState("");
   async function load() {setItems(await api("batteries"));}
@@ -888,6 +889,7 @@ function Batteries({staff, initialCode, openScanner}) {
     <div className="toolbar"><label className="search"><Search size={18} /><input type="search" aria-label="Hľadať batériu" placeholder="Kód alebo označenie…" value={query} onChange={event => setQuery(event.target.value)} /></label>
       <label className="battery-filter">Aktuálny stav<select value={stateFilter} onChange={event=>setStateFilter(event.target.value)}><option value="all">Všetky stavy</option><option value="unknown">Neznámy stav</option>{Object.entries(batteryStateLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
       <button onClick={()=>openScanner()}><ScanLine size={18} />Skenovať batériu</button>
+      {staff&&<button onClick={()=>setChargerLabelOpen(true)}><QrCode size={18}/>QR multinabíjačky</button>}
       {staff && <button className="primary" onClick={() => setCreate(true)}><Plus size={18} />Batéria</button>}</div>
     {error && <p className="error" role="alert">{error}</p>}
     <div className="equipment-grid">{items.filter(b => (b.code + " " + b.label).toLowerCase().includes(query.toLowerCase()) && (stateFilter === "all" ? true : stateFilter === "unknown" ? !b.status : b.status === stateFilter)).map(b =>
@@ -920,6 +922,10 @@ function Batteries({staff, initialCode, openScanner}) {
     {create && <Modal title="Nová batéria" close={() => setCreate(false)}><Form label="Pridať batériu" submit={async data => {
       await api("batteries", "POST", data); await load(); setCreate(false); setSelected(data.code);
     }}><label>Kód<input name="code" pattern="LF-B[0-9]{2,6}" placeholder="LF-B01" required /></label><label>Označenie<input name="label" maxLength="120" required /></label></Form></Modal>}
+    {chargerLabelOpen&&<Modal title="QR štítok multinabíjačky" close={()=>setChargerLabelOpen(false)}>
+      <label>Kód multinabíjačky<input value={chargerCode} onChange={event=>setChargerCode(event.target.value.toUpperCase())} pattern="LF-C[0-9]{2,6}" maxLength="9" required/></label>
+      {/^LF-C[0-9]{2,6}$/.test(chargerCode)?<div className="charger-qr-preview"><img src={new URL("api/chargers/"+chargerCode+"/label.svg",base)} alt={"QR kód multinabíjačky "+chargerCode}/><a className="button" href={new URL("api/chargers/"+chargerCode+"/label.svg",base)} download={chargerCode+".svg"}><Download size={17}/>Stiahnuť QR štítok</a></div>:<p className="muted">Použi kód vo formáte LF-C001.</p>}
+    </Modal>}
   </>;
 }
 

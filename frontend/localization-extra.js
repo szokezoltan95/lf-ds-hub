@@ -341,3 +341,5 @@ Object.assign(ukrainianExtra, {
   "Poškodené, vyradené alebo uskladnené batérie nemožno označiť ako nabité: ":"Пошкоджені, списані або складські акумулятори не можна позначити як заряджені: ",
   "Identifikátor nabíjania už bol použitý.":"Цей ідентифікатор заряджання вже використано."
 });
+Object.assign(englishExtra, {"QR multinabíjačky":"Multi-charger QR", "QR štítok multinabíjačky":"Multi-charger QR label", "Kód multinabíjačky":"Multi-charger code", "Použi kód vo formáte LF-C001.":"Use a code in the format LF-C001.", "Stiahnuť QR štítok":"Download QR label"});
+Object.assign(ukrainianExtra, {"QR multinabíjačky":"QR-код мультизарядного пристрою", "QR štítok multinabíjačky":"QR-етикетка мультизарядного пристрою", "Kód multinabíjačky":"Код мультизарядного пристрою", "Použi kód vo formáte LF-C001.":"Використайте код у форматі LF-C001.", "Stiahnuť QR štítok":"Завантажити QR-етикетку"});
