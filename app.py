@@ -259,9 +259,11 @@ async def protect(request, call_next):
         response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
-    )
+    policy = "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    # The decoder runs in a separate worker. Only its script can compile WebAssembly.
+    if re.fullmatch(r"/assets/scanner-worker-[A-Za-z0-9_-]+[.]js", request.url.path.removeprefix(PREFIX)):
+        policy += "; script-src 'self' 'wasm-unsafe-eval'"
+    response.headers["Content-Security-Policy"] = policy
     return response
 
 
