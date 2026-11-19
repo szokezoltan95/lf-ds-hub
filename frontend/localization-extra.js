@@ -324,22 +324,20 @@ Object.assign(ukrainianExtra, {
   "Dochádzka už bola zapísaná: ":"Відвідуваність уже записано: ", "Zapísaná dochádzka: ":"Відвідуваність записано: "
 });
 Object.assign(englishExtra, {
-  "Multinabíjačka ":"Multi-charger ", "QR štítok nabíjačky":"Charger QR label", "Zaznamenať nabitie":"Record charge", "Vybrať všetky vhodné batérie":"Select all eligible batteries",
+  "Multinabíjačka ":"Multi-charger ", "Zaznamenať nabitie":"Record charge", "Vybrať všetky vhodné batérie":"Select all eligible batteries",
   "Vyber aspoň jednu batériu.":"Select at least one battery.", "Nabitie zapísané pre ":"Charging recorded for ", "batérií.":"batteries.",
-  "Multinabíjačku môže obsluhovať iba tréner alebo poverený správca.":"Only a coach or authorized administrator can operate a multi-charger.",
   "Kód multinabíjačky musí mať LF-C a 2 až 6 číslic, napríklad LF-C01.":"A multi-charger code must start with LF-C and contain 2 to 6 digits, for example LF-C01.",
   "Batéria môže byť vo výbere uvedená iba raz.":"A battery can only be selected once.", "Jedna alebo viaceré vybrané batérie sa nenašli.":"One or more selected batteries could not be found.",
   "Poškodené, vyradené alebo uskladnené batérie nemožno označiť ako nabité: ":"Damaged, retired or stored batteries cannot be marked as charged: ",
   "Identifikátor nabíjania už bol použitý.":"This charging request ID has already been used."
 });
 Object.assign(ukrainianExtra, {
-  "Multinabíjačka ":"Мультизарядний пристрій ", "QR štítok nabíjačky":"QR-етикетка зарядного пристрою", "Zaznamenať nabitie":"Записати заряджання", "Vybrať všetky vhodné batérie":"Вибрати всі придатні акумулятори",
+  "Multinabíjačka ":"Мультизарядний пристрій ", "Zaznamenať nabitie":"Записати заряджання", "Vybrať všetky vhodné batérie":"Вибрати всі придатні акумулятори",
   "Vyber aspoň jednu batériu.":"Виберіть принаймні один акумулятор.", "Nabitie zapísané pre ":"Заряджання записано для ", "batérií.":"акумуляторів.",
-  "Multinabíjačku môže obsluhovať iba tréner alebo poverený správca.":"Мультизарядним пристроєм може користуватися лише тренер або уповноважений адміністратор.",
   "Kód multinabíjačky musí mať LF-C a 2 až 6 číslic, napríklad LF-C01.":"Код мультизарядного пристрою має починатися з LF-C і містити від 2 до 6 цифр, наприклад LF-C01.",
   "Batéria môže byť vo výbere uvedená iba raz.":"Акумулятор можна вибрати лише один раз.", "Jedna alebo viaceré vybrané batérie sa nenašli.":"Один або кілька вибраних акумуляторів не знайдено.",
   "Poškodené, vyradené alebo uskladnené batérie nemožno označiť ako nabité: ":"Пошкоджені, списані або складські акумулятори не можна позначити як заряджені: ",
   "Identifikátor nabíjania už bol použitý.":"Цей ідентифікатор заряджання вже використано."
 });
-Object.assign(englishExtra, {"QR multinabíjačky":"Multi-charger QR", "QR štítok multinabíjačky":"Multi-charger QR label", "Kód multinabíjačky":"Multi-charger code", "Použi kód vo formáte LF-C001.":"Use a code in the format LF-C001.", "Stiahnuť QR štítok":"Download QR label"});
-Object.assign(ukrainianExtra, {"QR multinabíjačky":"QR-код мультизарядного пристрою", "QR štítok multinabíjačky":"QR-етикетка мультизарядного пристрою", "Kód multinabíjačky":"Код мультизарядного пристрою", "Použi kód vo formáte LF-C001.":"Використайте код у форматі LF-C001.", "Stiahnuť QR štítok":"Завантажити QR-етикетку"});
+Object.assign(englishExtra, {"Ďalšie":"More", "Skryť":"Hide"});
+Object.assign(ukrainianExtra, {"Ďalšie":"Ще", "Skryť":"Приховати"});

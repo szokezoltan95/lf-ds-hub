@@ -865,6 +865,19 @@ function Messages({user, conversations, refresh, initialContact}) {
   </div>;
 }
 
+function BatteryActionPicker({action,onAction,status}) {
+  const [showMore,setShowMore]=useState(false);
+  const more=Object.entries(batteryLabels).filter(([key])=>!['charged','discharged'].includes(key))
+    .filter(([key])=>key!=="storage_exit"||status==="stored")
+    .filter(([key])=>status!=="damaged"||["damaged","retired","note"].includes(key))
+    .filter(([key])=>status!=="retired"||key==="note");
+  return <div className="battery-actions">
+    {["charged","discharged"].map(key=><button type="button" key={key} className={action===key?"selected":""} disabled={["damaged","retired"].includes(status)} onClick={()=>onAction(key)}>{batteryLabels[key]}</button>)}
+    <button type="button" aria-expanded={showMore} className={showMore?"selected":""} onClick={()=>setShowMore(value=>!value)}>{showMore?"Skryť":"Ďalšie"}</button>
+    {showMore&&<div className="battery-action-more-list">{more.map(([key,label])=><button type="button" key={key} className={action===key?"selected":""} onClick={()=>onAction(key)}>{label}</button>)}</div>}
+  </div>;
+}
+
 function Batteries({staff, initialCode, openScanner}) {
   const [items, setItems] = useState([]);
   const [selected, setSelected] = useState(initialCode || null);
@@ -872,7 +885,6 @@ function Batteries({staff, initialCode, openScanner}) {
   const [query, setQuery] = useState("");
   const [stateFilter, setStateFilter] = useState("all");
   const [create, setCreate] = useState(false);
-  const [chargerLabelOpen,setChargerLabelOpen]=useState(false),[chargerCode,setChargerCode]=useState("LF-C001");
   const [action, setAction] = useState(null);
   const [error, setError] = useState("");
   async function load() {setItems(await api("batteries"));}
@@ -889,7 +901,6 @@ function Batteries({staff, initialCode, openScanner}) {
     <div className="toolbar"><label className="search"><Search size={18} /><input type="search" aria-label="Hľadať batériu" placeholder="Kód alebo označenie…" value={query} onChange={event => setQuery(event.target.value)} /></label>
       <label className="battery-filter">Aktuálny stav<select value={stateFilter} onChange={event=>setStateFilter(event.target.value)}><option value="all">Všetky stavy</option><option value="unknown">Neznámy stav</option>{Object.entries(batteryStateLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
       <button onClick={()=>openScanner()}><ScanLine size={18} />Skenovať batériu</button>
-      {staff&&<button onClick={()=>setChargerLabelOpen(true)}><QrCode size={18}/>QR multinabíjačky</button>}
       {staff && <button className="primary" onClick={() => setCreate(true)}><Plus size={18} />Batéria</button>}</div>
     {error && <p className="error" role="alert">{error}</p>}
     <div className="equipment-grid">{items.filter(b => (b.code + " " + b.label).toLowerCase().includes(query.toLowerCase()) && (stateFilter === "all" ? true : stateFilter === "unknown" ? !b.status : b.status === stateFilter)).map(b =>
@@ -898,17 +909,12 @@ function Batteries({staff, initialCode, openScanner}) {
         <span className="meta">{b.status_at ? "Stav k " + date(b.status_at) : "Stav zatiaľ nebol určený"}</span>
         <span className="meta">{b.charges} evidovaných nabití</span>
       </button>)}</div>
-    {items.length === 0 && <Empty icon={Battery}>Zatiaľ žiadne batérie. QR štítok otvorí detail priamo v aplikácii.</Empty>}
+    {items.length === 0 && <Empty icon={Battery}>Zatiaľ žiadne batérie.</Empty>}
     {selected && <Modal title={battery ? battery.code : "Batéria"} close={() => {setSelected(null); setAction(null);}}>
       {battery ? <>
         <p className="muted">{battery.label}</p><p><span className={"badge battery-state-badge state-"+(battery.status||"unknown")}>{batteryStateLabels[battery.status] || "Neznámy stav"}</span></p>
         <p className="meta">{battery.status_at ? "Aktuálny stav od " + date(battery.status_at) : "Batéria zatiaľ nemá zaznamenaný aktuálny stav."}</p>
-        {staff && <a className="button section-space" href={new URL("api/batteries/" + battery.code + "/label.svg", base)} download={battery.code + ".svg"}><Download size={17} />QR štítok</a>}
-        {battery.status !== "retired" && <div className="battery-actions section-space">
-          {Object.entries(batteryLabels).filter(([value]) => (staff || value === "used") &&
-            (battery.status !== "damaged" || ["retired", "damaged", "note"].includes(value)) && (value !== "storage_exit" || battery.status === "stored")).map(([value, text]) =>
-              <button key={value} className={action === value ? "selected" : ""} onClick={() => setAction(value)}>{text}</button>)}
-        </div>}
+        <BatteryActionPicker action={action} status={battery.status} onAction={setAction}/>
         {action && <Form label={"Zapísať · " + batteryLabels[action]} submit={async data => {
           await api("batteries/" + battery.code + "/events", "POST", {action, note: data.note});
           setEvents(await api("batteries/" + battery.code + "/events")); setAction(null); await load();
@@ -922,10 +928,6 @@ function Batteries({staff, initialCode, openScanner}) {
     {create && <Modal title="Nová batéria" close={() => setCreate(false)}><Form label="Pridať batériu" submit={async data => {
       await api("batteries", "POST", data); await load(); setCreate(false); setSelected(data.code);
     }}><label>Kód<input name="code" pattern="LF-B[0-9]{2,6}" placeholder="LF-B01" required /></label><label>Označenie<input name="label" maxLength="120" required /></label></Form></Modal>}
-    {chargerLabelOpen&&<Modal title="QR štítok multinabíjačky" close={()=>setChargerLabelOpen(false)}>
-      <label>Kód multinabíjačky<input value={chargerCode} onChange={event=>setChargerCode(event.target.value.toUpperCase())} pattern="LF-C[0-9]{2,6}" maxLength="9" required/></label>
-      {/^LF-C[0-9]{2,6}$/.test(chargerCode)?<div className="charger-qr-preview"><img src={new URL("api/chargers/"+chargerCode+"/label.svg",base)} alt={"QR kód multinabíjačky "+chargerCode}/><a className="button" href={new URL("api/chargers/"+chargerCode+"/label.svg",base)} download={chargerCode+".svg"}><Download size={17}/>Stiahnuť QR štítok</a></div>:<p className="muted">Použi kód vo formáte LF-C001.</p>}
-    </Modal>}
   </>;
 }
 
@@ -1273,7 +1275,7 @@ function ClubScanner({user,initialEvent,refresh}) {
       }else if(response.type==="charger"){
         setResult(response);setSelectedBatteries(response.batteries.filter(b=>!['damaged','retired','stored'].includes(b.status)).map(b=>b.code));setBatchRequestId(crypto.randomUUID());
       }else{
-        setResult(response);setAction(response.status==="damaged"?"damaged":response.status==="stored"?"storage_exit":"used");setRequestId(crypto.randomUUID());
+        setResult(response);setAction(response.status==="retired"?"note":response.status==="damaged"?"damaged":response.status==="stored"?"storage_exit":"used");setRequestId(crypto.randomUUID());
       }
     }catch(e){if(mounted.current){setResult(null);setError(e.message);}}
     finally{if(mounted.current)setBusy(false);locked.current=false;}
@@ -1315,7 +1317,6 @@ function ClubScanner({user,initialEvent,refresh}) {
     </Modal>}
     {result?.type==="charger"&&<section className="card scan-result">
       <Battery size={26}/><h2>Multinabíjačka {result.code}</h2>
-      {staff&&<a className="button section-space" href={new URL("api/chargers/"+result.code+"/label.svg",base)} download={result.code+".svg"}><Download size={17}/>QR štítok nabíjačky</a>}
       {saved?<p className="success" role="status">{saved}</p>:<Form label={localizeText("Zaznamenať nabitie",activeLanguage)+" ("+selectedBatteries.length+")"} submit={async()=>{
         const response=await api("battery-charges","POST",{charger_code:result.code,codes:selectedBatteries,request_id:batchRequestId});
         setSaved(localizeText("Nabitie zapísané pre ",activeLanguage)+response.count+" "+localizeText("batérií.",activeLanguage));await refresh();
@@ -1341,15 +1342,13 @@ function ClubScanner({user,initialEvent,refresh}) {
         <p>{result.label}</p><p><span className={"badge battery-state-badge state-"+(result.status||"unknown")}>{batteryStateLabels[result.status]||"Neznámy stav"}</span></p>
         {result.status_at&&<p className="meta">Stav od {date(result.status_at)}</p>}
         {result.status==="damaged"&&<p className="notice">Túto batériu nepoužívaj.</p>}
-        {!saved&&result.status!=="retired"&&(staff||result.status!=="damaged")&&<Form label="Uložiť záznam" submit={async data=>{
-          setBusy(true);try{await api("batteries/"+result.code+"/events","POST",{action:staff?action:"used",note:data.note,request_id:requestId});
+        {!saved&&<Form label="Uložiť záznam" submit={async data=>{
+          setBusy(true);try{await api("batteries/"+result.code+"/events","POST",{action,note:data.note,request_id:requestId});
             const updated=await api("scan","POST",{value:result.code});setSaved("Záznam bol uložený.");setResult(updated);await refresh();
           }finally{setBusy(false);}
         }}>
-          {staff&&<label>Úkon<select value={action} onChange={event=>{setAction(event.target.value);setRequestId(crypto.randomUUID());}}>
-            {Object.entries(batteryLabels).filter(([key])=>key!=="storage_exit"||result.status==="stored").filter(([key])=>result.status!=="damaged"||["damaged","retired","note"].includes(key)).map(([key,label])=><option value={key} key={key}>{label}</option>)}
-          </select></label>}
-          <label>{action==="note"?"Poznámka":"Poznámka (voliteľná)"}<input name="note" maxLength="1000" required={staff&&action==="note"} placeholder={action==="used"?"Pri akom úkone sa použila?":""}/></label>
+          <p className="small muted">Úkon</p><BatteryActionPicker action={action} status={result.status} onAction={value=>{setAction(value);setRequestId(crypto.randomUUID());}}/>
+          <label>{action==="note"?"Poznámka":"Poznámka (voliteľná)"}<input name="note" maxLength="1000" required={action==="note"} placeholder={action==="used"?"Pri akom úkone sa použila?":""}/></label>
         </Form>}
       </>}
       {saved&&<p className="success" role="status">{saved}</p>}

@@ -20,7 +20,6 @@ from zoneinfo import ZoneInfo
 import psycopg
 from psycopg.types.json import Jsonb
 import qrcode
-import qrcode.image.svg
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -1823,8 +1822,6 @@ def events(code: Code, conn: DB, _user: User):
 
 @api.post("/batteries/{code}/events")
 def add_event(code: Code, data: BatteryEvent, conn: DB, user: User):
-    if user["role"] == "member" and data.action != "used":
-        raise HTTPException(403, "Člen môže zaznamenať iba použitie batérie.")
     if not conn.execute("SELECT 1 FROM batteries WHERE code=%s FOR UPDATE", (code,)).fetchone():
         raise HTTPException(404, "Batéria sa nenašla.")
     if data.request_id is not None:
@@ -1838,8 +1835,6 @@ def add_event(code: Code, data: BatteryEvent, conn: DB, user: User):
     status = last["action"] if last else None
     if (status == "retired" and data.action != "note") or (status == "damaged" and data.action not in {"damaged", "retired", "note"}):
         raise HTTPException(409, "Batéria je poškodená alebo vyradená.")
-    if data.action == "retired" and user["role"] not in STAFF_ROLES:
-        raise HTTPException(403, "Batériu môže vyradiť iba tréner alebo poverený správca.")
     if data.action == "storage_exit" and status != "stored":
         raise HTTPException(409, "Batéria nie je označená ako uložená v dlhodobom sklade.")
     # A stable request id makes retrying a scanned action safe after a lost response.
@@ -1851,14 +1846,6 @@ def add_event(code: Code, data: BatteryEvent, conn: DB, user: User):
     if not inserted.rowcount:
         raise HTTPException(409, "Identifikátor záznamu už bol použitý.")
     return {"ok": True}
-
-
-@api.get("/batteries/{code}/label.svg")
-def label(code: Code, conn: DB, _staff: Staff):
-    if not conn.execute("SELECT 1 FROM batteries WHERE code=%s", (code,)).fetchone():
-        raise HTTPException(404, "Batéria sa nenašla.")
-    qr = qrcode.make(f"{PUBLIC_URL}/#battery={code}", image_factory=qrcode.image.svg.SvgPathImage)
-    return Response(qr.to_string(), media_type="image/svg+xml")
 
 
 class ScanRequest(BaseModel):
@@ -1958,8 +1945,6 @@ def create_private_scan_event(data:PrivateScanEvent,conn:DB,user:Staff):
 def scan(data:ScanRequest, conn:DB, user:User):
     kind,code=scan_value(data.value)
     if kind=='charger':
-        if user['role'] not in STAFF_ROLES:
-            raise HTTPException(403,'Multinabíjačku môže obsluhovať iba tréner alebo poverený správca.')
         batteries=conn.execute(
             """SELECT b.code,b.label,
             (SELECT CASE WHEN action='used' THEN NULL ELSE action END FROM battery_events
@@ -2014,7 +1999,7 @@ class BatteryChargeBatch(BaseModel):
 
 
 @api.post('/battery-charges')
-def charge_batteries(data:BatteryChargeBatch,conn:DB,user:Staff):
+def charge_batteries(data:BatteryChargeBatch,conn:DB,user:User):
     codes=sorted(set(data.codes))
     if len(codes)!=len(data.codes):
         raise HTTPException(422,'Batéria môže byť vo výbere uvedená iba raz.')
@@ -2041,12 +2026,6 @@ def charge_batteries(data:BatteryChargeBatch,conn:DB,user:Staff):
         cursor.executemany("INSERT INTO battery_events(code,actor_id,action,note) VALUES (%s,%s,'charged',%s)",
                            [(code,user['id'],f"Multinabíjačka {data.charger_code}") for code in codes])
     return {'ok':True,'count':len(codes)}
-
-
-@api.get('/chargers/{code}/label.svg')
-def charger_label(code:ChargerCode,_staff:Staff):
-    qr=qrcode.make(code,image_factory=qrcode.image.svg.SvgPathImage)
-    return Response(qr.to_string(),media_type='image/svg+xml')
 
 
 def digital_card(conn,member_id):
