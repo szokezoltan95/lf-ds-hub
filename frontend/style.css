@@ -210,6 +210,32 @@ nav button .counter {margin-left: auto;}
 .battery-actions > button {padding:10px 8px;min-width:0;}
 .battery-action-more-list {grid-column:1/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:10px;background:#f3f8fb;border-radius:12px;}
 .battery-action-more-list button {min-height:42px;}
+.battery-overview {margin-bottom:16px; padding:12px;}
+.battery-overview-header {display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:4px 12px; margin-bottom:8px;}
+.battery-overview-header h2 {margin:0; font-size:17px;}
+.battery-overview-period {display:flex; align-items:center; gap:4px; font-size:13px; white-space:nowrap;}
+.battery-overview-period .icon-button {width:42px; height:42px;}
+.battery-overview-period button:disabled {cursor:default;}
+.battery-overview-scroll {max-height:24rem; overflow:auto;}
+.battery-overview-table {width:100%; table-layout:fixed; border-collapse:separate; border-spacing:0; font-size:12px;}
+.battery-overview-table th, .battery-overview-table td {padding:2px 1px; text-align:center; border-bottom:1px solid var(--line);}
+.battery-overview-table th:first-child {width:72px; text-align:left; overflow-wrap:anywhere;}
+.battery-overview-table thead th {position:sticky; top:0; z-index:1; height:34px; background:var(--surface, white); font-size:11px;}
+.battery-day-button {width:100%; min-width:0; min-height:44px; padding:2px; flex-direction:column; gap:2px; font-variant-numeric:tabular-nums; border-radius:8px;}
+.battery-day-button:focus-visible {outline-offset:-3px;}
+.battery-day-colors {display:flex; justify-content:center; gap:2px; flex-wrap:wrap; max-width:38px;}
+.battery-event-color {display:inline-block; flex:0 0 auto; width:8px; height:8px; border-radius:50%; background:#606c7c;}
+.battery-day-colors .battery-event-color {width:5px; height:5px;}
+.battery-event-color.action-used {background:#606c7c;}
+.battery-event-color.action-charged {background:#21834a;}
+.battery-event-color.action-discharged {background:#b36b05;}
+.battery-event-color.action-stored {background:#287ca4;}
+.battery-event-color.action-storage_exit {background:#147f7a;}
+.battery-event-color.action-damaged {background:#c23c43;}
+.battery-event-color.action-retired {background:#493c49;}
+.battery-event-color.action-note {background:#8553a2;}
+.battery-overview-legend {display:flex; flex-wrap:wrap; gap:5px 14px; margin:10px 0 0; padding:0; list-style:none; font-size:12px;}
+.battery-overview-legend li, .battery-event-title {display:flex; align-items:center; gap:6px;}
 .timeline li {border-left: 2px solid var(--line); padding: 0 0 20px 16px; margin-left: 5px; position: relative;}
 .timeline li::before {content: ""; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: #41b6e6; left: -5px; top: 6px;}
 .timeline li strong {font-size: 13px;}

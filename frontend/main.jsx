@@ -878,6 +878,102 @@ function BatteryActionPicker({action,onAction,status}) {
   </div>;
 }
 
+function shiftBatteryDay(day, offset) {
+  const value = new Date(day + "T00:00:00Z");
+  value.setUTCDate(value.getUTCDate() + offset);
+  return value.toISOString().slice(0, 10);
+}
+
+function BatteryTimeline({items, revision, openBattery}) {
+  const today = clubLocal(Date.now()).slice(0, 10);
+  const [end, setEnd] = useState(today);
+  const [result, setResult] = useState(null);
+  const [selectedDay, setSelectedDay] = useState(null);
+  const days = Array.from({length: 7}, (_, index) => shiftBatteryDay(end, index - 6));
+  const current = result?.end === end && result.revision === revision ? result : null;
+  const dayFormat = new Intl.DateTimeFormat(uiLocale(), {day: "numeric", month: "numeric", timeZone: "UTC"});
+  const periodFormat = new Intl.DateTimeFormat(uiLocale(), {dateStyle: "medium", timeZone: "UTC"});
+  const fullDayFormat = new Intl.DateTimeFormat(uiLocale(), {dateStyle: "full", timeZone: "UTC"});
+  const timeFormat = new Intl.DateTimeFormat(uiLocale(), {timeStyle: "short", timeZone});
+  const fullDay = day => fullDayFormat.format(new Date(day + "T00:00:00Z"));
+  const text = source => localizeText(source, activeLanguage);
+
+  useEffect(() => {
+    let active = true;
+    api("batteries/timeline?" + new URLSearchParams({end})).then(events => {
+      if (active) setResult({end, revision, events});
+    }).catch(error => {
+      if (active) setResult({end, revision, error: error.message});
+    });
+    return () => {active = false;};
+  }, [end, revision]);
+
+  const visibleCodes = new Set(items.map(item => item.code));
+  const byBattery = new Map();
+  const actionTypes = new Set();
+  for (const event of current?.events ?? []) {
+    if (!visibleCodes.has(event.code)) continue;
+    const day = clubLocal(event.created_at).slice(0, 10);
+    if (!byBattery.has(event.code)) byBattery.set(event.code, new Map());
+    const byDay = byBattery.get(event.code);
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day).push(event);
+    actionTypes.add(event.action);
+  }
+  const detail = selectedDay && byBattery.get(selectedDay.code)?.get(selectedDay.day);
+
+  return <section className="card battery-overview" aria-labelledby="battery-timeline-heading">
+    <div className="battery-overview-header">
+      <h2 id="battery-timeline-heading">Časová os batérií</h2>
+      <div className="battery-overview-period">
+        <button type="button" className="icon-button" aria-label="Predchádzajúcich 7 dní" onClick={() => setEnd(shiftBatteryDay(end, -7))}><ChevronLeft size={18} /></button>
+        <span>{periodFormat.formatRange(new Date(days[0]), new Date(end))}</span>
+        <button type="button" className="icon-button" aria-label="Nasledujúcich 7 dní" disabled={end >= today} onClick={() => {
+          const next = shiftBatteryDay(end, 7);
+          setEnd(next > today ? today : next);
+        }}><ChevronRight size={18} /></button>
+      </div>
+    </div>
+    {!current ? <p className="muted" role="status">Načítava sa…</p> :
+      current.error ? <p className="error" role="alert">{current.error}</p> :
+      !byBattery.size ? <p className="muted">V tomto období nie sú žiadne záznamy pre zobrazené batérie.</p> : <>
+        <div className="battery-overview-scroll" role="region" aria-labelledby="battery-timeline-heading" tabIndex={0}>
+          <table className="battery-overview-table" aria-labelledby="battery-timeline-heading">
+            <thead><tr><th scope="col">Batéria</th>{days.map(day =>
+              <th key={day} scope="col"><time dateTime={day}>{dayFormat.format(new Date(day))}</time></th>)}</tr></thead>
+            <tbody>{items.filter(item => byBattery.has(item.code)).map(item =>
+              <tr key={item.code}><th scope="row">{item.code}</th>{days.map(day => {
+                const events = byBattery.get(item.code).get(day);
+                if (!events) return <td key={day}><span className="muted" aria-hidden="true">–</span><span className="sr-only">Bez záznamu</span></td>;
+                const actions = [...new Set(events.map(event => event.action))];
+                return <td key={day}><button type="button" className="battery-day-button"
+                  aria-label={[item.code, fullDay(day), events.length, ...actions.map(action => text(batteryLabels[action]))].join(" · ")}
+                  onClick={() => setSelectedDay({code: item.code, day})}>
+                  <span>{events.length}</span><span className="battery-day-colors" aria-hidden="true">
+                    {actions.map(action => <i className={"battery-event-color action-" + action} key={action} />)}
+                  </span>
+                </button></td>;
+              })}</tr>)}</tbody>
+          </table>
+        </div>
+        <ul className="battery-overview-legend">
+          {Object.entries(batteryLabels).filter(([action]) => actionTypes.has(action)).map(([action, label]) =>
+            <li key={action}><i className={"battery-event-color action-" + action} aria-hidden="true" /><span>{label}</span></li>)}
+        </ul>
+      </>}
+    {detail && <Modal title={selectedDay.code + " · " + fullDay(selectedDay.day)} close={() => setSelectedDay(null)}>
+      <ul className="timeline battery-day-detail">
+        {detail.map(event => <li key={event.id}>
+          <strong className="battery-event-title"><i className={"battery-event-color action-" + event.action} aria-hidden="true" />{batteryLabels[event.action]}</strong>
+          <span className="meta">{timeFormat.format(new Date(event.created_at))} · {event.name}</span>
+          {event.note && <p className="body small">{event.note}</p>}
+        </li>)}
+      </ul>
+      <button type="button" onClick={() => {openBattery(selectedDay.code); setSelectedDay(null);}}>Otvoriť detail batérie</button>
+    </Modal>}
+  </section>;
+}
+
 function Batteries({staff, initialCode, openScanner}) {
   const [items, setItems] = useState([]);
   const [selected, setSelected] = useState(initialCode || null);
@@ -887,7 +983,11 @@ function Batteries({staff, initialCode, openScanner}) {
   const [create, setCreate] = useState(false);
   const [action, setAction] = useState(null);
   const [error, setError] = useState("");
-  async function load() {setItems(await api("batteries"));}
+  const [revision, setRevision] = useState(0);
+  async function load() {
+    setItems(await api("batteries"));
+    setRevision(value => value + 1);
+  }
   useEffect(() => {load().catch(error => setError(error.message));}, []);
   useEffect(() => {
     let current = true;
@@ -897,14 +997,18 @@ function Batteries({staff, initialCode, openScanner}) {
     return () => {current = false;};
   }, [selected]);
   const battery = items.find(item => item.code === selected);
+  const visibleItems = items.filter(item => (item.code + " " + item.label).toLowerCase().includes(query.toLowerCase()) &&
+    (stateFilter === "all" || (stateFilter === "unknown" ? !item.status : item.status === stateFilter)));
+  function openBattery(code) {setSelected(code); setAction(null);}
   return <>
     <div className="toolbar"><label className="search"><Search size={18} /><input type="search" aria-label="Hľadať batériu" placeholder="Kód alebo označenie…" value={query} onChange={event => setQuery(event.target.value)} /></label>
       <label className="battery-filter">Aktuálny stav<select value={stateFilter} onChange={event=>setStateFilter(event.target.value)}><option value="all">Všetky stavy</option><option value="unknown">Neznámy stav</option>{Object.entries(batteryStateLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
       <button onClick={()=>openScanner()}><ScanLine size={18} />Skenovať batériu</button>
       {staff && <button className="primary" onClick={() => setCreate(true)}><Plus size={18} />Batéria</button>}</div>
     {error && <p className="error" role="alert">{error}</p>}
-    <div className="equipment-grid">{items.filter(b => (b.code + " " + b.label).toLowerCase().includes(query.toLowerCase()) && (stateFilter === "all" ? true : stateFilter === "unknown" ? !b.status : b.status === stateFilter)).map(b =>
-      <button className={"card equipment-card battery-state-card state-"+(b.status||"unknown")} key={b.code} onClick={() => {setSelected(b.code); setAction(null);}}><Battery size={25} /><strong>{b.code}</strong><span className="muted">{b.label}</span>
+    {items.length > 0 && <BatteryTimeline items={visibleItems} revision={revision} openBattery={openBattery} />}
+    <div className="equipment-grid">{visibleItems.map(b =>
+      <button className={"card equipment-card battery-state-card state-"+(b.status||"unknown")} key={b.code} onClick={() => openBattery(b.code)}><Battery size={25} /><strong>{b.code}</strong><span className="muted">{b.label}</span>
         <span className={"badge battery-state-badge state-"+(b.status||"unknown")}>{batteryStateLabels[b.status] || "Neznámy stav"}</span>
         <span className="meta">{b.status_at ? "Stav k " + date(b.status_at) : "Stav zatiaľ nebol určený"}</span>
         <span className="meta">{b.charges} evidovaných nabití</span>

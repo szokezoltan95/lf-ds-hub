@@ -71,6 +71,7 @@ ALTER TABLE battery_events DROP CONSTRAINT IF EXISTS battery_events_action_check
 ALTER TABLE battery_events ADD CONSTRAINT battery_events_action_check
     CHECK (action IN ('used', 'charged', 'discharged', 'stored', 'storage_exit', 'damaged', 'retired', 'note'));
 CREATE INDEX IF NOT EXISTS battery_events_code_idx ON battery_events(code, id DESC);
+CREATE INDEX IF NOT EXISTS battery_events_created_at_idx ON battery_events(created_at);
 CREATE TABLE IF NOT EXISTS battery_charge_runs (
     request_id uuid PRIMARY KEY,
     charger_code text NOT NULL,

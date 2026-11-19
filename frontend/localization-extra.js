@@ -341,3 +341,17 @@ Object.assign(ukrainianExtra, {
 });
 Object.assign(englishExtra, {"Ďalšie":"More", "Skryť":"Hide"});
 Object.assign(ukrainianExtra, {"Ďalšie":"Ще", "Skryť":"Приховати"});
+Object.assign(englishExtra, {
+  "Časová os batérií": "Battery timeline",
+  "Predchádzajúcich 7 dní": "Previous 7 days",
+  "Nasledujúcich 7 dní": "Next 7 days",
+  "V tomto období nie sú žiadne záznamy pre zobrazené batérie.": "No records for the displayed batteries in this period.",
+  "Otvoriť detail batérie": "Open battery details"
+});
+Object.assign(ukrainianExtra, {
+  "Časová os batérií": "Історія акумуляторів",
+  "Predchádzajúcich 7 dní": "Попередні 7 днів",
+  "Nasledujúcich 7 dní": "Наступні 7 днів",
+  "V tomto období nie sú žiadne záznamy pre zobrazené batérie.": "За цей період немає записів для показаних акумуляторів.",
+  "Otvoriť detail batérie": "Відкрити дані акумулятора"
+});

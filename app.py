@@ -1799,6 +1799,22 @@ def batteries(conn: DB, _user: User):
     ).fetchall()
 
 
+@api.get("/batteries/timeline")
+def battery_timeline(end: CalendarDate, conn: DB, _user: User):
+    if end < CalendarDate(1900, 1, 7) or end == CalendarDate.max:
+        raise HTTPException(422, "Neplatný dátum.")
+    start = datetime.combine(end, datetime.min.time(), tzinfo=CLUB_ZONE)
+    return conn.execute(
+        """SELECT e.id,e.code,e.action,e.note,e.created_at,
+        CASE WHEN m.role='superadmin' THEN 'Systém'
+        ELSE COALESCE(m.name, 'Odstránený účet') END AS name
+        FROM battery_events e LEFT JOIN members m ON m.id=e.actor_id
+        WHERE e.created_at >= %s AND e.created_at < %s
+        ORDER BY e.created_at DESC,e.id DESC""",
+        (start - timedelta(days=6), start + timedelta(days=1)),
+    ).fetchall()
+
+
 @api.post("/batteries")
 def add_battery(data: Battery, conn: DB, _staff: Staff):
     result = conn.execute("INSERT INTO batteries VALUES (%s,%s) ON CONFLICT DO NOTHING",
