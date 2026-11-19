@@ -305,6 +305,8 @@ function TrainingWorkspace({training, staff}) {
   </section>;
 }
 
+const participantResponses = {yes: "Príde", no: "Nepríde", maybe: "Nevie"};
+
 function TrainingDetail({training, staff, places, close, refresh, openScanner}) {
   const [tab, setTab] = useState("info");
   const [rows, setRows] = useState([]);
@@ -358,12 +360,16 @@ function TrainingDetail({training, staff, places, close, refresh, openScanner}) 
           {selected.length > 0 && <div className="actions"><Action run={() => saveAttendance(selected, true)}>Prítomní ({selected.length})</Action>
             <Action run={() => saveAttendance(selected, false)}>Neprítomní ({selected.length})</Action></div>}
         </>}
-        <ul className="people-list">{(tab === "rsvp" ? filtered : rows).map(row => <li key={row.id}>
+        <ul className="people-list">{(tab === "rsvp" ? filtered : rows).map(row => <li key={row.id}
+          className={tab === "rsvp" ? "rsvp-person rsvp-" + (row.response || "none") : undefined}>
           {tab === "attendance" && past(training) && !training.cancelled &&
             <input type="checkbox" aria-label={"Vybrať " + row.name} checked={selected.includes(row.id)}
               onChange={event => setSelected(event.target.checked ? [...selected, row.id] : selected.filter(id => id !== row.id))} />}
           <Avatar name={row.name} /><div className="grow"><strong>{row.name}</strong><span className="meta">{clubRoleLabel(row.roles)}</span>
-            <span className="meta">{labels[row.response] || "Bez odpovede"}</span>{row.note && <p className="small body">{row.note}</p>}</div>
+            {tab === "rsvp"
+              ? <span className="badge rsvp-response">{participantResponses[row.response] || "Bez odpovede"}</span>
+              : <span className="meta">{labels[row.response] || "Bez odpovede"}</span>}
+            {row.note && <p className="small body">{row.note}</p>}</div>
           {tab === "attendance" && past(training) && !training.cancelled && <div className="attendance-buttons">
             <Action className={row.attended === true ? "yes selected" : ""} pressed={row.attended === true} run={() => saveAttendance([row.id], true)}><Check size={18} /><span className="sr-only">Prítomný {row.name}</span></Action>
             <Action className={row.attended === false ? "no selected" : ""} pressed={row.attended === false} run={() => saveAttendance([row.id], false)}><X size={18} /><span className="sr-only">Neprítomný {row.name}</span></Action>
