@@ -104,7 +104,7 @@ function Login({onLogin}) {
     }}>
       <p className="muted">Účet {inviteInfo?.name?"pre "+inviteInfo.name:""} sa aktivuje s týmto e-mailom. Skontroluj ho a oprav prípadný preklep.</p>
       <label>E-mail<input name="email" type="email" maxLength="254" autoComplete="email" defaultValue={inviteInfo?.email||""} required /></label>
-      {inviteInfo?.roles?.length>0&&<p className="meta">Priradené roly: {inviteInfo.roles.map(role=>roleNames[role]||role).join(" · ")}</p>}
+      {inviteInfo?.roles?.length>0&&<p className="meta">Priradené roly: {clubRoleLabel(inviteInfo.roles)}</p>}
       <label>Nové heslo<input name="password" type="password" minLength="8" maxLength="128" autoComplete="new-password" required /></label>
       <small>Použi aspoň 8 znakov.</small>
     </Form> : <Form key="login" label="Prihlásiť sa" submit={async data => {
@@ -118,8 +118,11 @@ function Login({onLogin}) {
 }
 
 const kinds = {training: "Tréning", match: "Zápas", meeting: "Stretnutie"};
-const roles = {superadmin: "Administrátor", coach: "Tréner", member: "Člen"};
 const roleNames = {player:"Hráč",coach:"Tréner",club_leader:"Vedúci klubu",deputy_leader:"Zástupca vedúceho klubu",administrator:"Administratívny pracovník",equipment_technician:"Technik vybavenia",social_media_manager:"Správca sociálnych sietí",competition_coordinator:"Koordinátor súťaží",recruitment_coordinator:"Koordinátor náboru",safety_coordinator:"Bezpečnostný a prevádzkový koordinátor",team_coordinator:"Koordinátor tímov",content_creator:"Fotograf / tvorca obsahu"};
+function clubRoleLabel(roles = []) {
+  return roles.map(key => localizeText(roleNames[key] || key, activeLanguage)).join(" · ");
+}
+
 const initials = name => name.split(" ").filter(Boolean).map(part => part[0]).slice(0, 2).join("").toUpperCase();
 const dayKey = timestamp => clubLocal(timestamp).slice(0, 10);
 const today = () => dayKey(new Date());
@@ -298,7 +301,7 @@ function TrainingWorkspace({training, staff}) {
         <label>Na čo sa chceš zamerať nabudúce?<textarea name="next_focus" rows="2" maxLength="1000" value={feedback.next_focus} onChange={e => setFeedback({...feedback, next_focus: e.target.value})} /></label>
       </Form>
     </section>}
-    {staff && data.feedback?.length > 0 && <details className="card feedback-list"><summary>Feedback od členov ({data.feedback.length})</summary><ul className="people-list">{data.feedback.map(row => <li key={row.member_id}><div className="grow"><strong>{row.name}</strong>{row.went_well && <p><b>Podarilo sa:</b> {row.went_well}</p>}{row.difficult && <p><b>Náročné:</b> {row.difficult}</p>}{row.next_focus && <p><b>Nabudúce:</b> {row.next_focus}</p>}</div></li>)}</ul></details>}
+    {staff && data.feedback?.length > 0 && <details className="card feedback-list"><summary>Feedback od členov ({data.feedback.length})</summary><ul className="people-list">{data.feedback.map(row => <li key={row.member_id}><div className="grow"><strong>{row.name}</strong><span className="meta">{clubRoleLabel(row.roles)}</span>{row.went_well && <p><b>Podarilo sa:</b> {row.went_well}</p>}{row.difficult && <p><b>Náročné:</b> {row.difficult}</p>}{row.next_focus && <p><b>Nabudúce:</b> {row.next_focus}</p>}</div></li>)}</ul></details>}
   </section>;
 }
 
@@ -359,7 +362,7 @@ function TrainingDetail({training, staff, places, close, refresh, openScanner}) 
           {tab === "attendance" && past(training) && !training.cancelled &&
             <input type="checkbox" aria-label={"Vybrať " + row.name} checked={selected.includes(row.id)}
               onChange={event => setSelected(event.target.checked ? [...selected, row.id] : selected.filter(id => id !== row.id))} />}
-          <Avatar name={row.name} /><div className="grow"><strong>{row.name}</strong>
+          <Avatar name={row.name} /><div className="grow"><strong>{row.name}</strong><span className="meta">{clubRoleLabel(row.roles)}</span>
             <span className="meta">{labels[row.response] || "Bez odpovede"}</span>{row.note && <p className="small body">{row.note}</p>}</div>
           {tab === "attendance" && past(training) && !training.cancelled && <div className="attendance-buttons">
             <Action className={row.attended === true ? "yes selected" : ""} pressed={row.attended === true} run={() => saveAttendance([row.id], true)}><Check size={18} /><span className="sr-only">Prítomný {row.name}</span></Action>
@@ -452,7 +455,6 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
   const found=members.filter(m=>(m.name+" "+(m.email||"")).toLowerCase().includes(query.toLowerCase())&&
     (filter==="all"||(filter==="coaches"?(m.roles||[]).includes("coach")&&m.active:filter==="invited"?!m.registered&&m.active:filter==="inactive"?!m.active:m.active&&m.registered)));
   const status=m=>!m.active?"Neaktívny":!m.registered?"Pozvaný":"Aktívny";
-  const roleName=key=>catalog.find(x=>x.key===key)?.name||({player:"Hráč",coach:"Tréner"}[key]||key);
   function toggle(setter,current,key){setter(current.includes(key)?current.filter(x=>x!==key):[...current,key]);}
   const navLabel={home:"Domov",calendar:"Kalendár",attendance:"Dochádzka",scanner:"Skenovať",messages:"Správy",announcements:"Oznamy",members:"Členovia",team:"Tímy",development:"Rozvoj hráčov",lineups:"Zostavy",drills:"Knižnica cvičení",equipment:"Vybavenie",documents:"Dokumenty"};
   return <>
@@ -466,7 +468,7 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
       <div className="chips">{[["active","Aktívni"],["coaches","Tréneri"],["invited","Pozvaní"],["inactive","Neaktívni"],["all","Všetci"]].map(([value,text])=><button key={value} className={filter===value?"selected":""} onClick={()=>setFilter(value)}>{text}</button>)}</div>
       {error&&<p className="error" role="alert">{error}</p>}
       <div className="card flush"><ul className="people-list">{found.map(member=><li key={member.id}><button className="person-link" onClick={()=>{setSelected(member);setLink("");}}>
-        <Avatar name={member.name}/><span className="grow"><strong>{member.name}</strong><span className="meta">Člen · {(member.roles||[]).map(roleName).join(" · ")} · {member.email}</span>
+        <Avatar name={member.name}/><span className="grow"><strong>{member.name}</strong><span className="meta">{[clubRoleLabel(member.roles), member.email].filter(Boolean).join(" · ")}</span>
         <span className="meta">{member.recorded_count>0?"Dochádzka "+member.attended_count+"/"+member.recorded_count:"Dochádzka zatiaľ bez záznamu"}</span></span>
         <span className={"badge "+(member.active?"positive":"")}>{status(member)}</span><ChevronRight size={18}/></button></li>)}
       </ul>{found.length===0&&<Empty icon={Users}>Žiadne zodpovedajúce účty.</Empty>}</div>
@@ -476,7 +478,7 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
       }}><label>Meno<input name="name" maxLength="120" autoComplete="name" defaultValue={inviteTarget?.name||""} required/></label><label>E-mail<input name="email" type="email" maxLength="254" autoComplete="email" defaultValue={inviteTarget?.email||""} required/></label>
         {canAssignInviteRoles&&<fieldset className="role-checkboxes"><legend>Roly pri pozvánke</legend>{inviteRoleOptions.map(item=><label className="checkbox" key={item.key}><input type="checkbox" checked={inviteRoles.includes(item.key)} onChange={()=>toggle(setInviteRoles,inviteRoles,item.key)}/>{item.name}{!item.available&&<span className="badge">Funkcia zatiaľ nedostupná</span>}</label>)}</fieldset>}
       </Form>}</Modal>}
-      {selected&&<Modal title={selected.name} close={()=>setSelected(null)}><div className="profile-heading"><Avatar name={selected.name}/><div><span className="badge">Člen klubu</span><p>{selected.email||"admin"}</p><p>{(selected.roles||[]).map(roleName).join(" · ")}</p></div></div>
+      {selected&&<Modal title={selected.name} close={()=>setSelected(null)}><div className="profile-heading"><Avatar name={selected.name}/><div><span className="badge">{clubRoleLabel(selected.roles)}</span><p>{selected.email}</p></div></div>
         {staff&&(selected.roles||[]).includes("player")&&selected.active&&<button className="section-space" onClick={()=>onCard(selected)}><QrCode size={17}/>Členský QR kód</button>}
         <div className="actions">{!superadmin&&selected.id!==userId&&selected.active&&selected.registered&&<button className="primary" onClick={()=>{onMessage(selected.id);setSelected(null);}}><MessageCircle size={17}/>Napísať správu</button>}
           {staff&&<>
@@ -596,7 +598,7 @@ function AttendanceOverview({openScanner}) {
             <tbody>{people.map(person => {
               const recorded = events.filter(event => !event.cancelled && past(event) && records.has(person.id + ":" + event.id));
               const present = recorded.filter(event => records.get(person.id + ":" + event.id) === true).length;
-              return <tr key={person.id}><th scope="row" className="attendance-name"><strong>{person.name}</strong>{!person.active && <span className="meta">Neaktívny</span>}</th>
+              return <tr key={person.id}><th scope="row" className="attendance-name"><strong>{person.name}</strong><span className="meta">{clubRoleLabel(person.roles)}</span>{!person.active && <span className="meta">Neaktívny</span>}</th>
                 <td className="attendance-total">{present} / {recorded.length}</td>
                 {events.map(event => {const label = status(person, event); return <td key={event.id} aria-label={person.name + ", " + event.title + ", " + date(event.starts_at) + ": " + label}>
                   <span className={"attendance-status " + classes[label]}>{label === "Prítomný" && <Check size={15} />}{label === "Neprítomný" && <X size={15} />}{label}</span>
@@ -649,7 +651,7 @@ function AnnouncementEditor({item, close, refresh}) {
       {audience==="selected" && <><label>Vyhľadať adresáta<input type="search" value={query} onChange={e=>setQuery(e.target.value)} /></label>
         <div className="recipient-picker">{people.filter(p=>p.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(person=><label className="checkbox" key={person.id}>
           <input type="checkbox" checked={selected.includes(person.id)} onChange={e=>setSelected(e.target.checked ? [...selected,person.id] : selected.filter(id=>id!==person.id))} />
-          {person.name} · {roles[person.role]}
+          {person.name} · {clubRoleLabel(person.roles)}
         </label>)}</div><p className="meta">Vybraných: {selected.length}</p></>}
       <label className="checkbox"><input name="pinned" type="checkbox" defaultChecked={item?.pinned || false} />Pripnúť na nástenku</label>
       {(item?.attachments || []).map(file=><label className="checkbox" key={file.id}><input type="checkbox" checked={keep.includes(file.id)} onChange={e=>setKeep(e.target.checked ? [...keep,file.id] : keep.filter(id=>id!==file.id))} />Ponechať {file.filename}</label>)}
@@ -707,7 +709,7 @@ function GroupEditor({contacts, group, user, close, done}) {
           <label className="recipient-check" key={person.id}>
             <input type="checkbox" checked={selected.includes(person.id)} onChange={event =>
               setSelected(event.target.checked ? [...selected, person.id] : selected.filter(id => id !== person.id))} />
-            <Avatar name={person.name} /><span className="grow"><strong>{person.name}</strong><span className="meta">{roles[person.role]}</span></span>
+            <Avatar name={person.name} /><span className="grow"><strong>{person.name}</strong><span className="meta">{clubRoleLabel(person.roles)}</span></span>
           </label>)}
       </div>
     </Form>
@@ -796,7 +798,7 @@ function Messages({user, conversations, refresh, initialContact}) {
         return <button className={"conversation-row " + (selectedKey === key ? "active" : "")} key={key}
           onClick={() => openConversation({type: group ? "group" : "private", id: group ? row.group_id : row.contact_id})}>
           {group ? <span className="avatar group-avatar"><Users size={21} /></span> : <Avatar name={row.name} />}
-          <span className="grow"><strong>{row.name}</strong><span className="preview">{row.body ? (group && row.sender ? row.sender + ": " : "") + row.body :
+          <span className="grow"><strong>{row.name}</strong>{!group && <span className="meta">{clubRoleLabel(row.roles)}</span>}<span className="preview">{row.body ? (group && row.sender ? row.sender + ": " : "") + row.body :
             row.system_key === "coaches" ? "Skupina trénerov" : group ? "Skupinová konverzácia" : "Začať konverzáciu"}</span></span>
           <span className="conversation-meta">{row.created_at && <small>{clock(row.created_at)}</small>}{row.unread > 0 && <span className="counter">{row.unread}</span>}</span>
         </button>;
@@ -808,7 +810,9 @@ function Messages({user, conversations, refresh, initialContact}) {
         <div className="chat-head">
           <button className="icon-button chat-back" aria-label="Späť na konverzácie" onClick={() => setSelected(null)}><ChevronLeft /></button>
           {selected.type === "group" ? <span className="avatar group-avatar"><Users size={19} /></span> : <Avatar name={activeConversation?.name || person?.name || "Kontakt"} />}
-          <strong className="grow">{activeConversation?.name || person?.name || "Konverzácia"}</strong>
+          <span className="grow"><strong>{activeConversation?.name || person?.name || "Konverzácia"}</strong>
+            {selected.type === "private" && <span className="meta">{clubRoleLabel(activeConversation?.roles || person?.roles)}</span>}
+          </span>
           {selected.type === "group" && <Action className="icon-button" run={async () => setGroupInfo(await api("chat-groups/" + selected.id))}>
             <Settings2 size={19} /><span className="sr-only">Účastníci a nastavenia skupiny</span>
           </Action>}
@@ -821,7 +825,7 @@ function Messages({user, conversations, refresh, initialContact}) {
             if (activeKey.current === key) {setMessages([...messages, ...page]); setMore(page.length === 200);}
           }}>Staršie správy</Action>}
           {messages.length ? [...messages].reverse().map(item => <div className={"message " + (item.sender_id === user.id ? "outgoing" : "")} key={item.id}>
-            {selected.type === "group" && item.sender_id !== user.id && <strong className="message-author">{item.sender}</strong>}
+            {selected.type === "group" && item.sender_id !== user.id && <strong className="message-author">{[item.sender, clubRoleLabel(item.sender_roles)].filter(Boolean).join(" · ")}</strong>}
             <p>{item.body}</p><span>{date(item.created_at)}{selected.type === "private" && item.sender_id === user.id && item.read_at && <CheckCheck size={13} />}</span>
           </div>) : <p className="muted small">Tu sa začína vaša konverzácia.</p>}
         </div>
@@ -840,13 +844,13 @@ function Messages({user, conversations, refresh, initialContact}) {
       <label className="search"><Search size={18} /><input type="search" aria-label="Hľadať adresáta" value={recipientQuery} placeholder="Hľadať člena alebo trénera…" onChange={event => setRecipientQuery(event.target.value)} /></label>
       {user.role === "coach" && <button className="button section-space" onClick={() => {setNewMessage(false); setGroupEditor({});}}><Users size={18} />Vytvoriť skupinu</button>}
       <ul className="people-list recipient-list">{contacts.filter(person => person.name.toLowerCase().includes(recipientQuery.toLowerCase())).map(person =>
-        <li key={person.id}><button className="person-link" onClick={() => openConversation({type: "private", id: person.id})}><Avatar name={person.name} /><span className="grow"><strong>{person.name}</strong><span className="meta">{roles[person.role]}</span></span><ChevronRight size={18} /></button></li>)}</ul>
+        <li key={person.id}><button className="person-link" onClick={() => openConversation({type: "private", id: person.id})}><Avatar name={person.name} /><span className="grow"><strong>{person.name}</strong><span className="meta">{clubRoleLabel(person.roles)}</span></span><ChevronRight size={18} /></button></li>)}</ul>
       {contacts.length === 0 && <p className="muted section-space">Zatiaľ žiadne dostupné kontakty.</p>}
     </Modal>}
     {groupInfo && <Modal title={groupInfo.name} close={() => setGroupInfo(null)}>
       <p className="muted">{groupInfo.members.length} účastníkov</p>
       {groupInfo.system_key && <p className="small">Účastníci tejto skupiny sa určujú automaticky podľa rolí v klube.</p>}
-      <ul className="people-list">{groupInfo.members.map(person => <li key={person.id}><Avatar name={person.name} /><span className="grow"><strong>{person.name}</strong><span className="meta">{roles[person.role]}</span></span></li>)}</ul>
+      <ul className="people-list">{groupInfo.members.map(person => <li key={person.id}><Avatar name={person.name} /><span className="grow"><strong>{person.name}</strong><span className="meta">{clubRoleLabel(person.roles)}</span></span></li>)}</ul>
       {groupInfo.can_manage && <button className="primary section-space" onClick={() => {setGroupEditor(groupInfo); setGroupInfo(null);}}><Pencil size={17} />Upraviť názov a účastníkov</button>}
     </Modal>}
     {groupEditor && <GroupEditor group={groupEditor.id ? groupEditor : null} contacts={contacts} user={user} close={() => setGroupEditor(null)}
@@ -931,14 +935,14 @@ function PlayerDevelopmentPage() {
   const [development, setDevelopment] = useState(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
-  async function loadMembers() {setMembers((await api("members")).filter(member => member.role === "member"));}
+  async function loadMembers() {setMembers((await api("members")).filter(member => member.roles?.includes("player")));}
   async function open(member) {setSelected(member); setDevelopment(await api("members/" + member.id + "/development"));}
   useEffect(() => {loadMembers().catch(e => setError(e.message));}, []);
   return <>
     <div className="toolbar"><label className="search"><Search size={18} /><input aria-label="Hľadať hráča" placeholder="Hľadať hráča…" value={query} onChange={e => setQuery(e.target.value)} /></label></div>
     {error && <p className="error" role="alert">{error}</p>}
     <div className="card flush"><ul className="people-list">{members.filter(m => m.name.toLowerCase().includes(query.toLowerCase())).map(member => <li key={member.id}>
-      <button className="person-link" onClick={() => open(member)}><Avatar name={member.name} /><span className="grow"><strong>{member.name}</strong><span className="meta">{member.active ? "Aktívny člen" : "Neaktívny člen"}</span></span><ChevronRight size={18} /></button>
+      <button className="person-link" onClick={() => open(member)}><Avatar name={member.name} /><span className="grow"><strong>{member.name}</strong><span className="meta">{clubRoleLabel(member.roles)}</span>{!member.active && <span className="meta">Neaktívny</span>}</span><ChevronRight size={18} /></button>
     </li>)}</ul></div>
     {selected && <Modal title={selected.name} close={() => {setSelected(null); setDevelopment(null);}}>
       {!development ? <p className="muted">Načítava sa…</p> : <>
@@ -1069,7 +1073,7 @@ function LineupDisplay({players,roster,editable=false,onChange}) {
         const current=players.find(player=>player.member_id===member.id);
         const status=current?(current.substitute?"Náhradník · tím "+current.team:"Tím "+current.team+" · "+slotLabels[current.slot-1]):"Nezaradený";
         return <li key={member.id}><button className="person-link" onClick={()=>assigning.substitute?setSub(assigning.team,member):setSlot(assigning.team,assigning.slot,member)}>
-          <Avatar name={member.name}/><span className="grow"><strong>{member.name}</strong><span className="meta">{status}</span></span><ChevronRight size={18}/></button></li>;
+          <Avatar name={member.name}/><span className="grow"><strong>{member.name}</strong><span className="meta">{clubRoleLabel(member.roles)}</span><span className="meta">{status}</span></span><ChevronRight size={18}/></button></li>;
       })}</ul>
     </Modal>}
   </>;
@@ -1412,7 +1416,7 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
   const attended = attendance.filter(row => row.attended).length;
   return <>
     {(user.roles||[]).includes("player") && <button className="card qr-profile-button" onClick={openCard}><QrCode size={25} /><span>Môj členský QR kód</span><ChevronRight /></button>}
-    <section className="card profile-card"><Avatar name={user.name} /><h2>{user.name}</h2><p className="muted">{user.email || "admin"}</p><span className="badge">{(user.roles||[]).map(role=>roleNames[role]||role).join(" · ")||roles[user.role]}</span>
+    <section className="card profile-card"><Avatar name={user.name} /><h2>{user.name}</h2><p className="muted">{user.email || "admin"}</p><span className="badge">{user.role === "superadmin" ? "Administrátor" : clubRoleLabel(user.roles)}</span>
       <div className="actions section-space"><button onClick={() => setEdit("profile")}><Pencil size={16} />Upraviť profil</button>
         {user.role !== "superadmin" && <button onClick={() => setEdit("password")}>Zmeniť heslo</button>}</div>
     </section>

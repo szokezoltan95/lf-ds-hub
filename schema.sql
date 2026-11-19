@@ -194,6 +194,14 @@ ALTER TABLE members ADD COLUMN IF NOT EXISTS push_announcements boolean NOT NULL
 ALTER TABLE members ADD COLUMN IF NOT EXISTS club_roles text[] NOT NULL DEFAULT ARRAY['player']::text[];
 UPDATE members SET club_roles=ARRAY['player','coach'] WHERE role='coach' AND club_roles=ARRAY['player']::text[];
 UPDATE members SET club_roles=ARRAY['player'] WHERE role='member' AND cardinality(club_roles)=0;
+UPDATE members SET club_roles='{}' WHERE role='superadmin' AND cardinality(club_roles)>0;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+        WHERE conrelid='members'::regclass AND conname='members_system_club_roles_check') THEN
+        ALTER TABLE members ADD CONSTRAINT members_system_club_roles_check
+            CHECK (role<>'superadmin' OR cardinality(club_roles)=0);
+    END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version text PRIMARY KEY,
     applied_at timestamptz NOT NULL DEFAULT now()

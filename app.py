@@ -228,7 +228,7 @@ async def lifespan(_app):
                 conn.execute("DELETE FROM sessions WHERE member_id=%s", (account["id"],))
             else:
                 conn.execute(
-                    "INSERT INTO members (name, role, password_hash) VALUES (%s, 'superadmin', %s)",
+                    "INSERT INTO members (name, role, password_hash, club_roles) VALUES (%s, 'superadmin', %s, '{}')",
                     ("Systémový správca", hashed),
                 )
             conn.execute("DELETE FROM login_attempts WHERE email='admin'")
@@ -279,7 +279,7 @@ def identity(request: Request, conn: DB):
     ).fetchone()
     if not member:
         raise HTTPException(401, "Prihlás sa do portálu.")
-    member["roles"] = member.get("club_roles") or ([] if member["role"] == "superadmin" else ["player"])
+    member["roles"] = [] if member["role"] == "superadmin" else (member["club_roles"] or ["player"])
     if member["role"] == "superadmin":
         member["can_create_invites"] = True
         member["can_assign_invite_roles"] = True
@@ -467,13 +467,14 @@ def role_requests(conn: DB, user: Staff):
         raise HTTPException(403, "Žiadosti o roly môže prezerať iba vedenie klubu.")
     return conn.execute("""SELECT r.id,r.member_id,m.name AS member_name,m.email,r.role_key,c.name AS role_name,
         r.created_at,r.status FROM role_requests r JOIN members m ON m.id=r.member_id
-        JOIN role_catalog c USING(role_key) WHERE r.status='pending' ORDER BY r.created_at,r.id""").fetchall()
+        JOIN role_catalog c USING(role_key) WHERE r.status='pending' AND m.role IN ('member','coach') ORDER BY r.created_at,r.id""").fetchall()
 
 
 @api.put("/role-requests/{request_id}")
 def decide_role_request(request_id: int, data: RoleDecision, conn: DB, _admin: Superadmin):
     request = conn.execute("""SELECT member_id,role_key FROM role_requests
-        WHERE id=%s AND status='pending' FOR UPDATE""", (request_id,)).fetchone()
+        WHERE id=%s AND status='pending'
+        AND member_id IN (SELECT id FROM members WHERE role IN ('member','coach')) FOR UPDATE""", (request_id,)).fetchone()
     if not request:
         raise HTTPException(404, "Čakajúca žiadosť sa nenašla.")
     conn.execute("UPDATE role_requests SET status=%s,decided_at=now(),decided_by=%s WHERE id=%s",
@@ -588,7 +589,9 @@ def change_password(data: ChangePassword, request: Request, conn: DB, user: User
 def own_attendance(conn: DB, user: User):
     return conn.execute(
         """SELECT t.id, t.title, t.starts_at, p.attended FROM participation p
-        JOIN trainings t ON t.id=p.training_id WHERE p.member_id=%s
+        JOIN trainings t ON t.id=p.training_id
+        JOIN members m ON m.id=p.member_id AND m.role IN ('member','coach')
+        WHERE p.member_id=%s
         AND p.attended IS NOT NULL ORDER BY t.starts_at DESC""", (user["id"],),
     ).fetchall()
 
@@ -793,7 +796,8 @@ def trainings(conn: DB, user: User):
             'unanswered', count(*) FILTER (WHERE r.response IS NULL),
             'attendance_pending', count(*) FILTER (WHERE r.attended IS NULL))
          FROM members m LEFT JOIN participation r ON r.member_id=m.id AND r.training_id=t.id
-         WHERE 'player'=ANY(m.club_roles) AND m.active AND m.password_hash IS NOT NULL) AS counts
+         WHERE m.role IN ('member','coach') AND 'player'=ANY(m.club_roles)
+         AND m.active AND m.password_hash IS NOT NULL) AS counts
         FROM trainings t
         LEFT JOIN participation p ON p.training_id = t.id AND p.member_id = %s
         ORDER BY (t.starts_at >= now()) DESC,
@@ -907,9 +911,11 @@ def roster(training_id: int, conn: DB, _staff: Staff):
     if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
         raise HTTPException(404, "Udalosť sa nenašla.")
     return conn.execute(
-        """SELECT m.id, m.name, p.response, p.note, p.attended FROM members m
+        """SELECT m.id, m.name, m.club_roles AS roles, p.response, p.note, p.attended FROM members m
         LEFT JOIN participation p ON p.member_id=m.id AND p.training_id=%s
-        WHERE ('player'=ANY(m.club_roles) AND m.active AND m.password_hash IS NOT NULL) OR p.member_id IS NOT NULL
+        WHERE m.role IN ('member','coach')
+        AND (('player'=ANY(m.club_roles) AND m.active AND m.password_hash IS NOT NULL)
+             OR p.member_id IS NOT NULL)
         ORDER BY m.name, m.id""",
         (training_id,)
     ).fetchall()
@@ -921,7 +927,7 @@ def attendance(training_id: int, member_id: int, data: Attendance, conn: DB, _st
     if training["cancelled"] or training["starts_at"] > datetime.now(timezone.utc):
         raise HTTPException(409, "Dochádzku možno zapísať od začiatku udalosti.")
     if not conn.execute(
-        "SELECT 1 FROM members WHERE id=%s AND ('player'=ANY(club_roles) OR EXISTS (SELECT 1 FROM participation WHERE member_id=%s AND training_id=%s))",
+        "SELECT 1 FROM members WHERE id=%s AND role IN ('member','coach') AND ('player'=ANY(club_roles) OR EXISTS (SELECT 1 FROM participation WHERE member_id=%s AND training_id=%s))",
         (member_id, member_id, training_id),
     ).fetchone():
         raise HTTPException(404, "Člen sa nenašiel.")
@@ -945,7 +951,7 @@ def bulk_attendance(training_id: int, data: BulkAttendance, conn: DB, _staff: St
         raise HTTPException(409, "Dochádzku možno zapísať od začiatku udalosti.")
     ids = set(data.member_ids)
     allowed = conn.execute(
-        """SELECT id FROM members WHERE id=ANY(%s) AND
+        """SELECT id FROM members WHERE id=ANY(%s) AND role IN ('member','coach') AND
         ('player'=ANY(club_roles) OR EXISTS (SELECT 1 FROM participation WHERE member_id=members.id AND training_id=%s))""",
         (list(ids), training_id),
     ).fetchall()
@@ -979,11 +985,11 @@ def attendance_matrix(conn: DB, _staff: Staff, date_from: CalendarDate | None = 
         (selected_kinds, include_cancelled, date_from, date_from, date_to, date_to),
     ).fetchall()
     members = conn.execute(
-        "SELECT id,name,active FROM members WHERE 'player'=ANY(club_roles) ORDER BY lower(name),id"
+        "SELECT id,name,active,club_roles AS roles FROM members WHERE role IN ('member','coach') AND 'player'=ANY(club_roles) ORDER BY lower(name),id"
     ).fetchall()
     attendance = conn.execute(
         """SELECT p.training_id,p.member_id,p.attended FROM participation p
-        JOIN members m ON m.id=p.member_id WHERE 'player'=ANY(m.club_roles)
+        JOIN members m ON m.id=p.member_id WHERE m.role IN ('member','coach') AND 'player'=ANY(m.club_roles)
         AND p.training_id=ANY(%s) AND p.attended IS NOT NULL""",
         ([event["id"] for event in events],),
     ).fetchall()
@@ -995,6 +1001,7 @@ def member_attendance(member_id: int, conn: DB, _staff: Staff):
     return conn.execute(
         """SELECT t.title, t.starts_at, p.attended FROM participation p
         JOIN trainings t ON t.id=p.training_id
+        JOIN members m ON m.id=p.member_id AND m.role IN ('member','coach')
         WHERE p.member_id=%s AND p.attended IS NOT NULL ORDER BY t.starts_at DESC""",
         (member_id,)
     ).fetchall()
@@ -1057,21 +1064,30 @@ def clean_lineup(conn, entries):
         players.append({"member_id": member_id, "team": team, "slot": slot,
                         "position": position, "substitute": substitute})
     valid_ids = {row["id"] for row in conn.execute(
-        "SELECT id FROM members WHERE id=ANY(%s) AND 'player'=ANY(club_roles) AND active AND password_hash IS NOT NULL", (list(seen),)
+        "SELECT id FROM members WHERE id=ANY(%s) AND role IN ('member','coach') AND 'player'=ANY(club_roles) AND active AND password_hash IS NOT NULL", (list(seen),)
     ).fetchall()} if seen else set()
     if seen != valid_ids:
         raise HTTPException(422, "Zostava obsahuje neaktívneho alebo neplatného člena.")
     return players
 
 
+def club_lineup_players(conn, saved):
+    if not saved or not saved["players"]:
+        return []
+    system_account = conn.execute("SELECT id FROM members WHERE role='superadmin'").fetchone()
+    if not system_account:
+        return saved["players"]
+    return [player for player in saved["players"] if player.get("member_id") != system_account["id"]]
+
+
 @api.get("/lineup/general")
 def get_general_lineup(conn: DB, _user: User):
     saved = conn.execute("SELECT players FROM club_lineup WHERE id=1").fetchone()
     roster = conn.execute(
-        """SELECT id,name FROM members WHERE 'player'=ANY(club_roles) AND active AND password_hash IS NOT NULL
+        """SELECT id,name,club_roles AS roles FROM members WHERE role IN ('member','coach') AND 'player'=ANY(club_roles) AND active AND password_hash IS NOT NULL
         ORDER BY lower(name),id"""
     ).fetchall()
-    return {"players": saved["players"] if saved else [], "source": "general", "roster": roster}
+    return {"players": club_lineup_players(conn, saved), "source": "general", "roster": roster}
 
 
 @api.put("/lineup/general")
@@ -1092,10 +1108,10 @@ def get_training_lineup(training_id: int, conn: DB, _user: User):
     saved = conn.execute("SELECT players FROM training_lineups WHERE training_id=%s", (training_id,)).fetchone()
     general = conn.execute("SELECT players FROM club_lineup WHERE id=1").fetchone()
     roster = conn.execute(
-        """SELECT id,name FROM members WHERE 'player'=ANY(club_roles) AND active AND password_hash IS NOT NULL
+        """SELECT id,name,club_roles AS roles FROM members WHERE role IN ('member','coach') AND 'player'=ANY(club_roles) AND active AND password_hash IS NOT NULL
         ORDER BY lower(name),id"""
     ).fetchall()
-    return {"players": saved["players"] if saved else general["players"] if general else [],
+    return {"players": club_lineup_players(conn, saved if saved else general),
             "source": "event" if saved else "general", "roster": roster}
 
 
@@ -1153,9 +1169,9 @@ def training_workspace(training_id: int, conn: DB, user: User):
         ).fetchone()
     else:
         workspace["feedback"] = conn.execute(
-            """SELECT f.member_id,m.name,f.went_well,f.difficult,f.next_focus,f.updated_at
+            """SELECT f.member_id,m.name,m.club_roles AS roles,f.went_well,f.difficult,f.next_focus,f.updated_at
             FROM training_feedback f JOIN members m ON m.id=f.member_id
-            WHERE f.training_id=%s ORDER BY lower(m.name),m.id""", (training_id,),
+            WHERE f.training_id=%s AND m.role IN ('member','coach') ORDER BY lower(m.name),m.id""", (training_id,),
         ).fetchall()
     return workspace
 
@@ -1209,7 +1225,7 @@ def save_training_feedback(training_id: int, data: TrainingFeedbackInput, conn: 
 
 @api.get("/members/{member_id}/development")
 def member_development(member_id: int, conn: DB, _staff: Staff):
-    if not conn.execute("SELECT 1 FROM members WHERE id=%s AND 'player'=ANY(club_roles)", (member_id,)).fetchone():
+    if not conn.execute("SELECT 1 FROM members WHERE id=%s AND role IN ('member','coach') AND 'player'=ANY(club_roles)", (member_id,)).fetchone():
         raise HTTPException(404, "Člen sa nenašiel.")
     note = conn.execute("SELECT note,updated_at FROM member_coach_notes WHERE member_id=%s", (member_id,)).fetchone()
     skills = conn.execute("SELECT skill,level,note,updated_at FROM member_skills WHERE member_id=%s ORDER BY lower(skill)", (member_id,)).fetchall()
@@ -1223,7 +1239,7 @@ def member_development(member_id: int, conn: DB, _staff: Staff):
 
 @api.put("/members/{member_id}/development/note")
 def save_member_coach_note(member_id: int, data: MemberCoachNoteInput, conn: DB, user: Staff):
-    if not conn.execute("SELECT 1 FROM members WHERE id=%s AND 'player'=ANY(club_roles)", (member_id,)).fetchone():
+    if not conn.execute("SELECT 1 FROM members WHERE id=%s AND role IN ('member','coach') AND 'player'=ANY(club_roles)", (member_id,)).fetchone():
         raise HTTPException(404, "Člen sa nenašiel.")
     conn.execute(
         """INSERT INTO member_coach_notes(member_id,note,updated_by) VALUES (%s,%s,%s)
@@ -1235,7 +1251,7 @@ def save_member_coach_note(member_id: int, data: MemberCoachNoteInput, conn: DB,
 
 @api.put("/members/{member_id}/development/skills")
 def save_member_skill(member_id: int, data: MemberSkillInput, conn: DB, user: Staff):
-    if not conn.execute("SELECT 1 FROM members WHERE id=%s AND 'player'=ANY(club_roles)", (member_id,)).fetchone():
+    if not conn.execute("SELECT 1 FROM members WHERE id=%s AND role IN ('member','coach') AND 'player'=ANY(club_roles)", (member_id,)).fetchone():
         raise HTTPException(404, "Člen sa nenašiel.")
     conn.execute(
         """INSERT INTO member_skills(member_id,skill,level,note,updated_by) VALUES (%s,%s,%s,%s,%s)
@@ -1282,7 +1298,7 @@ def notice_recipients(conn, data):
             raise HTTPException(422, "Vyber aktívnych členov alebo trénerov.")
         return ids
     return [r["id"] for r in conn.execute(
-        "SELECT id FROM members WHERE active AND role IN ('member','coach') AND (%s='team' OR role='coach')",
+        "SELECT id FROM members WHERE active AND role IN ('member','coach') AND (%s='team' OR 'coach'=ANY(club_roles))",
         (data.audience,),
     ).fetchall()]
 
@@ -1379,7 +1395,7 @@ def delete_announcement(announcement_id: int, conn: DB, user: Staff):
 
 @api.get("/announcement-recipients")
 def announcement_contacts(conn: DB, _user: Staff):
-    return conn.execute("SELECT id,name,role FROM members WHERE active AND role IN ('member','coach') ORDER BY name,id").fetchall()
+    return conn.execute("SELECT id,name,role,club_roles AS roles FROM members WHERE active AND role IN ('member','coach') ORDER BY name,id").fetchall()
 
 
 @api.post("/announcement-drafts")
@@ -1535,7 +1551,7 @@ def accessible_group(conn, group_id, user, lock=False):
         raise HTTPException(404, "Skupina sa nenašla.")
     allowed = (
         group["system_key"] == "team"
-        or (group["system_key"] == "coaches" and user["role"] == "coach")
+        or (group["system_key"] == "coaches" and "coach" in user["roles"])
         or (group["system_key"] is None and conn.execute(
             "SELECT 1 FROM chat_group_members WHERE group_id=%s AND member_id=%s",
             (group_id, user["id"]),
@@ -1548,13 +1564,13 @@ def accessible_group(conn, group_id, user, lock=False):
 
 def group_participants(conn, group):
     if group["system_key"]:
-        roles = ["coach"] if group["system_key"] == "coaches" else ["coach", "member"]
         return conn.execute(
-            """SELECT id, name, role FROM members WHERE active AND password_hash IS NOT NULL
-            AND role=ANY(%s) ORDER BY name, id""", (roles,),
+            """SELECT id, name, role, club_roles AS roles FROM members WHERE active AND password_hash IS NOT NULL
+            AND role IN ('member','coach') AND (%s OR 'coach'=ANY(club_roles)) ORDER BY name, id""",
+            (group["system_key"] == "team",),
         ).fetchall()
     return conn.execute(
-        """SELECT m.id, m.name, m.role FROM chat_group_members gm
+        """SELECT m.id, m.name, m.role, m.club_roles AS roles FROM chat_group_members gm
         JOIN members m ON m.id=gm.member_id WHERE gm.group_id=%s AND m.active
         AND m.password_hash IS NOT NULL AND m.role IN ('member', 'coach') ORDER BY m.name, m.id""",
         (group["id"],),
@@ -1586,7 +1602,7 @@ def conversations(conn: DB, user: ChatUser):
             SELECT DISTINCT ON (contact_id) contact_id, body, created_at, id
             FROM inbox ORDER BY contact_id, id DESC
         )
-        SELECT r.*, m.name, m.active, 'private' AS type,
+        SELECT r.*, m.name, m.active, m.club_roles AS roles, 'private' AS type,
         (SELECT count(*) FROM messages WHERE sender_id=r.contact_id AND recipient_id=%s
          AND read_at IS NULL) AS unread
         FROM recent r JOIN members m ON m.id=r.contact_id
@@ -1597,20 +1613,22 @@ def conversations(conn: DB, user: ChatUser):
         """SELECT g.id AS group_id, g.name, g.system_key, true AS active, 'group' AS type,
         latest.id, latest.body, latest.created_at, author.name AS sender,
         (SELECT count(*) FROM messages p WHERE p.group_id=g.id AND p.sender_id<>%s
+         AND p.sender_id IN (SELECT id FROM members WHERE role IN ('member','coach'))
          AND p.id>COALESCE(gr.last_message_id, 0)) AS unread
         FROM chat_groups g
         LEFT JOIN chat_group_reads gr ON gr.group_id=g.id AND gr.member_id=%s
         LEFT JOIN LATERAL (
             SELECT id, body, created_at, sender_id FROM messages WHERE group_id=g.id
+            AND sender_id IN (SELECT id FROM members WHERE role IN ('member','coach'))
             ORDER BY id DESC LIMIT 1
         ) latest ON true
         LEFT JOIN members author ON author.id=latest.sender_id
-        WHERE g.system_key='team' OR (g.system_key='coaches' AND %s='coach')
+        WHERE g.system_key='team' OR (g.system_key='coaches' AND %s)
         OR (g.system_key IS NULL AND EXISTS (
             SELECT 1 FROM chat_group_members gm WHERE gm.group_id=g.id AND gm.member_id=%s
         ))
         ORDER BY g.system_key IS NULL, latest.id DESC NULLS LAST, g.id""",
-        (user["id"], user["id"], user["role"], user["id"]),
+        (user["id"], user["id"], "coach" in user["roles"], user["id"]),
     ).fetchall()
     # Default rooms remain visible before their first message.
     return groups + private
@@ -1619,7 +1637,7 @@ def conversations(conn: DB, user: ChatUser):
 @api.get("/contacts")
 def contacts(conn: DB, user: ChatUser):
     return conn.execute(
-        """SELECT id, name, role FROM members WHERE active AND password_hash IS NOT NULL
+        """SELECT id, name, role, club_roles AS roles FROM members WHERE active AND password_hash IS NOT NULL
         AND role IN ('member', 'coach') AND id<>%s ORDER BY name, id""", (user["id"],),
     ).fetchall()
 
@@ -1678,8 +1696,9 @@ def messages(conn: DB, user: ChatUser, before: int | None = None,
             raise HTTPException(422, "Vyber jednu konverzáciu.")
         accessible_group(conn, group_id, user)
         return conn.execute(
-            """SELECT p.*, s.name AS sender FROM messages p JOIN members s ON s.id=p.sender_id
-            WHERE p.group_id=%s AND p.id<%s ORDER BY p.id DESC LIMIT 200""",
+            """SELECT p.*, s.name AS sender, s.club_roles AS sender_roles
+            FROM messages p JOIN members s ON s.id=p.sender_id
+            WHERE p.group_id=%s AND p.id<%s AND s.role IN ('member','coach') ORDER BY p.id DESC LIMIT 200""",
             (group_id, before or 9223372036854775807),
         ).fetchall()
     return conn.execute(
@@ -1784,7 +1803,9 @@ def add_battery(data: Battery, conn: DB, _staff: Staff):
 @api.get("/batteries/{code}/events")
 def events(code: Code, conn: DB, _user: User):
     return conn.execute(
-        """SELECT e.*, CASE WHEN m.role='superadmin' THEN 'Systém'
+        """SELECT e.id,e.code,e.action,e.note,e.created_at,e.request_id,
+        CASE WHEN m.role<>'superadmin' THEN e.actor_id END AS actor_id,
+        CASE WHEN m.role='superadmin' THEN 'Systém'
         ELSE COALESCE(m.name, 'Odstránený účet') END AS name
         FROM battery_events e LEFT JOIN members m ON m.id=e.actor_id
         WHERE code=%s ORDER BY e.id DESC LIMIT 100""", (code,)
@@ -1936,7 +1957,7 @@ def scan(data:ScanRequest, conn:DB, user:User):
         if event['cancelled'] or event['starts_at']>datetime.now(timezone.utc) or (event['ends_at'] and event['ends_at']<datetime.now(timezone.utc)):
             raise HTTPException(409,'Dochádzku možno zapísať iba počas prebiehajúcej alebo začatej nezrušenej udalosti.')
     person=conn.execute(
-        "SELECT id,name FROM members WHERE card_token=%s AND 'player'=ANY(club_roles) AND active FOR UPDATE",(code,),
+        "SELECT id,name FROM members WHERE card_token=%s AND role IN ('member','coach') AND 'player'=ANY(club_roles) AND active FOR UPDATE",(code,),
     ).fetchone()
     if not person:
         raise HTTPException(404,'Členský QR už neplatí alebo člen nie je aktívny.')
@@ -1955,7 +1976,7 @@ def scan(data:ScanRequest, conn:DB, user:User):
 def digital_card(conn,member_id):
     card=conn.execute(
         """UPDATE members SET card_token=COALESCE(card_token,%s)
-        WHERE id=%s AND 'player'=ANY(club_roles) AND active RETURNING id,name,card_token""",
+        WHERE id=%s AND role IN ('member','coach') AND 'player'=ANY(club_roles) AND active RETURNING id,name,card_token""",
         (secrets.token_urlsafe(32),member_id),
     ).fetchone()
     if not card:
@@ -2027,7 +2048,7 @@ def member_card_qr(member_id:int,conn:DB,_staff:Staff):
 
 @api.post('/members/{member_id}/card/reset')
 def reset_member_card(member_id:int,conn:DB,_staff:Staff):
-    if not conn.execute("UPDATE members SET card_token=%s WHERE id=%s AND 'player'=ANY(club_roles) AND active",
+    if not conn.execute("UPDATE members SET card_token=%s WHERE id=%s AND role IN ('member','coach') AND 'player'=ANY(club_roles) AND active",
                         (secrets.token_urlsafe(32),member_id)).rowcount:
         raise HTTPException(404,'Aktívny člen sa nenašiel.')
     return digital_card(conn,member_id)
