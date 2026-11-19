@@ -1671,9 +1671,9 @@ function App() {
   const staff = user?.role === "coach" || user?.role === "superadmin";
   const superadmin = user?.role === "superadmin";
   const visibleNavigation = navigation.filter(([key]) => user?.menu_access?.includes(key) && (key !== "team" || user?.role !== "superadmin") && (key !== "messages" || !superadmin));
-  const allowedPages = [...visibleNavigation.map(([key]) => key), "profile"];
+  const allowedPages = [...visibleNavigation.map(([key]) => key), ...(user?.menu_access?.includes("scanner") ? ["scanner"] : []), "profile"];
   const currentPage = allowedPages.includes(page) ? page : "home";
-  const title = currentPage === "profile" ? "Môj profil a nastavenia" : visibleNavigation.find(([key]) => key === currentPage)?.[1];
+  const title = currentPage === "profile" ? "Môj profil a nastavenia" : currentPage === "scanner" ? "Skenovať" : visibleNavigation.find(([key]) => key === currentPage)?.[1];
   useEffect(() => {
     document.documentElement.lang = language;
     translatePage(document.body, language);
