@@ -169,6 +169,7 @@ Password = Annotated[str, StringConstraints(min_length=8, max_length=128)]
 Body = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
 Note = Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)]
 Code = Annotated[str, StringConstraints(pattern=r"^LF-B[0-9]{2,6}$")]
+ChargerCode = Annotated[str, StringConstraints(pattern=r"^LF-C[0-9]{2,6}$")]
 
 
 def connect():
@@ -1780,14 +1781,20 @@ class Battery(BaseModel):
 
 class BatteryEvent(BaseModel):
     request_id: UUID | None = None
-    action: Literal["used", "charged", "stored", "damaged", "retired"]
+    action: Literal["used", "charged", "discharged", "stored", "storage_exit", "damaged", "retired", "note"]
     note: Note = ""
 
 
 @api.get("/batteries")
 def batteries(conn: DB, _user: User):
     return conn.execute(
-        """SELECT b.*, (SELECT action FROM battery_events WHERE code=b.code ORDER BY id DESC LIMIT 1) AS status,
+        """SELECT b.*,
+        (SELECT CASE WHEN action='used' THEN NULL ELSE action END FROM battery_events WHERE code=b.code
+          AND action IN ('used','charged','discharged','stored','storage_exit','damaged','retired')
+          ORDER BY id DESC LIMIT 1) AS status,
+        (SELECT created_at FROM battery_events WHERE code=b.code
+          AND action IN ('used','charged','discharged','stored','storage_exit','damaged','retired')
+          ORDER BY id DESC LIMIT 1) AS status_at,
         (SELECT count(*) FROM battery_events WHERE code=b.code AND action='charged') AS charges
         FROM batteries b ORDER BY b.code"""
     ).fetchall()
@@ -1826,13 +1833,15 @@ def add_event(code: Code, data: BatteryEvent, conn: DB, user: User):
             if (previous["code"],previous["actor_id"],previous["action"],previous["note"]) != (code,user["id"],data.action,data.note):
                 raise HTTPException(409, "Identifikátor záznamu už bol použitý.")
             return {"ok": True}
-    last = conn.execute("SELECT action FROM battery_events WHERE code=%s ORDER BY id DESC LIMIT 1",
+    last = conn.execute("SELECT CASE WHEN action='used' THEN NULL ELSE action END AS action FROM battery_events WHERE code=%s AND action IN ('used','charged','discharged','stored','storage_exit','damaged','retired') ORDER BY id DESC LIMIT 1",
                         (code,)).fetchone()
     status = last["action"] if last else None
-    if status == "retired" or (status == "damaged" and data.action not in {"damaged", "retired"}):
+    if (status == "retired" and data.action != "note") or (status == "damaged" and data.action not in {"damaged", "retired", "note"}):
         raise HTTPException(409, "Batéria je poškodená alebo vyradená.")
     if data.action == "retired" and user["role"] not in STAFF_ROLES:
         raise HTTPException(403, "Batériu môže vyradiť iba tréner alebo poverený správca.")
+    if data.action == "storage_exit" and status != "stored":
+        raise HTTPException(409, "Batéria nie je označená ako uložená v dlhodobom sklade.")
     # A stable request id makes retrying a scanned action safe after a lost response.
     inserted = conn.execute(
         """INSERT INTO battery_events (code,actor_id,action,note,request_id) VALUES (%s,%s,%s,%s,%s)
@@ -1902,6 +1911,13 @@ def scan_value(value):
             return 'battery',TypeAdapter(Code).validate_python(value)
         except ValueError:
             raise HTTPException(422,'Kód batérie musí mať LF-B a 2 až 6 číslic, napríklad LF-B01.') from None
+    if value.upper().startswith('LF-C'):
+        value=value.upper()
+        try:
+            charger=TypeAdapter(ChargerCode).validate_python(value)
+            return 'charger',charger
+        except ValueError:
+            raise HTTPException(422,'Kód multinabíjačky musí mať LF-C a 2 až 6 číslic, napríklad LF-C01.') from None
     if re.fullmatch(r'LF-M:[A-Za-z0-9_-]{43}',value):
         return 'member',value[5:]
     raise HTTPException(422,'Nerozpoznaný kód. Použi klubový kód batérie alebo členský QR.')
@@ -1941,9 +1957,25 @@ def create_private_scan_event(data:PrivateScanEvent,conn:DB,user:Staff):
 @api.post('/scan')
 def scan(data:ScanRequest, conn:DB, user:User):
     kind,code=scan_value(data.value)
+    if kind=='charger':
+        if user['role'] not in STAFF_ROLES:
+            raise HTTPException(403,'Multinabíjačku môže obsluhovať iba tréner alebo poverený správca.')
+        batteries=conn.execute(
+            """SELECT b.code,b.label,
+            (SELECT CASE WHEN action='used' THEN NULL ELSE action END FROM battery_events
+              WHERE code=b.code AND action IN ('used','charged','discharged','stored','storage_exit','damaged','retired')
+              ORDER BY id DESC LIMIT 1) AS status
+            FROM batteries b ORDER BY b.code"""
+        ).fetchall()
+        return {'type':'charger','code':code,'batteries':batteries}
     if kind=='battery':
         battery=conn.execute(
-            """SELECT b.*,(SELECT action FROM battery_events WHERE code=b.code ORDER BY id DESC LIMIT 1) AS status
+            """SELECT b.*,(SELECT CASE WHEN action='used' THEN NULL ELSE action END FROM battery_events WHERE code=b.code
+              AND action IN ('used','charged','discharged','stored','storage_exit','damaged','retired')
+              ORDER BY id DESC LIMIT 1) AS status,
+              (SELECT created_at FROM battery_events WHERE code=b.code
+              AND action IN ('used','charged','discharged','stored','storage_exit','damaged','retired')
+              ORDER BY id DESC LIMIT 1) AS status_at
             FROM batteries b WHERE b.code=%s""",(code,),
         ).fetchone()
         if not battery:
@@ -1973,6 +2005,48 @@ def scan(data:ScanRequest, conn:DB, user:User):
     )
     return {'type':'member',**person,'recorded':True,'already_present':bool(previous and previous['attended']),
             'event_id':event['id'],'event_title':event['title']}
+
+
+class BatteryChargeBatch(BaseModel):
+    charger_code: ChargerCode
+    request_id: UUID
+    codes: Annotated[list[Code], Field(min_length=1, max_length=50)]
+
+
+@api.post('/battery-charges')
+def charge_batteries(data:BatteryChargeBatch,conn:DB,user:Staff):
+    codes=sorted(set(data.codes))
+    if len(codes)!=len(data.codes):
+        raise HTTPException(422,'Batéria môže byť vo výbere uvedená iba raz.')
+    previous=conn.execute("SELECT charger_code,actor_id,battery_codes FROM battery_charge_runs WHERE request_id=%s FOR UPDATE",
+                          (data.request_id,)).fetchone()
+    if previous:
+        if previous['charger_code']!=data.charger_code or previous['actor_id']!=user['id'] or sorted(previous['battery_codes'])!=codes:
+            raise HTTPException(409,'Identifikátor nabíjania už bol použitý.')
+        return {'ok':True,'count':len(codes),'duplicate':True}
+    found=conn.execute("SELECT code FROM batteries WHERE code=ANY(%s) ORDER BY code FOR UPDATE",(codes,)).fetchall()
+    if len(found)!=len(codes):
+        raise HTTPException(404,'Jedna alebo viaceré vybrané batérie sa nenašli.')
+    states=conn.execute(
+        """SELECT DISTINCT ON (code) code,action FROM battery_events
+        WHERE code=ANY(%s) AND action IN ('used','charged','discharged','stored','storage_exit','damaged','retired')
+        ORDER BY code,id DESC""",(codes,),
+    ).fetchall()
+    blocked=[row['code'] for row in states if row['action'] in {'damaged','retired','stored'}]
+    if blocked:
+        raise HTTPException(409,'Poškodené, vyradené alebo uskladnené batérie nemožno označiť ako nabité: '+', '.join(blocked))
+    conn.execute("INSERT INTO battery_charge_runs(request_id,charger_code,actor_id,battery_codes) VALUES (%s,%s,%s,%s)",
+                 (data.request_id,data.charger_code,user['id'],codes))
+    with conn.cursor() as cursor:
+        cursor.executemany("INSERT INTO battery_events(code,actor_id,action,note) VALUES (%s,%s,'charged',%s)",
+                           [(code,user['id'],f"Multinabíjačka {data.charger_code}") for code in codes])
+    return {'ok':True,'count':len(codes)}
+
+
+@api.get('/chargers/{code}/label.svg')
+def charger_label(code:ChargerCode,_staff:Staff):
+    qr=qrcode.make(code,image_factory=qrcode.image.svg.SvgPathImage)
+    return Response(qr.to_string(),media_type='image/svg+xml')
 
 
 def digital_card(conn,member_id):

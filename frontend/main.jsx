@@ -16,7 +16,8 @@ const base = new URL("./", location.href);
 let activeLanguage = initialLanguage();
 const uiLocale = () => activeLanguage === "sk" ? "sk-SK" : activeLanguage === "uk" ? "uk-UA" : "en-GB";
 const labels = {yes: "Prídem", no: "Neprídem", maybe: "Ešte neviem"};
-const batteryLabels = {used: "Použitá", charged: "Nabitá", stored: "V sklade", damaged: "Poškodená", retired: "Vyradená"};
+const batteryLabels = {used: "Použitie zaznamenané", charged: "Nabitá", discharged: "Vybitá", stored: "Dlhodobo uskladnená", storage_exit: "Vydaná zo skladu", damaged: "Poškodená", retired: "Vyradená", note: "Poznámka"};
+const batteryStateLabels = {charged: "Nabitá", discharged: "Vybitá", stored: "Dlhodobo uskladnená", storage_exit: "Stav neznámy po vybratí zo skladu", damaged: "Poškodená", retired: "Vyradená"};
 const timeZone = "Europe/Bratislava";
 const date = value => new Date(value).toLocaleString(uiLocale(), {dateStyle: "medium", timeStyle: "short", timeZone});
 const past = t => new Date(t.starts_at) <= new Date();
@@ -869,6 +870,7 @@ function Batteries({staff, initialCode, openScanner}) {
   const [selected, setSelected] = useState(initialCode || null);
   const [events, setEvents] = useState([]);
   const [query, setQuery] = useState("");
+  const [stateFilter, setStateFilter] = useState("all");
   const [create, setCreate] = useState(false);
   const [action, setAction] = useState(null);
   const [error, setError] = useState("");
@@ -884,28 +886,31 @@ function Batteries({staff, initialCode, openScanner}) {
   const battery = items.find(item => item.code === selected);
   return <>
     <div className="toolbar"><label className="search"><Search size={18} /><input type="search" aria-label="Hľadať batériu" placeholder="Kód alebo označenie…" value={query} onChange={event => setQuery(event.target.value)} /></label>
+      <label className="battery-filter">Aktuálny stav<select value={stateFilter} onChange={event=>setStateFilter(event.target.value)}><option value="all">Všetky stavy</option><option value="unknown">Neznámy stav</option>{Object.entries(batteryStateLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
       <button onClick={()=>openScanner()}><ScanLine size={18} />Skenovať batériu</button>
       {staff && <button className="primary" onClick={() => setCreate(true)}><Plus size={18} />Batéria</button>}</div>
     {error && <p className="error" role="alert">{error}</p>}
-    <div className="equipment-grid">{items.filter(b => (b.code + " " + b.label).toLowerCase().includes(query.toLowerCase())).map(b =>
-      <button className="card equipment-card" key={b.code} onClick={() => {setSelected(b.code); setAction(null);}}><Battery size={25} /><strong>{b.code}</strong><span className="muted">{b.label}</span>
-        <span className={"badge " + (["damaged", "retired"].includes(b.status) ? "warning" : "positive")}>{batteryLabels[b.status] || "Bez záznamu"}</span>
+    <div className="equipment-grid">{items.filter(b => (b.code + " " + b.label).toLowerCase().includes(query.toLowerCase()) && (stateFilter === "all" ? true : stateFilter === "unknown" ? !b.status : b.status === stateFilter)).map(b =>
+      <button className={"card equipment-card battery-state-card state-"+(b.status||"unknown")} key={b.code} onClick={() => {setSelected(b.code); setAction(null);}}><Battery size={25} /><strong>{b.code}</strong><span className="muted">{b.label}</span>
+        <span className={"badge battery-state-badge state-"+(b.status||"unknown")}>{batteryStateLabels[b.status] || "Neznámy stav"}</span>
+        <span className="meta">{b.status_at ? "Stav k " + date(b.status_at) : "Stav zatiaľ nebol určený"}</span>
         <span className="meta">{b.charges} evidovaných nabití</span>
       </button>)}</div>
     {items.length === 0 && <Empty icon={Battery}>Zatiaľ žiadne batérie. QR štítok otvorí detail priamo v aplikácii.</Empty>}
     {selected && <Modal title={battery ? battery.code : "Batéria"} close={() => {setSelected(null); setAction(null);}}>
       {battery ? <>
-        <p className="muted">{battery.label}</p><p><span className="badge">{batteryLabels[battery.status] || "Bez záznamu"}</span></p>
+        <p className="muted">{battery.label}</p><p><span className={"badge battery-state-badge state-"+(battery.status||"unknown")}>{batteryStateLabels[battery.status] || "Neznámy stav"}</span></p>
+        <p className="meta">{battery.status_at ? "Aktuálny stav od " + date(battery.status_at) : "Batéria zatiaľ nemá zaznamenaný aktuálny stav."}</p>
         {staff && <a className="button section-space" href={new URL("api/batteries/" + battery.code + "/label.svg", base)} download={battery.code + ".svg"}><Download size={17} />QR štítok</a>}
         {battery.status !== "retired" && <div className="battery-actions section-space">
           {Object.entries(batteryLabels).filter(([value]) => (staff || value === "used") &&
-            (battery.status !== "damaged" || value === "retired" || value === "damaged")).map(([value, text]) =>
+            (battery.status !== "damaged" || ["retired", "damaged", "note"].includes(value)) && (value !== "storage_exit" || battery.status === "stored")).map(([value, text]) =>
               <button key={value} className={action === value ? "selected" : ""} onClick={() => setAction(value)}>{text}</button>)}
         </div>}
         {action && <Form label={"Zapísať · " + batteryLabels[action]} submit={async data => {
           await api("batteries/" + battery.code + "/events", "POST", {action, note: data.note});
           setEvents(await api("batteries/" + battery.code + "/events")); setAction(null); await load();
-        }}><label>Poznámka (voliteľná)<input name="note" maxLength="1000" /></label></Form>}
+        }}><label>{action === "note" ? "Poznámka" : "Poznámka (voliteľná)"}<input name="note" maxLength="1000" required={action === "note"} placeholder={action === "used" ? "Pri akom úkone sa použila?" : ""} /></label></Form>}
         <h3 className="section-space">História</h3><ul className="timeline">{events.map(event => <li key={event.id}>
           <strong>{batteryLabels[event.action]}</strong><span className="meta">{date(event.created_at)} · {event.name}</span>
           {event.note && <p className="body small">{event.note}</p>}
@@ -1213,11 +1218,10 @@ function MemberQr({member,close}) {
 
 function ClubScanner({user,initialEvent,refresh}) {
   const staff=user.role!=="member";
-  const [mode,setMode]=useState(()=>staff && initialEvent ? "attendance" : "batteries");
-  const [running,setRunning]=useState(false),[busy,setBusy]=useState(false);
+  const [running,setRunning]=useState(true),[busy,setBusy]=useState(false);
   const [manual,setManual]=useState("");
   const [error,setError]=useState("");
-  const [result,setResult]=useState(null),[value,setValue]=useState("");
+  const [result,setResult]=useState(null);
   const [day,setDay]=useState(()=>initialEvent ? dayKey(initialEvent.starts_at) : today());
   const [events,setEvents]=useState([]),[eventId,setEventId]=useState(initialEvent?.id || null);
   const [eventsLoading,setEventsLoading]=useState(staff);
@@ -1228,116 +1232,124 @@ function ClubScanner({user,initialEvent,refresh}) {
   const [newPrivateEvent,setNewPrivateEvent]=useState(false);
   const [action,setAction]=useState("used");
   const [requestId,setRequestId]=useState(null);
-  const locked=useRef(false);
-  const mounted=useRef(true);
+  const [selectedBatteries,setSelectedBatteries]=useState([]),[batchRequestId,setBatchRequestId]=useState(null);
+  const locked=useRef(false),mounted=useRef(true);
   const selectedEvent=events.find(event=>event.id===eventId);
   useEffect(()=>()=>{mounted.current=false;},[]);
   useEffect(()=>{
-    if(!staff) return;
+    if(!staff)return;
     let current=true;
     setEventsLoading(true);setEvents([]);setEventId(initialEvent?.id || null);
-    const query=day ? "?day="+encodeURIComponent(day) : "";
-    api("scan/events"+query).then(rows=>{
-      if(!current) return;
+    api("scan/events"+(day?"?day="+encodeURIComponent(day):"")).then(rows=>{
+      if(!current)return;
       setEvents(rows);
-      const candidates=rows.filter(event=>event.is_current);
-      setEventId(previous=>initialEvent && rows.some(event=>event.id===initialEvent.id && event.can_record) ? initialEvent.id : rows.some(event=>event.id===previous && event.can_record) ? previous : candidates.length===1 ? candidates[0].id : null);
+      const currentEvents=rows.filter(event=>event.is_current&&event.can_record);
+      setEventId(previous=>initialEvent&&rows.some(event=>event.id===initialEvent.id&&event.can_record)?initialEvent.id:
+        rows.some(event=>event.id===previous&&event.can_record)?previous:currentEvents.length===1?currentEvents[0].id:null);
     }).catch(e=>{if(current){setEventId(null);setError(e.message);}}).finally(()=>{if(current)setEventsLoading(false);});
     return()=>{current=false;};
   },[staff,day,initialEvent?.id]);
-  useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(""),1800);return()=>clearTimeout(timer);},[toast]);
-  function next(){locked.current=false;setResult(null);setSaved("");setError("");setManual("");setRunning(true);}
+  useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(""),2200);return()=>clearTimeout(timer);},[toast]);
   async function decode(raw){
-    if(locked.current) return;
-    locked.current=true;setRunning(false);setBusy(true);setResult(null);setError("");setSaved("");setValue(raw);
-    try {
-      const response=await api("scan","POST",{value:raw,event_id:mode==="attendance" && !eventsLoading && selectedEvent?.can_record ? eventId : null});
-      if(!mounted.current) return;
+    if(locked.current)return;
+    locked.current=true;setRunning(false);setBusy(true);setResult(null);setError("");setSaved("");
+    try{
+      const response=await api("scan","POST",{value:raw,event_id:staff&&selectedEvent?.can_record?eventId:null});
+      if(!mounted.current)return;
       if(response.type==="member"){
         if(response.recorded){
           setPendingMember(null);
           setRecent(previous=>[{id:response.id,name:response.name,event:response.event_title},...previous].slice(0,12));
-          setToast(`Zapísaná dochádzka: ${response.name} · ${response.event_title}`);
-          setResult(null);await refresh();
-        } else setPendingMember(response);
-      } else {setResult(response);setAction(response.status==="damaged" ? "damaged" : "used");setRequestId(crypto.randomUUID());}
-    } catch(e){if(mounted.current){setResult(null);setError(e.message);}}
-    finally{if(mounted.current)setBusy(false);}
+          const prefix=response.already_present?"Dochádzka už bola zapísaná: ":"Zapísaná dochádzka: ";
+          setToast(localizeText(prefix,activeLanguage)+response.name+" · "+response.event_title);
+          await refresh();setRunning(true);
+        }else setPendingMember(response);
+      }else if(response.type==="charger"){
+        setResult(response);setSelectedBatteries(response.batteries.filter(b=>!['damaged','retired','stored'].includes(b.status)).map(b=>b.code));setBatchRequestId(crypto.randomUUID());
+      }else{
+        setResult(response);setAction(response.status==="damaged"?"damaged":response.status==="stored"?"storage_exit":"used");setRequestId(crypto.randomUUID());
+      }
+    }catch(e){if(mounted.current){setResult(null);setError(e.message);}}
+    finally{if(mounted.current)setBusy(false);locked.current=false;}
   }
   return <>
-    <section className="card"><h2>Skenovať QR alebo čiarový kód</h2>
-      {staff && <div className="scanner-mode" role="tablist" aria-label="Režim skenovania">
-        <button role="tab" aria-selected={mode==="batteries"} className={mode==="batteries"?"selected":""} onClick={()=>{setMode("batteries");setPendingMember(null);setResult(null);setError("");}}>Batérie</button>
-        <button role="tab" aria-selected={mode==="attendance"} className={mode==="attendance"?"selected":""} onClick={()=>{setMode("attendance");setPendingMember(null);setResult(null);setError("");}}>Dochádzka</button>
-      </div>}
-      <p className="muted">{mode==="attendance" ? "Naskenuj členský QR. Prítomnosť sa zapíše automaticky." : staff ? "Skenuj kód LF-B alebo GS1-128; pri GS1 môže byť kód LF-B priamo v údajoch alebo číselné sériové číslo v AI 21. Neznámu batériu môžeš pridať." : "Naskenuj kód batérie LF-B alebo GS1-128 so sériovým číslom v AI 21."}</p>
-      {staff && mode==="attendance" && <div className="scan-event-picker">
-        <label>Deň udalosti<input type="date" value={day} onChange={event=>{setEventId(null);setDay(event.target.value);}} disabled={busy} /></label>
-        <label>Dochádzka na udalosť<select value={eventsLoading ? "" : eventId || ""} disabled={eventsLoading || busy} onChange={event=>setEventId(Number(event.target.value) || null)}>
-          <option value="">{eventsLoading ? "Načítavajú sa udalosti…" : "Vyber udalosť pre dochádzku"}</option>
-          {events.map(event=><option key={event.id} value={event.id} disabled={!event.can_record}>{clock(event.starts_at)} · {event.title}{!event.can_record ? " – ešte sa nezačala" : ""}</option>)}
-        </select></label>
-        {!eventsLoading && !eventId && <p className="small muted">Ak sa nedá jednoznačne určiť prebiehajúca udalosť, vyber ju ručne. Batérie možno skenovať aj bez výberu udalosti.</p>}
-      </div>}
-      {!running && <button className="primary scan-open-camera" disabled={busy || (mode==="attendance" && eventsLoading)} onClick={next}><ScanLine size={20} />Otvoriť kameru</button>}
+    <section className="card scanner-page-card">
+      {running?<Modal title="Skenovať kódy" close={()=>setRunning(false)}>
+        <div className="scan-camera-stage"><CameraScanner running={running} onDecode={decode} onError={message=>{setRunning(false);setError(message);}} /></div>
+        <button className="primary scan-stop-modal" onClick={()=>setRunning(false)}>Zastaviť skener</button>
+      </Modal>:<button className="primary scan-open-camera" disabled={busy} onClick={()=>{locked.current=false;setError("");setRunning(true);}}><ScanLine size={20}/>Otvoriť kameru</button>}
       <details className="scan-manual"><summary>Zadať kód ručne alebo cez USB skener</summary>
-        <Form label={busy ? "Spracúva sa…" : "Spracovať kód"} submit={async()=>{if(busy)return;locked.current=false;await decode(manual);}}>
-          <label className="section-space">Kód<input value={manual} onChange={event=>setManual(event.target.value)} placeholder={mode==="attendance"?"LF-M:…":"LF-B01"} maxLength="2048" autoComplete="off" autoCapitalize="none" spellCheck="false" required disabled={busy} /></label>
+        <Form label={busy?"Spracúva sa…":"Spracovať kód"} submit={async()=>{if(busy)return;locked.current=false;await decode(manual);}}>
+          <label className="section-space">Kód<input value={manual} onChange={event=>setManual(event.target.value)} placeholder="LF-B001" maxLength="2048" autoComplete="off" autoCapitalize="none" spellCheck="false" required disabled={busy}/></label>
         </Form>
       </details>
-      {error && <p className="error" role="alert">{error}</p>}
+      {error&&<p className="error" role="alert">{error}</p>}
+      {busy&&<p className="muted" role="status">Spracúva sa kód…</p>}
     </section>
-    {running && <Modal title={mode==="attendance" ? "Skenovať dochádzku" : "Skenovať batérie"} close={()=>setRunning(false)}>
-      <div className={"scan-camera-stage "+(mode==="attendance"?"attendance-camera":"battery-camera")}>
-        <CameraScanner running={running} onDecode={decode} onError={message=>{setRunning(false);setError(message);}} />
-      </div>
-      <button className="primary scan-stop-modal" onClick={()=>setRunning(false)}>Zastaviť skener</button>
-    </Modal>}
-    {toast && <div className="scan-success-toast" role="status"><Check size={16}/>{toast}</div>}
-    {pendingMember && <Modal title={pendingMember.name} close={()=>setPendingMember(null)}>
+    {toast&&<div className="scan-success-toast" role="status"><Check size={16}/>{toast}</div>}
+    {pendingMember&&<Modal title={pendingMember.name} close={()=>setPendingMember(null)}>
       <p>Vyber udalosť pre zápis dochádzky alebo vytvor novú udalosť.</p>
-      <label>Deň udalosti<input type="date" value={day} onChange={event=>setDay(event.target.value)}/></label>
-      {events.filter(event=>event.can_record).map(event=><button className="card scan-event-option" key={event.id} onClick={async()=>{
-        try{const response=await api("scan","POST",{value:pendingMember.payload,event_id:event.id});setPendingMember(null);if(response.recorded){setToast(`Zapísaná dochádzka: ${response.name} · ${response.event_title}`);await refresh();}}
+      <label>Deň udalosti<input type="date" value={day} onChange={event=>{setEventId(null);setDay(event.target.value);}} /></label>
+      {eventsLoading&&<p className="muted">Načítavajú sa udalosti…</p>}
+      {!eventsLoading&&events.filter(event=>event.can_record).map(event=><button className="card scan-event-option" key={event.id} onClick={async()=>{
+        try{const response=await api("scan","POST",{value:pendingMember.payload,event_id:event.id});setPendingMember(null);if(response.recorded){const prefix=response.already_present?"Dochádzka už bola zapísaná: ":"Zapísaná dochádzka: ";setToast(localizeText(prefix,activeLanguage)+response.name+" · "+response.event_title);await refresh();}}
         catch(e){setError(e.message);setPendingMember(null);}
-      }}>{date(event.starts_at)} · {event.title}{!event.can_record?" (ešte sa nezačala)":""}</button>)}
+      }}>{date(event.starts_at)} · {event.title}</button>)}
+      {!eventsLoading&&!events.some(event=>event.can_record)&&<p className="muted">Na tento deň nie je dostupná udalosť na zápis dochádzky.</p>}
       <button className="primary section-space" onClick={()=>setNewPrivateEvent(true)}><Plus size={18}/>Vytvoriť novú udalosť</button>
-      {newPrivateEvent && <Form label="Vytvoriť udalosť a zapísať prítomnosť" submit={async data=>{
+      {newPrivateEvent&&<Form label="Vytvoriť udalosť a zapísať prítomnosť" submit={async data=>{
         const starts_at=trainingISO(data.starts_at),ends_at=data.ends_at?trainingISO(data.ends_at):null;
         if(ends_at&&ends_at<=starts_at)throw new Error("Koniec musí nasledovať po začiatku.");
         const created=await api("scan/private-events","POST",{title:data.title||"Neplánovaný tréning",starts_at,ends_at,location:data.location});
         const response=await api("scan","POST",{value:pendingMember.payload,event_id:created.id});setNewPrivateEvent(false);setPendingMember(null);
-        setToast(`Zapísaná dochádzka: ${response.name} · ${response.event_title}`);await refresh();
+        setToast(localizeText("Zapísaná dochádzka: ",activeLanguage)+response.name+" · "+response.event_title);await refresh();
       }}><label>Názov<input name="title" defaultValue="Neplánovaný tréning" maxLength="120" required/></label>
         <label>Začiatok<input name="starts_at" type="datetime-local" defaultValue={clubLocal(new Date())} required/></label>
         <label>Koniec<input name="ends_at" type="datetime-local"/></label><label>Miesto<input name="location" maxLength="120" defaultValue="Hala" required/></label></Form>}
     </Modal>}
-    {result?.type==="battery" && <section className="card scan-result"><Battery size={26} /><h2>{result.code}</h2>
-      {!result.exists ? <><p>Batéria ešte nie je evidovaná.</p><Form label="Pridať batériu" submit={async data=>{
-        setBusy(true);
-        try {
-          try{await api("batteries","POST",{code:result.code,label:data.label});}catch(e){if(e.status!==409)throw e;}
-          const updated=await api("scan","POST",{value:result.code});setResult(updated);setSaved("");
-        } finally {setBusy(false);}
-      }}><label>Označenie batérie<input name="label" defaultValue={result.code} maxLength="120" required /></label></Form></> : <>
-        <p>{result.label}</p><p><span className="badge">{batteryLabels[result.status] || "Bez záznamu"}</span></p>
-        {["damaged","retired"].includes(result.status) && <p className="notice">Túto batériu nepoužívaj.</p>}
-        {!saved && result.status!=="retired" && (staff || result.status!=="damaged") && <Form label="Uložiť záznam" submit={async data=>{
-          setBusy(true);
-          try {
-            await api("batteries/"+result.code+"/events","POST",{action:staff ? action : "used",note:data.note,request_id:requestId});
-            setSaved("Záznam bol uložený.");setResult({...result,status:staff ? action : "used"});await refresh();
-          } finally {setBusy(false);}
+    {result?.type==="charger"&&<section className="card scan-result">
+      <Battery size={26}/><h2>Multinabíjačka {result.code}</h2>
+      {staff&&<a className="button section-space" href={new URL("api/chargers/"+result.code+"/label.svg",base)} download={result.code+".svg"}><Download size={17}/>QR štítok nabíjačky</a>}
+      {saved?<p className="success" role="status">{saved}</p>:<Form label={localizeText("Zaznamenať nabitie",activeLanguage)+" ("+selectedBatteries.length+")"} submit={async()=>{
+        const response=await api("battery-charges","POST",{charger_code:result.code,codes:selectedBatteries,request_id:batchRequestId});
+        setSaved(localizeText("Nabitie zapísané pre ",activeLanguage)+response.count+" "+localizeText("batérií.",activeLanguage));await refresh();
+      }}>
+        <div className="charger-battery-list"><label className="checkbox"><input type="checkbox" checked={selectedBatteries.length===result.batteries.filter(b=>!['damaged','retired','stored'].includes(b.status)).length&&selectedBatteries.length>0} onChange={event=>setSelectedBatteries(event.target.checked?result.batteries.filter(b=>!['damaged','retired','stored'].includes(b.status)).map(b=>b.code):[])}/>Vybrať všetky vhodné batérie</label>
+          {result.batteries.map(b=>{const disabled=['damaged','retired','stored'].includes(b.status);return <label className="checkbox charger-battery-row" key={b.code}>
+            <input type="checkbox" checked={selectedBatteries.includes(b.code)} disabled={disabled} onChange={event=>setSelectedBatteries(current=>event.target.checked?[...current,b.code]:current.filter(code=>code!==b.code))}/>
+            <span><strong>{b.code}</strong><span className="meta">{b.label}</span></span><span className={"badge battery-state-badge state-"+(b.status||"unknown")}>{batteryStateLabels[b.status]||"Neznámy stav"}</span>
+          </label>;})}
+        </div>
+        {selectedBatteries.length===0&&<p className="error">Vyber aspoň jednu batériu.</p>}
+        <button className="primary" disabled={selectedBatteries.length===0}>Zaznamenať nabitie</button>
+      </Form>}
+      <button className="section-space" onClick={()=>{setResult(null);setSaved("");locked.current=false;setRunning(true);}}>Skenovať ďalší kód</button>
+    </section>}
+    {result?.type==="battery"&&<section className="card scan-result">
+      <Battery size={26}/><h2>{result.code}</h2>
+      {!result.exists?<><p>Batéria ešte nie je evidovaná.</p><Form label="Pridať batériu" submit={async data=>{
+        setBusy(true);try{try{await api("batteries","POST",{code:result.code,label:data.label});}catch(e){if(e.status!==409)throw e;}
+          const updated=await api("scan","POST",{value:result.code});setResult(updated);setSaved("");setAction("used");await refresh();
+        }finally{setBusy(false);}
+      }}><label>Označenie batérie<input name="label" defaultValue={result.code} maxLength="120" required/></label></Form></>:<>
+        <p>{result.label}</p><p><span className={"badge battery-state-badge state-"+(result.status||"unknown")}>{batteryStateLabels[result.status]||"Neznámy stav"}</span></p>
+        {result.status_at&&<p className="meta">Stav od {date(result.status_at)}</p>}
+        {result.status==="damaged"&&<p className="notice">Túto batériu nepoužívaj.</p>}
+        {!saved&&result.status!=="retired"&&(staff||result.status!=="damaged")&&<Form label="Uložiť záznam" submit={async data=>{
+          setBusy(true);try{await api("batteries/"+result.code+"/events","POST",{action:staff?action:"used",note:data.note,request_id:requestId});
+            const updated=await api("scan","POST",{value:result.code});setSaved("Záznam bol uložený.");setResult(updated);await refresh();
+          }finally{setBusy(false);}
         }}>
-          {staff && <label>Úkon<select value={action} onChange={event=>{setAction(event.target.value);setRequestId(crypto.randomUUID());}}>
-            {Object.entries(batteryLabels).filter(([key])=>result.status!=="damaged" || ["damaged","retired"].includes(key)).map(([key,label])=><option value={key} key={key}>{label}</option>)}
+          {staff&&<label>Úkon<select value={action} onChange={event=>{setAction(event.target.value);setRequestId(crypto.randomUUID());}}>
+            {Object.entries(batteryLabels).filter(([key])=>key!=="storage_exit"||result.status==="stored").filter(([key])=>result.status!=="damaged"||["damaged","retired","note"].includes(key)).map(([key,label])=><option value={key} key={key}>{label}</option>)}
           </select></label>}
-          {!staff && result.status==="damaged" ? <p className="error">Poškodenú batériu nemožno použiť.</p> : <label>Poznámka<input name="note" maxLength="1000" placeholder="Voliteľná poznámka" /></label>}
+          <label>{action==="note"?"Poznámka":"Poznámka (voliteľná)"}<input name="note" maxLength="1000" required={staff&&action==="note"} placeholder={action==="used"?"Pri akom úkone sa použila?":""}/></label>
         </Form>}
       </>}
-      {saved && <p className="success" role="status">{saved}</p>}
+      {saved&&<p className="success" role="status">{saved}</p>}
+      <button className="section-space" onClick={()=>{setResult(null);setSaved("");locked.current=false;setRunning(true);}}>Skenovať ďalší kód</button>
     </section>}
-    {recent.length>0 && <section className="card"><h2>Posledné zápisy v tomto skenovaní</h2><ul className="records">{recent.map((person,index)=><li key={index}><Check size={17} /><span><strong>{person.name}</strong><span className="meta">{person.event}</span></span></li>)}</ul></section>}
+    {recent.length>0&&<section className="card"><h2>Posledné zápisy v tomto skenovaní</h2><ul className="records">{recent.map((person,index)=><li key={index}><Check size={17}/><span><strong>{person.name}</strong><span className="meta">{person.event}</span></span></li>)}</ul></section>}
   </>;
 }
 
@@ -1543,6 +1555,7 @@ function App() {
   const [contact, setContact] = useState(() => Number(hash().get("contact")) || null);
   const [createTraining, setCreateTraining] = useState(false);
   const [scanEvent,setScanEvent]=useState(null);
+  const [scanSession,setScanSession]=useState(0);
   const [cardMember,setCardMember]=useState(null);
   const [notifications, setNotifications] = useState(false);
   const [trialBannerEnabled,setTrialBannerEnabled]=useState(true);
@@ -1643,7 +1656,7 @@ function App() {
     if (next !== "messages") setContact(null);
     window.scrollTo({top: 0});
   }
-  function openScanner(event=null) {setScanEvent(event);setTrainingId(null);navigate("scanner");}
+  function openScanner(event=null) {setScanEvent(event);setScanSession(value=>value+1);setTrainingId(null);navigate("scanner");}
   function openMenu() {history.pushState({drawer: true}, "", location.href); setMenu(true);}
   function closeMenu() {if (history.state?.drawer) history.back(); else setMenu(false);}
   function messageMember(id) {setContact(id); navigate("messages");}
@@ -1725,7 +1738,7 @@ function App() {
             <Home user={user} {...data} refresh={refresh} navigate={navigate} openTraining={setTrainingId} />
           </>}
           {currentPage === "calendar" && <Calendar trainings={data.trainings} staff={staff} places={data.places} refresh={refresh} openTraining={setTrainingId} />}
-          {currentPage === "scanner" && <ClubScanner key={user.id+":"+(scanEvent?.id || "general")} user={user} initialEvent={scanEvent} refresh={refresh} />}
+          {currentPage === "scanner" && <ClubScanner key={user.id+":"+(scanEvent?.id || "general")+":"+scanSession} user={user} initialEvent={scanEvent} refresh={refresh} />}
           {currentPage === "attendance" && staff && <AttendanceOverview openScanner={openScanner} />}
           {currentPage === "messages" && <Messages key={user.id + ":" + contact + ":" + route} user={user} conversations={data.conversations} refresh={refresh} initialContact={contact} />}
           {currentPage === "announcements" && <Bulletin items={data.announcements} staff={staff} refresh={refresh} />}

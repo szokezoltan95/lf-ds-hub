@@ -299,3 +299,45 @@ Object.assign(ukrainianExtra, {
   , "Uložiť prístupy":"Зберегти доступ", "Funkcia zatiaľ nedostupná":"Функція ще недоступна",
   "Účet je pripravený. Prihlás sa e-mailom, ktorý si potvrdil.":"Обліковий запис готовий. Увійдіть із підтвердженою адресою електронної пошти."
 });
+Object.assign(englishExtra, {
+  "Použitie zaznamenané":"Usage recorded", "Nabitá":"Charged", "Vybitá":"Discharged", "Dlhodobo uskladnená":"In long-term storage",
+  "Vydaná zo skladu":"Removed from storage", "Stav neznámy po vybratí zo skladu":"Unknown after removal from storage", "Poškodená":"Damaged",
+  "Vyradená":"Retired", "Poznámka":"Note", "Neznámy stav":"Unknown state", "Aktuálny stav":"Current state", "Všetky stavy":"All states",
+  "Stav k ":"State as of ", "Stav od ":"State since ", "Aktuálny stav od ":"Current state since ",
+  "Stav zatiaľ nebol určený":"State has not been set", "Batéria zatiaľ nemá zaznamenaný aktuálny stav.":"No current state recorded for this battery yet.",
+  "Pri akom úkone sa použila?":"What was it used for?", "Poznámka (voliteľná)":"Note (optional)",
+  "Otvoriť kameru":"Open camera", "Skenovať kódy":"Scan codes", "Skenovať ďalší kód":"Scan another code", "Spracúva sa kód…":"Processing code…",
+  "Vytvoriť udalosť a zapísať prítomnosť":"Create event and record attendance", "Deň udalosti":"Event date",
+  "Na tento deň nie je dostupná udalosť na zápis dochádzky.":"No event is available for attendance on this date.",
+  "Dochádzka už bola zapísaná: ":"Attendance already recorded: ", "Zapísaná dochádzka: ":"Attendance recorded:"
+});
+Object.assign(ukrainianExtra, {
+  "Použitie zaznamenané":"Використання записано", "Nabitá":"Заряджений", "Vybitá":"Розряджений", "Dlhodobo uskladnená":"На тривалому зберіганні",
+  "Vydaná zo skladu":"Вилучений зі складу", "Stav neznámy po vybratí zo skladu":"Стан після вилучення зі складу невідомий", "Poškodená":"Пошкоджений",
+  "Vyradená":"Списаний", "Poznámka":"Примітка", "Neznámy stav":"Невідомий стан", "Aktuálny stav":"Поточний стан", "Všetky stavy":"Усі стани",
+  "Stav k ":"Стан на ", "Stav od ":"Стан від ", "Aktuálny stav od ":"Поточний стан від ",
+  "Stav zatiaľ nebol určený":"Стан ще не визначено", "Batéria zatiaľ nemá zaznamenaný aktuálny stav.":"Для цього акумулятора ще не записано поточний стан.",
+  "Pri akom úkone sa použila?":"Для якої роботи використовувався?", "Poznámka (voliteľná)":"Примітка (необов’язково)",
+  "Otvoriť kameru":"Відкрити камеру", "Skenovať kódy":"Сканувати коди", "Skenovať ďalší kód":"Сканувати наступний код", "Spracúva sa kód…":"Обробка коду…",
+  "Vytvoriť udalosť a zapísať prítomnosť":"Створити подію та записати присутність", "Deň udalosti":"Дата події",
+  "Na tento deň nie je dostupná udalosť na zápis dochádzky.":"На цю дату немає події для запису відвідуваності.",
+  "Dochádzka už bola zapísaná: ":"Відвідуваність уже записано: ", "Zapísaná dochádzka: ":"Відвідуваність записано: "
+});
+Object.assign(englishExtra, {
+  "Multinabíjačka ":"Multi-charger ", "QR štítok nabíjačky":"Charger QR label", "Zaznamenať nabitie":"Record charge", "Vybrať všetky vhodné batérie":"Select all eligible batteries",
+  "Vyber aspoň jednu batériu.":"Select at least one battery.", "Nabitie zapísané pre ":"Charging recorded for ", "batérií.":"batteries.",
+  "Multinabíjačku môže obsluhovať iba tréner alebo poverený správca.":"Only a coach or authorized administrator can operate a multi-charger.",
+  "Kód multinabíjačky musí mať LF-C a 2 až 6 číslic, napríklad LF-C01.":"A multi-charger code must start with LF-C and contain 2 to 6 digits, for example LF-C01.",
+  "Batéria môže byť vo výbere uvedená iba raz.":"A battery can only be selected once.", "Jedna alebo viaceré vybrané batérie sa nenašli.":"One or more selected batteries could not be found.",
+  "Poškodené, vyradené alebo uskladnené batérie nemožno označiť ako nabité: ":"Damaged, retired or stored batteries cannot be marked as charged: ",
+  "Identifikátor nabíjania už bol použitý.":"This charging request ID has already been used."
+});
+Object.assign(ukrainianExtra, {
+  "Multinabíjačka ":"Мультизарядний пристрій ", "QR štítok nabíjačky":"QR-етикетка зарядного пристрою", "Zaznamenať nabitie":"Записати заряджання", "Vybrať všetky vhodné batérie":"Вибрати всі придатні акумулятори",
+  "Vyber aspoň jednu batériu.":"Виберіть принаймні один акумулятор.", "Nabitie zapísané pre ":"Заряджання записано для ", "batérií.":"акумуляторів.",
+  "Multinabíjačku môže obsluhovať iba tréner alebo poverený správca.":"Мультизарядним пристроєм може користуватися лише тренер або уповноважений адміністратор.",
+  "Kód multinabíjačky musí mať LF-C a 2 až 6 číslic, napríklad LF-C01.":"Код мультизарядного пристрою має починатися з LF-C і містити від 2 до 6 цифр, наприклад LF-C01.",
+  "Batéria môže byť vo výbere uvedená iba raz.":"Акумулятор можна вибрати лише один раз.", "Jedna alebo viaceré vybrané batérie sa nenašli.":"Один або кілька вибраних акумуляторів не знайдено.",
+  "Poškodené, vyradené alebo uskladnené batérie nemožno označiť ako nabité: ":"Пошкоджені, списані або складські акумулятори не можна позначити як заряджені: ",
+  "Identifikátor nabíjania už bol použitý.":"Цей ідентифікатор заряджання вже використано."
+});

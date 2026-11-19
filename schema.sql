@@ -63,11 +63,21 @@ CREATE TABLE IF NOT EXISTS battery_events (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     code text NOT NULL REFERENCES batteries(code),
     actor_id bigint REFERENCES members(id),
-    action text NOT NULL CHECK (action IN ('used', 'charged', 'stored', 'damaged', 'retired')),
+    action text NOT NULL CHECK (action IN ('used', 'charged', 'discharged', 'stored', 'storage_exit', 'damaged', 'retired', 'note')),
     note text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE battery_events DROP CONSTRAINT IF EXISTS battery_events_action_check;
+ALTER TABLE battery_events ADD CONSTRAINT battery_events_action_check
+    CHECK (action IN ('used', 'charged', 'discharged', 'stored', 'storage_exit', 'damaged', 'retired', 'note'));
 CREATE INDEX IF NOT EXISTS battery_events_code_idx ON battery_events(code, id DESC);
+CREATE TABLE IF NOT EXISTS battery_charge_runs (
+    request_id uuid PRIMARY KEY,
+    charger_code text NOT NULL,
+    actor_id bigint REFERENCES members(id) ON DELETE SET NULL,
+    battery_codes text[] NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
 
 -- Upgrade the original email-based administrator without losing its history.
 DO $$

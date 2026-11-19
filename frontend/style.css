@@ -190,6 +190,22 @@ nav button .counter {margin-left: auto;}
 .equipment-card {flex-direction: column; align-items: start; text-align: left; gap: 8px; min-width: 0; margin: 0; padding: 16px;}
 .equipment-card > strong {font-size: 18px;}
 .equipment-card > .muted {font-size: 12px; overflow-wrap: anywhere;}
+.battery-filter {min-width:170px;max-width:240px;}
+.battery-state-card {border-left:5px solid #a8b2bc;}
+.battery-state-card.state-charged {border-left-color:#21834a;}
+.battery-state-card.state-discharged {border-left-color:#d68a12;}
+.battery-state-card.state-stored {border-left-color:#287ca4;}
+.battery-state-card.state-storage_exit,.battery-state-card.state-unknown {border-left-color:#7c8791;}
+.battery-state-card.state-damaged,.battery-state-card.state-retired {border-left-color:#c23c43;}
+.battery-state-badge.state-charged {background:#e5f4eb;color:#176338;}
+.battery-state-badge.state-discharged {background:#fff2d9;color:#81550a;}
+.battery-state-badge.state-stored {background:#e5f2f8;color:#155d7d;}
+.battery-state-badge.state-storage_exit,.battery-state-badge.state-unknown {background:#edf0f3;color:#525f69;}
+.battery-state-badge.state-damaged,.battery-state-badge.state-retired {background:#fce9eb;color:#922b35;}
+.charger-battery-list {display:grid;gap:8px;margin:12px 0 18px;max-height:48dvh;overflow:auto;}
+.charger-battery-row {display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);}
+.charger-battery-row > span:nth-child(2) {display:grid;min-width:0;flex:1;}
+.charger-battery-row .badge {white-space:normal;text-align:center;}
 .battery-actions {display: grid; grid-template-columns: 1fr 1fr; gap: 8px;}
 .timeline li {border-left: 2px solid var(--line); padding: 0 0 20px 16px; margin-left: 5px; position: relative;}
 .timeline li::before {content: ""; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: #41b6e6; left: -5px; top: 6px;}
@@ -410,6 +426,7 @@ details p {font-size: 13px; margin-top: 12px;}
 .scanner-mode button[aria-selected="true"] {background:white;box-shadow:0 1px 5px #10354b20;color:#10354b;}
 .scan-open-camera {width:100%;min-height:54px;justify-content:center;font-size:16px;}
 .scan-camera-stage {position:relative;margin:0;}
+.scan-camera-stage video {display:block;width:100%;height:min(66dvh,700px);max-height:none;aspect-ratio:auto;object-fit:cover;border-radius:16px;background:#10354b;}
 .scan-camera-stage.attendance-camera video {display:block;width:100%;height:min(68dvh,680px);max-height:none;aspect-ratio:auto;object-fit:cover;border-radius:16px;background:#10354b;}
 .scan-camera-stage.battery-camera video {display:block;width:100%;height:min(52dvh,520px);max-height:none;object-fit:cover;border-radius:16px;background:#10354b;}
 .scan-stop-modal {width:100%;min-height:48px;justify-content:center;margin-top:12px;}
