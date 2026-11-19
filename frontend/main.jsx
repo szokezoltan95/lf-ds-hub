@@ -354,7 +354,6 @@ function TrainingDetail({training, staff, places, close, refresh, openScanner}) 
           {[["all", "Všetci"], ["yes", "Prídu"], ["no", "Neprídu"], ["maybe", "Nevedia"], ["none", "Bez odpovede"]].map(([value, text]) =>
             <button className={filter === value ? "selected" : ""} key={value} onClick={() => setFilter(value)}>{text}</button>)}
         </div>}
-        {tab === "attendance" && past(training) && !training.cancelled && <button className="primary section-space" onClick={()=>openScanner(training)}><ScanLine size={18} />Skenovať členské QR</button>}
         {tab === "attendance" && (!past(training) || training.cancelled) && <p className="notice">Dochádzku možno zapísať od začiatku nezrušenej udalosti.</p>}
         {tab === "attendance" && past(training) && !training.cancelled && rows.length > 0 && <>
           <label className="checkbox"><input type="checkbox" checked={selected.length === rows.length} onChange={event => setSelected(event.target.checked ? rows.map(row => row.id) : [])} />Vybrať všetkých</label>
@@ -568,7 +567,7 @@ function AttendanceOverview({openScanner}) {
     records.get(person.id + ":" + event.id) === true ? "Prítomný" : records.get(person.id + ":" + event.id) === false ? "Neprítomný" : "Nezapísané";
   const classes = {"Prítomný": "present", "Neprítomný": "absent", "Nezapísané": "unknown", "Plánované": "planned", "Zrušené": "cancelled"};
   return <>
-    <section className="card attendance-filters"><div className="row-between"><h2>Prehľad dochádzky tímu</h2><button onClick={()=>openScanner()}><ScanLine size={18} />Skenovať dochádzku</button></div>
+    <section className="card attendance-filters"><div className="row-between"><h2>Prehľad dochádzky tímu</h2></div>
       <details className="attendance-filter-details"><summary>Filtre a obdobie</summary><form onSubmit={event => {
         event.preventDefault();
         if (draft.date_from && draft.date_to && draft.date_from > draft.date_to) {setError("Dátum od nesmie byť neskôr než dátum do."); return;}
@@ -1003,7 +1002,6 @@ function Batteries({staff, initialCode, openScanner}) {
   return <>
     <div className="toolbar"><label className="search"><Search size={18} /><input type="search" aria-label="Hľadať batériu" placeholder="Kód alebo označenie…" value={query} onChange={event => setQuery(event.target.value)} /></label>
       <label className="battery-filter">Aktuálny stav<select value={stateFilter} onChange={event=>setStateFilter(event.target.value)}><option value="all">Všetky stavy</option><option value="unknown">Neznámy stav</option>{Object.entries(batteryStateLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
-      <button onClick={()=>openScanner()}><ScanLine size={18} />Skenovať batériu</button>
       {staff && <button className="primary" onClick={() => setCreate(true)}><Plus size={18} />Batéria</button>}</div>
     {error && <p className="error" role="alert">{error}</p>}
     {items.length > 0 && <BatteryTimeline items={visibleItems} revision={revision} openBattery={openBattery} />}
@@ -1588,7 +1586,7 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
   </>;
 }
 const navigation = [
-  ["home", "Domov", House], ["calendar", "Kalendár", CalendarDays], ["attendance", "Dochádzka", ClipboardCheck], ["scanner", "Skenovať", ScanLine],
+  ["home", "Domov", House], ["calendar", "Kalendár", CalendarDays], ["attendance", "Dochádzka", ClipboardCheck],
   ["messages", "Správy", MessageCircle], ["announcements", "Oznamy", Megaphone],
   ["members", "Členovia", Users], ["team", "Tímy", Users], ["development", "Rozvoj hráčov", Users], ["lineups", "Zostavy", ClipboardCheck], ["drills", "Knižnica cvičení", BookOpen], ["equipment", "Vybavenie", Battery],
   ["documents", "Dokumenty", FileText],

@@ -14,6 +14,8 @@ export function CameraScanner({running, onDecode, onError}) {
   const [devices, setDevices] = useState([]);
   const [device, setDevice] = useState("");
   const [ready, setReady] = useState(false);
+  const [lightAvailable, setLightAvailable] = useState(false);
+  const [lightEnabled, setLightEnabled] = useState(false);
 
   useEffect(() => {
     if (!running) return;
@@ -51,6 +53,9 @@ export function CameraScanner({running, onDecode, onError}) {
           return;
         }
         const track = stream.getVideoTracks()[0];
+        const capabilities = track?.getCapabilities?.();
+        setLightAvailable(Boolean(capabilities?.torch));
+        setLightEnabled(false);
         try {
           if (track?.getCapabilities?.().focusMode?.includes("continuous")) {
             await track.applyConstraints({advanced: [{focusMode: "continuous"}]});
@@ -125,8 +130,18 @@ export function CameraScanner({running, onDecode, onError}) {
     };
   }, [running, device]);
 
+  async function toggleLight() {
+    const track = video.current?.srcObject?.getVideoTracks?.()[0];
+    if (!track) return;
+    try {
+      await track.applyConstraints({advanced: [{torch: !lightEnabled}]});
+      setLightEnabled(value => !value);
+    } catch { setLightAvailable(false); }
+  }
+
   return <div className="scan-camera">
     <video ref={video} muted playsInline autoPlay aria-label="Náhľad kamery na skenovanie kódov" />
+    {running && lightAvailable && <button type="button" className="scan-light-button" aria-label={lightEnabled ? "Vypnúť svetlo" : "Zapnúť svetlo"} aria-pressed={lightEnabled} onClick={toggleLight}>{lightEnabled ? "☀️" : "🔦"}</button>}
     {running && !ready && <p className="scan-camera-status" role="status">Spúšťa sa kamera…</p>}
     {running && devices.length > 1 && <label>Kamera<select value={device} onChange={event => setDevice(event.target.value)}>
       <option value="">Automaticky – zadná kamera</option>{devices.map((input, index) => <option key={input.deviceId} value={input.deviceId}>{input.label || "Kamera " + (index + 1)}</option>)}
