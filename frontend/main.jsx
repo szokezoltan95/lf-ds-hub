@@ -1563,7 +1563,8 @@ function App() {
   const [scanSession,setScanSession]=useState(0);
   const [cardMember,setCardMember]=useState(null);
   const [notifications, setNotifications] = useState(false);
-  const [trialBannerEnabled,setTrialBannerEnabled]=useState(true);
+  // Keep the banner hidden until the server confirms it is enabled.
+  const [trialBannerEnabled,setTrialBannerEnabled]=useState(false);
   const [roleRequestCount,setRoleRequestCount]=useState(0);
   const staff = user?.role === "coach" || user?.role === "superadmin";
   const superadmin = user?.role === "superadmin";
