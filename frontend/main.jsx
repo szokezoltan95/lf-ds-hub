@@ -2860,7 +2860,11 @@ function App() {
       </>}
     </main>
     </ToolbarTarget.Provider>
-    <footer className="site-footer">DRONE SOCCER HUB LF © 2026 Zoltán Szőke</footer>
+    <footer className="site-footer">
+      <span>DRONE SOCCER HUB LF © 2026 Zoltán Szőke</span>
+      <a href="https://github.com/szokezoltan95/lf-ds-hub/blob/main/docs/index.md"
+        target="_blank" rel="noopener noreferrer">O aplikácii <ArrowUpRight size={12} aria-hidden="true" /></a>
+    </footer>
     </div>
     {user && installPopup && user.pwa_show_popup !== false && !installation.installed && <Modal title="Maj klub vždy poruke" close={() => setInstallPopup(false)}>
       <InstallPanel installation={installation} install={install} />
