@@ -278,7 +278,7 @@ async def invalid_request(_request, _error):
 def identity(request: Request, conn: DB):
     token = request.cookies.get(COOKIE, "")
     member = conn.execute(
-        """SELECT m.id, m.name, m.email, m.role, m.club_roles, m.pwa_show_card, m.pwa_show_popup, m.push_messages, m.push_calendar, m.push_announcements, m.avatar_version FROM sessions s
+        """SELECT m.id, m.name, m.email, m.role, m.club_roles, m.pwa_show_card, m.pwa_show_popup, m.push_messages, m.push_calendar, m.push_announcements, m.avatar_version, m.dashboard_preferences FROM sessions s
         JOIN members m ON m.id = s.member_id
         WHERE s.token_hash = %s AND s.expires_at > now() AND m.active""", (digest(token),)
     ).fetchone()
@@ -553,6 +553,19 @@ def update_install_preferences(data: InstallPreferences, conn: DB, user: User):
         (data.pwa_show_card, data.pwa_show_popup, user["id"]),
     )
     return data
+
+
+class DashboardPreferences(BaseModel):
+    widgets: list[Literal["event", "rsvp", "attendance", "followup", "announcements", "messages", "role_requests"]] = Field(max_length=7)
+    theme: Annotated[str, StringConstraints(pattern=r"^(blue|sky|mint|coral|#[0-9a-fA-F]{6})$")] = "blue"
+
+
+@api.put("/me/dashboard-preferences")
+def update_dashboard_preferences(data: DashboardPreferences, conn: DB, user: User):
+    preferences = {"widgets": list(dict.fromkeys(data.widgets)), "theme": data.theme}
+    conn.execute("UPDATE members SET dashboard_preferences=%s WHERE id=%s",
+                 (Jsonb(preferences), user["id"]))
+    return preferences
 
 
 class Profile(BaseModel):

@@ -402,6 +402,7 @@ CREATE TABLE IF NOT EXISTS club_lineup (
 
 ALTER TABLE members ADD COLUMN IF NOT EXISTS avatar bytea;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS avatar_version uuid;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS dashboard_preferences jsonb NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS poll_options jsonb;
 CREATE TABLE IF NOT EXISTS message_reactions (
     message_id bigint NOT NULL REFERENCES messages(id) ON DELETE CASCADE,

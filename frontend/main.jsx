@@ -3,7 +3,7 @@ import {createPortal} from "react-dom";
 import {createRoot} from "react-dom/client";
 import {Drone, Menu, X, House, CalendarDays, MessageCircle, Megaphone, Users, Battery, ShieldCheck, Construction, BookOpen, Timer,
   LogOut, Bell, Plus, ChevronLeft, ChevronRight, MapPin, Clock, Check, CircleHelp,
-  Search, ScanLine, QrCode, ClipboardCheck, Pin, FileText, Download, ArrowUpRight, Settings2, Send, CheckCheck, Pencil, SmilePlus} from "lucide-react";
+  Search, ScanLine, QrCode, ClipboardCheck, Pin, FileText, Download, ArrowUpRight, Settings2, Send, CheckCheck, Pencil, SmilePlus, SlidersHorizontal, Heart, MoveUp, MoveDown} from "lucide-react";
 import "@fontsource/dm-sans/latin-400.css";
 import "@fontsource/dm-sans/latin-ext-400.css";
 import "@fontsource/dm-sans/latin-600.css";
@@ -1892,15 +1892,55 @@ const navigation = [
   ["documents", "Dokumenty", FileText],
 ];
 
-function Home({user, trainings, announcements, conversations, refresh, navigate, openTraining, openScanner, openCard, plan}) {
+const dashboardThemes = [
+  ["blue", "Modrá"], ["sky", "Nebeská"], ["mint", "Mätová"], ["coral", "Koralová"],
+];
+const dashboardWidgetInfo = {
+  event: [CalendarDays, "Najbližšia udalosť"], rsvp: [Check, "Moje potvrdenia"],
+  attendance: [Heart, "Moja dochádzka"], followup: [ClipboardCheck, "Dochádzka na doplnenie"],
+  announcements: [Megaphone, "Aktuálne oznámenie"], messages: [MessageCircle, "Neprečítané správy"],
+  role_requests: [Users, "Žiadosti o roly"],
+};
+function Home({user, trainings, announcements, conversations, refresh, navigate, openTraining, openScanner, openCard, plan, roleRequestCount}) {
   const staff = user.role !== "member";
   const canRespond = user.roles?.includes("player");
   const has = page => user.menu_access?.includes(page);
   const next = trainings.filter(upcoming);
   const unread = conversations.reduce((sum, row) => sum + row.unread, 0);
-  const waiting = trainings.find(t => !t.cancelled && past(t) && t.counts?.attendance_pending > 0);
+  const attendanceWaiting = trainings.find(t => !t.cancelled && past(t) && t.counts?.attendance_pending > 0);
   const revised = canRespond && next.find(t => t.schedule_revision > 0 && !t.change_response);
+  const unanswered = canRespond && next.find(t => !t.response || (t.schedule_revision > 0 && !t.change_response));
   const notice = announcements.find(item => item.pinned) || announcements[0];
+  const availableWidgets = [
+    ...(has("calendar") ? ["event"] : []), ...(canRespond && has("calendar") ? ["rsvp", "attendance"] : []),
+    ...(staff && has("attendance") ? ["followup"] : []), ...(has("announcements") ? ["announcements"] : []),
+    ...(has("messages") && user.role !== "superadmin" ? ["messages"] : []),
+    ...(user.menu_access?.includes("members") && user.role !== "superadmin" ? ["role_requests"] : []),
+  ];
+  const defaults = staff ? ["event", "followup", "announcements", "messages", "role_requests"] : ["event", "rsvp", "attendance", "announcements", "messages"];
+  const saved = user.dashboard_preferences || {};
+  const widgets = [...new Set((Array.isArray(saved.widgets) ? saved.widgets : defaults).filter(key => availableWidgets.includes(key)))];
+  const theme = saved.theme || "blue";
+  const homeColor = theme.startsWith("#") ? theme : ({blue:"#41b6e6",sky:"#7fc8ed",mint:"#83cbb4",coral:"#e8a28c"}[theme] || "#41b6e6");
+  const [editOpen, setEditOpen] = useState(false), [draftWidgets, setDraftWidgets] = useState(widgets), [draftTheme, setDraftTheme] = useState(theme);
+  const [attendance, setAttendance] = useState([]), [attendanceLoaded, setAttendanceLoaded] = useState(false);
+  const [saveError, setSaveError] = useState(""), [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (!widgets.includes("attendance") || attendanceLoaded) return;
+    let current = true;
+    api("me/attendance").then(rows => {if (current) {setAttendance(rows); setAttendanceLoaded(true);}}).catch(() => {if (current) setAttendanceLoaded(true);});
+    return () => {current = false;};
+  }, [widgets.join(","), attendanceLoaded]);
+  function openEditor() {setDraftWidgets(widgets); setDraftTheme(theme); setSaveError(""); setEditOpen(true);}
+  async function saveDashboard() {
+    setSaving(true); setSaveError("");
+    try {
+      const preferences = await api("me/dashboard-preferences", "PUT", {widgets: draftWidgets, theme: draftTheme});
+      user.dashboard_preferences = preferences;
+      setEditOpen(false); setAttendanceLoaded(false);
+    } catch (error) {setSaveError(error.message);}
+    finally {setSaving(false);}
+  }
   const shortcuts = [
     has("calendar") && [CalendarDays, "Kalendár", () => navigate("calendar")],
     has("messages") && user.role !== "superadmin" && [MessageCircle, "Správy", () => navigate("messages"), unread],
@@ -1908,41 +1948,64 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
     has("scanner") && [ScanLine, "Skenovať", openScanner],
     canRespond && [QrCode, "Môj členský QR kód", openCard],
   ].filter(Boolean);
+  function renderWidget(key) {
+    if (key === "event") {
+      const event = next[0];
+      return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><CalendarDays size={18}/><h3>Najbližšia udalosť</h3></div>
+        {event ? <TrainingCard training={event} staff={staff} canRespond={canRespond} refresh={refresh} open={() => openTraining(event.id)} prominent /> : <p className="muted">Zatiaľ nie je naplánovaná žiadna udalosť.</p>}
+      </article>;
+    }
+    if (key === "rsvp") return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><Check size={18}/><h3>Moje potvrdenia</h3></div>
+      {revised ? <button className="dashboard-inline-action" onClick={() => openTraining(revised.id)}><span className="dashboard-status-dot warning"/>Potvrď zmenu: {revised.title}<ChevronRight size={17}/></button>
+        : unanswered ? <button className="dashboard-inline-action" onClick={() => openTraining(unanswered.id)}><span className="dashboard-status-dot"/>Odpovedz na udalosť: {unanswered.title}<ChevronRight size={17}/></button>
+        : <p className="muted">Na všetky nadchádzajúce udalosti máš odpoveď.</p>}
+      <p className="dashboard-subtext">{next.length} nadchádzajúcich udalostí</p>
+    </article>;
+    if (key === "attendance") {
+      const attended = attendance.filter(row => row.attended).length;
+      return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><Heart size={18}/><h3>Moja dochádzka</h3></div>
+        {attendance.length ? <><p className="dashboard-number">{attended}<span> / {attendance.length}</span></p><p className="dashboard-subtext">prítomnosť na zaznamenaných udalostiach</p></>
+          : <p className="muted">{attendanceLoaded ? "Zatiaľ nie je zapísaná dochádzka." : "Načítavam dochádzku…"}</p>}
+      </article>;
+    }
+    if (key === "followup") return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><ClipboardCheck size={18}/><h3>Dochádzka na doplnenie</h3></div>
+      {attendanceWaiting ? <button className="dashboard-inline-action" onClick={() => openTraining(attendanceWaiting.id)}><span className="dashboard-number small">{attendanceWaiting.counts.attendance_pending}</span><span>{attendanceWaiting.title}<small>{date(attendanceWaiting.starts_at)}</small></span><ChevronRight size={17}/></button> : <p className="muted">Všetka doterajšia dochádzka je zapísaná.</p>}
+    </article>;
+    if (key === "announcements") return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><Megaphone size={18}/><h3>Aktuálne oznámenie</h3></div>
+      {notice ? <button className="dashboard-notice" onClick={() => navigate("announcements")}><strong>{notice.title}</strong><span>{notice.body}</span><small>{notice.pinned ? "Pripnuté oznámenie" : "Otvoriť oznamy"} <ArrowUpRight size={14}/></small></button> : <p className="muted">Momentálne nie sú zverejnené žiadne oznamy.</p>}
+    </article>;
+    if (key === "messages") return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><MessageCircle size={18}/><h3>Správy</h3></div>
+      <button className="dashboard-inline-action" onClick={() => navigate("messages")}><span className="dashboard-number small">{unread}</span><span>{unread === 1 ? "neprečítaná správa" : "neprečítaných správ"}<small>{unread ? "Otvoriť doručenú poštu" : "Všetky správy máš prečítané"}</small></span><ChevronRight size={17}/></button>
+    </article>;
+    if (key === "role_requests") return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><Users size={18}/><h3>Žiadosti o roly</h3></div>
+      <button className="dashboard-inline-action" onClick={() => navigate("members")}><span className="dashboard-number small">{roleRequestCount}</span><span>{roleRequestCount === 1 ? "čakajúca žiadosť" : "čakajúcich žiadostí"}<small>Prejsť na členov</small></span><ChevronRight size={17}/></button>
+    </article>;
+    return null;
+  }
   return <>
-    <section className="home-welcome">
+    <section className="home-welcome" style={{"--home-color": homeColor}}>
       <div className="home-greeting">
         <div><time dateTime={today()}>{new Date().toLocaleDateString(uiLocale(), {weekday: "long", day: "numeric", month: "long", timeZone})}</time>
           <h2>Ahoj, {user.name.split(" ")[0]}!</h2>
         </div>
-        {staff && has("calendar") && <button className="primary" onClick={plan}><Plus size={20} />Naplánovať udalosť</button>}
+        <div className="home-header-actions"><button className="home-edit-button" aria-label="Upraviť úvodnú stránku" title="Upraviť úvodnú stránku" onClick={openEditor}><SlidersHorizontal size={19}/><span>Prispôsobiť</span></button>
+          {staff && has("calendar") && <button className="primary" onClick={plan}><Plus size={20} />Naplánovať udalosť</button>}</div>
       </div>
-      {shortcuts.length > 0 && <div className="home-shortcuts">{shortcuts.map(([Icon, label, run, count]) =>
-        <button key={label} onClick={() => run()}><span className="home-shortcut-icon"><Icon size={24} /></span>
-          <span>{label}</span>{count > 0 && <span className="counter">{count}</span>}<ChevronRight className="home-shortcut-arrow" size={17} />
-        </button>
-      )}</div>}
+      {widgets.length ? <div className="dashboard-widgets">{widgets.map(renderWidget)}</div> : <div className="dashboard-no-widgets"><p>Úvodná stránka je pripravená podľa teba.</p><button className="text-button" onClick={openEditor}>Pridať widget <Plus size={16}/></button></div>}
     </section>
-    {revised && <button className="home-change-link" onClick={() => openTraining(revised.id)}>
-      <span className="home-shortcut-icon"><Clock size={23} /></span>
-      <span className="grow"><strong>Potvrď zmenu udalosti</strong><span className="meta">{revised.title} · {date(revised.starts_at)} · {revised.location}</span></span>
-      <ChevronRight size={20} />
-    </button>}
-    <div className="home-grid">
-      {has("calendar") && <section className="home-main">
-        <div className="section-heading"><h2>Najbližšie v klube</h2></div>
-        {next.length ? next.slice(0, 2).map((event, index) =>
-          <TrainingCard key={event.id} training={event} staff={staff} canRespond={canRespond} prominent={index === 0} refresh={refresh} open={() => openTraining(event.id)} />
-        ) : <Empty>Najbližšia udalosť ešte nie je naplánovaná.</Empty>}
-      </section>}
-      {(notice || (staff && has("attendance") && waiting)) && <aside className="home-side">
-        {notice && <article className="card notice-card"><div className="section-heading"><span className="eyebrow">{notice.pinned ? "Pripnutý oznam" : "Nový oznam"}</span><Megaphone size={19} /></div>
-          <h2>{notice.title}</h2><p className="body">{notice.body}</p>
-          <button className="text-button" onClick={() => navigate("announcements")}>Všetky oznamy<ArrowUpRight size={16} /></button>
-        </article>}
-        {staff && has("attendance") && waiting && <button className="card quick-link" onClick={() => openTraining(waiting.id)}>
-          <span className="quick-icon"><ClipboardCheck /></span><span className="grow"><strong>Doplniť dochádzku</strong><span className="meta">{waiting.title} · {date(waiting.starts_at)}</span></span><ChevronRight size={18} /></button>}
-      </aside>}
-    </div>
+    {shortcuts.length > 0 && <section className="home-quick-access" style={{"--home-color": homeColor}}><h2>Rýchly prístup</h2><div className="home-shortcuts">{shortcuts.map(([Icon, label, run, count]) =>
+      <button key={label} onClick={() => run()}><span className="home-shortcut-icon"><Icon size={22} /></span><span>{label}</span>{count > 0 && <span className="counter">{count}</span>}<ChevronRight className="home-shortcut-arrow" size={17}/></button>
+    )}</div></section>}
+    {editOpen && <Modal title="Prispôsobiť úvodnú stránku" close={() => setEditOpen(false)}><div className="dashboard-editor">
+      <p className="muted">Vyber údaje, ktoré chceš vidieť. Poradie môžeš meniť šípkami.</p>
+      <div className="dashboard-editor-widgets">{availableWidgets.map((key, index) => {const [Icon, label] = dashboardWidgetInfo[key], selected = draftWidgets.includes(key), position = draftWidgets.indexOf(key); return <div className="dashboard-editor-row" key={key}>
+        <label className="checkbox"><input type="checkbox" checked={selected} onChange={event => setDraftWidgets(items => event.target.checked ? [...items, key] : items.filter(item => item !== key))}/><Icon size={18}/><span>{label}</span></label>
+        {selected && <span className="dashboard-reorder"><button type="button" className="icon-button" aria-label={"Posunúť " + label + " vyššie"} disabled={position <= 0} onClick={() => setDraftWidgets(items => {const copy=[...items], i=copy.indexOf(key); [copy[i-1],copy[i]]=[copy[i],copy[i-1]]; return copy;})}><MoveUp size={17}/></button><button type="button" className="icon-button" aria-label={"Posunúť " + label + " nižšie"} disabled={position === draftWidgets.length-1} onClick={() => setDraftWidgets(items => {const copy=[...items], i=copy.indexOf(key); [copy[i+1],copy[i]]=[copy[i],copy[i+1]]; return copy;})}><MoveDown size={17}/></button></span>}
+      </div>;})}</div>
+      <fieldset className="dashboard-theme-picker"><legend>Farebný tón panelu</legend><div className="dashboard-theme-options">{dashboardThemes.map(([key,label])=><label key={key}><input type="radio" name="dashboard-theme" checked={draftTheme===key} onChange={()=>setDraftTheme(key)}/><span className={"dashboard-theme-swatch theme-"+key}/>{label}</label>)}
+        <label className="dashboard-custom-color"><input type="radio" name="dashboard-theme" checked={draftTheme.startsWith("#")} onChange={()=>setDraftTheme(draftTheme.startsWith("#")?draftTheme:"#a78bfa")}/><input type="color" aria-label="Vlastná farba" value={draftTheme.startsWith("#")?draftTheme:"#a78bfa"} onChange={event=>setDraftTheme(event.target.value)}/>Vlastná</label></div></fieldset>
+      {saveError && <p className="error" role="alert">{saveError}</p>}<div className="actions"><button type="button" onClick={()=>setEditOpen(false)}>Zrušiť</button><button type="button" className="primary" disabled={saving} onClick={saveDashboard}>{saving?"Ukladá sa…":"Uložiť"}</button></div>
+    </div></Modal>}
   </>;
 }
 
@@ -2065,7 +2128,7 @@ function App() {
     try {
       const refreshed=await api("me");
       if(session.current!==owner)return;
-      if(JSON.stringify([owner.role,owner.roles,owner.menu_access,owner.avatar_version])!==JSON.stringify([refreshed.role,refreshed.roles,refreshed.menu_access,refreshed.avatar_version])){
+      if(JSON.stringify([owner.role,owner.roles,owner.menu_access,owner.avatar_version,owner.dashboard_preferences])!==JSON.stringify([refreshed.role,refreshed.roles,refreshed.menu_access,refreshed.avatar_version,refreshed.dashboard_preferences])){
         owner=refreshed;session.current=refreshed;setUser(refreshed);
       }
       const access=new Set(owner.menu_access||[]);
@@ -2176,7 +2239,7 @@ function App() {
               <Action className="text-button install-opt-out" run={stopInstallPromotions}>Už nezobrazovať</Action>
             </div>}
             <Home user={user} {...data} refresh={refresh} navigate={navigate} openTraining={setTrainingId}
-              openScanner={openScanner} openCard={() => setCardMember({self:true})} plan={() => setCreateTraining(true)} />
+              openScanner={openScanner} openCard={() => setCardMember({self:true})} plan={() => setCreateTraining(true)} roleRequestCount={roleRequestCount} />
           </>}
           {currentPage === "calendar" && <Calendar trainings={data.trainings} staff={staff} canRespond={user.roles?.includes("player")}
             places={data.places} refresh={refresh} openTraining={setTrainingId} />}
