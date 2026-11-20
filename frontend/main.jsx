@@ -1915,7 +1915,7 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
     ...(has("calendar") ? ["event"] : []), ...(canRespond && has("calendar") ? ["rsvp", "attendance"] : []),
     ...(staff && has("attendance") ? ["followup"] : []), ...(has("announcements") ? ["announcements"] : []),
     ...(has("messages") && user.role !== "superadmin" ? ["messages"] : []),
-    ...(user.menu_access?.includes("members") && user.role !== "superadmin" ? ["role_requests"] : []),
+    ...(user.menu_access?.includes("members") && user.roles?.some(role => ["club_leader", "deputy_leader"].includes(role)) ? ["role_requests"] : []),
   ];
   const defaults = staff ? ["event", "followup", "announcements", "messages", "role_requests"] : ["event", "rsvp", "attendance", "announcements", "messages"];
   const saved = user.dashboard_preferences || {};
