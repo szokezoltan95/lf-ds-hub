@@ -14,9 +14,22 @@ Systémový účet `admin` nemá e-mail. Hodnotu `HUB_ADMIN_PASSWORD` ponechaj v
 `.env`. Po zmene hesla znovu vytvor kontajner hubu. Existujúce relácie systémového
 účtu sa pri zmene hesla ukončia.
 
-Tréneri sa prihlasujú e-mailom. Spravujú členské účty, tréningy, dochádzku,
-oznamy, správy a batérie. Trénerské účty, zmeny rolí a trvalé odstránenie
-člena spravuje superadmin.
+Členovia a tréneri sa prihlasujú e-mailom. Klubové oprávnenia nastavuje
+superadmin v **Členovia → Roly a prístupy**. Roly sa môžu kombinovať.
+
+Pri prvom štarte po aktualizácii sa existujúca konfigurácia menu jednorazovo
+prevedie na oprávnenia podľa akcií. Existujúce úpravy v novom editore sa pri
+ďalších štartoch zachovajú. Staré nastavenia sú v databáze pre návrat na kód
+pred aktualizáciou, ich úprava už nezmení aktuálne oprávnenia.
+
+- **Návrhy tréningov** povoľ samostatne pre autora, hlasujúcich a schvaľovateľa.
+  Schválením jedného termínu vznikne oficiálna udalosť s vlastnou účasťou.
+- **Zápožičky** majú oddelené práva na založenie podľa typu zariadenia,
+  potvrdenie prevzatia a vrátenie. Pridelenie a zápožičky sa evidujú popri servise.
+- **Vyskúšať ako rola** prepne aktuálnu reláciu správcu do náhľadu bez zápisu.
+  Použi **Späť na Superadmina** v hornej lište na ukončenie náhľadu.
+- Nové práva na návrhy, zápožičky a potvrdenia oboznámenia s dokumentom
+  prideľ v editore podľa potrieb klubu.
 
 Pri aktualizácii nastav `HUB_ADMIN_PASSWORD` ešte pred zostavením. Položku
 `HUB_ADMIN_EMAIL` môžeš odstrániť. Pôvodný správca s e-mailom sa automaticky
@@ -67,12 +80,12 @@ hubu sa aplikujú automaticky pri jeho štarte.
 ## Klubová komunikácia
 
 Kontakty a zoznam členov zobrazujú trénerov aj členov. Systémový účet
-superadmina je z klubovej komunikácie a zoznamov používateľov vynechaný.
+superadmina sa nezobrazuje v zoznamoch členov a nových adresátov.
 Bežní používatelia môžu začať súkromnú konverzáciu s ktorýmkoľvek iným
 aktívnym používateľom cez **Nová správa**.
 
 Skupina **Celý tím** zahŕňa všetkých aktívnych členov a trénerov s aktivovaným
-účtom. **Tréneri** zahŕňa len trénerov. Ich členstvo sa automaticky prispôsobuje
+účtom. Prístup do skupiny **Tréneri** je samostatné oprávnenie. Členstvo sa automaticky prispôsobuje
 rolám. Tréneri môžu vytvárať vlastné skupiny. Tréner patriaci do vlastnej
 skupiny môže upraviť jej názov a účastníkov. Účastníci vlastnej skupiny vidia
 celú jej históriu. Odobratý používateľ stratí prístup k skupine okamžite.

@@ -3,6 +3,7 @@ import binascii
 import hashlib
 from threading import Event, Thread
 import push_service
+import permissions as access
 
 import hmac
 import os
@@ -40,7 +41,6 @@ if (url.scheme not in {"http", "https"} or not url.hostname or url.username or u
 ORIGIN = f"{url.scheme}://{url.netloc}"
 COOKIE = "lf_ds_hub_session"
 CLUB_ZONE = ZoneInfo("Europe/Bratislava")
-STAFF_ROLES = ("superadmin", "coach")
 MENU_KEYS = ("home", "calendar", "attendance", "scanner", "messages", "announcements", "members",
              "team", "development", "drills", "equipment", "documents")
 ROLE_DEFINITIONS = {
@@ -64,31 +64,6 @@ ROLE_DEFINITIONS = {
                          ("home", "calendar", "members", "team")),
     "content_creator": ("Fotograf / tvorca obsahu", "Pripravuje fotografie a klubový obsah.", False, False, ()),
 }
-ROLE_CAPABILITIES = {
-    "player": [("Klubový kalendár a potvrdenie účasti", True), ("Správy, oznamy a dokumenty", True),
-               ("Osobný členský QR kód", True), ("Záznam použitia batérií", True)],
-    "coach": [("Plánovanie a správa udalostí", True), ("Dochádzka a skenovanie členských QR kódov", True),
-              ("Tímové zostavy a rozvoj hráčov", True), ("Plány tréningov a knižnica cvičení", True),
-              ("Oznamy, vybavenie a dokumenty", True)],
-    "club_leader": [("Klubová administrácia a evidencia členov", True), ("Kalendár, dochádzka a zostavy", True),
-                    ("Oznamy, vybavenie a dokumenty", True), ("Schvaľovanie žiadostí o roly", False)],
-    "deputy_leader": [("Zastupovanie pri klubovej administrácii", True), ("Kalendár, dochádzka a zostavy", True),
-                      ("Oznamy, vybavenie a dokumenty", True), ("Schvaľovanie žiadostí o roly", False)],
-    "administrator": [("Pozývanie členov a základná správa členskej evidencie", True),
-                      ("Oznamy a klubové dokumenty", True), ("Správa rolí", False)],
-    "equipment_technician": [("Evidencia batérií a techniky", True), ("Záznamy používania a skenovanie", True),
-                             ("Servisné záznamy a hlásenie porúch", False)],
-    "social_media_manager": [("Oznamy v aplikácii", True), ("Správa sociálnych sietí", False),
-                             ("Nahrávanie mediálnych galérií", False)],
-    "competition_coordinator": [("Kalendár zápasov a súťaží", True), ("Dochádzka a nominácie", True),
-                                ("Zostavy na zápasy", True), ("Registrácia na turnaje", False)],
-    "recruitment_coordinator": [("Evidencia záujemcov a náborové formuláre", False),
-                                ("Pozvánky a náborová komunikácia", False)],
-    "safety_coordinator": [("Bezpečnostné pokyny a poučenia", False), ("Evidencia školení a incidentov", False)],
-    "team_coordinator": [("Zobrazenie tímov a klubových zostáv", True), ("Samostatná správa súpisiek tímov", False)],
-    "content_creator": [("Nahrávanie klubových fotografií a videí", False),
-                        ("Mediálna galéria a evidencia súhlasov", False)],
-}
 PLAYER_READ_ONLY_PAGES = {"announcements", "team", "documents"}
 
 
@@ -110,37 +85,6 @@ def seed_access_control(conn):
                  for page in MENU_KEYS])
 
 
-def menu_for_path(path, method="GET"):
-    path = path.split("/api/", 1)[-1]
-    if path.startswith(("trainings", "places")):
-        if "/attendance" in path:
-            return "attendance"
-        if "/lineup" in path:
-            return "team"
-        return "calendar"
-    if path.startswith(("attendance",)):
-        return "attendance"
-    if path.startswith(("scan",)):
-        return "scanner"
-    if path.startswith(("members",)):
-        return "development" if "/development" in path else "members"
-    if path.startswith("role-requests"):
-        return "members"
-    if path.startswith(("lineup",)):
-        return "team"
-    if path.startswith(("drills",)):
-        return "drills"
-    if path.startswith(("announcements", "announcement-")):
-        return "announcements"
-    if path.startswith(("documents",)):
-        return "documents"
-    if path.startswith(("conversations", "contacts", "chat-groups", "messages")):
-        return "messages"
-    if path.startswith(("batteries", "equipment")):
-        return "equipment"
-    return None
-
-
 def sync_account_roles(conn, member_id, roles):
     roles = sorted(set(roles))
     account_role = "coach" if any(ROLE_DEFINITIONS[key][3] for key in roles) else "member"
@@ -148,22 +92,18 @@ def sync_account_roles(conn, member_id, roles):
                  (roles, account_role, member_id))
 
 
-def effective_menu(conn, user):
-    if user["role"] == "superadmin":
-        return list(MENU_KEYS)
-    roles = user.get("club_roles") or ["player"]
-    rows = conn.execute("""SELECT DISTINCT menu_key FROM role_menu_permissions
-        WHERE role_key=ANY(%s) AND access_level<>'none'""", (roles,)).fetchall()
-    return sorted({row["menu_key"] for row in rows} | {"home"})
+def require(user, *keys):
+    if not any(access.allows(user, key) for key in keys):
+        raise HTTPException(403, "Na tento úkon nemáš oprávnenie.")
 
 
-def effective_permission(conn, user, menu_key):
-    if user["role"] == "superadmin":
-        return "edit"
-    levels = conn.execute("""SELECT access_level FROM role_menu_permissions
-        WHERE role_key=ANY(%s) AND menu_key=%s""", (user.get("club_roles") or [], menu_key)).fetchall()
-    rank = {"none": 0, "read": 1, "edit": 2}
-    return max((row["access_level"] for row in levels), key=lambda value: rank[value], default="none")
+def require_owner(user, row, prefix):
+    if not access.allows(user, prefix + "_all"):
+        require(user, prefix + "_own")
+        if row["created_by"] != user["id"]:
+            raise HTTPException(403, "Tento úkon môžeš vykonať iba pri vlastnej udalosti.")
+
+
 Short = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 Email = Annotated[str, StringConstraints(strip_whitespace=True, to_lower=True, max_length=254,
                                         pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")]
@@ -222,6 +162,8 @@ async def lifespan(_app):
         conn.execute((ROOT / "schema.sql").read_text(), prepare=False)
         conn.execute((ROOT / "equipment_schema.sql").read_text(), prepare=False)
         seed_access_control(conn)
+        conn.execute((ROOT / "permissions_schema.sql").read_text(), prepare=False)
+        access.migrate(conn)
         account = conn.execute(
             "SELECT id, password_hash FROM members WHERE role='superadmin' FOR UPDATE"
         ).fetchone()
@@ -280,44 +222,46 @@ async def invalid_request(_request, _error):
 def identity(request: Request, conn: DB):
     token = request.cookies.get(COOKIE, "")
     member = conn.execute(
-        """SELECT m.id, m.name, m.email, m.role, m.club_roles, m.pwa_show_card, m.pwa_show_popup, m.push_messages, m.push_calendar, m.push_announcements, m.avatar_version, m.dashboard_preferences FROM sessions s
+        """SELECT m.id, m.name, m.email, m.role, m.club_roles, m.pwa_show_card, m.pwa_show_popup, m.push_messages, m.push_calendar, m.push_announcements, m.avatar_version, m.dashboard_preferences, p.roles AS preview_roles FROM sessions s
+        LEFT JOIN permission_previews p ON p.session_hash=s.token_hash
         JOIN members m ON m.id = s.member_id
         WHERE s.token_hash = %s AND s.expires_at > now() AND m.active""", (digest(token),)
     ).fetchone()
     if not member:
         raise HTTPException(401, "Prihlás sa do portálu.")
-    member["roles"] = [] if member["role"] == "superadmin" else (member["club_roles"] or ["player"])
-    if member["role"] == "superadmin":
-        member["can_create_invites"] = True
-        member["can_assign_invite_roles"] = True
-    else:
-        invite_permissions = conn.execute("""SELECT
-            COALESCE(bool_or(can_create_invites),false) AS can_create,
-            COALESCE(bool_or(can_assign_invite_roles),false) AS can_assign
-            FROM role_catalog WHERE role_key=ANY(%s)""", (member["roles"],)).fetchone()
-        member["can_create_invites"] = invite_permissions["can_create"]
-        member["can_assign_invite_roles"] = invite_permissions["can_assign"]
-    member["menu_access"] = effective_menu(conn, member)
-    menu_key = menu_for_path(request.url.path, request.method)
-    if menu_key and member["role"] != "superadmin":
-        level = effective_permission(conn, member, menu_key)
-        read_receipt = request.method == "POST" and bool(re.fullmatch(
-            rf"{re.escape(PREFIX)}/api/announcements/\d+/read", request.url.path))
-        if level == "none" or (request.method not in {"GET", "HEAD", "OPTIONS"} and level != "edit" and not read_receipt):
-            raise HTTPException(403, "K tejto časti aplikácie nemáš dostatočné oprávnenie.")
+    actual_admin = member["role"] == "superadmin"
+    preview = member.pop("preview_roles") if actual_admin else None
+    member.pop("preview_roles", None)
+    member["roles"] = preview if preview is not None else member["club_roles"]
+    if preview is not None:
+        member["role"] = "member"
+    member["preview"] = preview is not None
+    member["session_hash"] = digest(token)
+    member["permissions"] = sorted(access.CAPABILITIES) if member["role"] == "superadmin" else access.effective(conn, member["roles"] or [])
+    member["menu_access"] = [page for page in access.PAGES if access.allows(member, page + ".open")]
+    member["can_create_invites"] = access.allows(member, "members.accounts.invite")
+    member["can_assign_invite_roles"] = access.allows(member, "members.accounts.invite_roles")
+
+    endpoint = request.scope["route"].name
+    rule = access.ENDPOINTS.get(endpoint)
+    if rule is None:
+        raise HTTPException(403, "Funkcia nemá nastavenú kontrolu prístupu.")
+    if rule == "@restore":
+        if not actual_admin:
+            raise HTTPException(403, "Náhľad je dostupný iba správcovi.")
+    elif member["preview"] and ((request.method not in {"GET", "HEAD"} and endpoint != "scan") or endpoint in {
+        "my_card", "my_card_qr", "member_card", "member_card_qr"
+    }):
+        raise HTTPException(403, "V náhľade roly sa údaje nemenia.")
+    elif rule == "@admin":
+        if member["role"] != "superadmin":
+            raise HTTPException(403, "Tento úkon je dostupný iba správcovi.")
+    elif rule not in {"-", "@action"}:
+        require(member, rule)
     return member
 
 
 User = Annotated[dict, Depends(identity, scope="function")]
-
-
-def staff(user: User):
-    if user["role"] not in STAFF_ROLES:
-        raise HTTPException(403, "Tento úkon vyžaduje oprávnenie trénera.")
-    return user
-
-
-Staff = Annotated[dict, Depends(staff, scope="function")]
 
 
 def superadmin(user: User):
@@ -370,10 +314,9 @@ class RoleDecision(BaseModel):
     status: Literal["approved", "rejected"]
 
 
-class RoleMenuConfig(BaseModel):
-    permissions: dict[str, Literal["none", "read", "edit"]]
-    can_create_invites: bool = False
-    can_assign_invite_roles: bool = False
+class RoleGrantConfig(BaseModel):
+    grants: list[str] = Field(max_length=500)
+    expected: list[str] = Field(max_length=500)
 
 
 class TrialBannerSetting(BaseModel):
@@ -394,48 +337,85 @@ def public_settings(conn: DB):
 
 @api.get("/role-config")
 def get_role_config(conn: DB, _admin: Superadmin):
-    rows = conn.execute("""SELECT c.role_key,c.name,c.description,c.available,c.admin_access,
-        c.can_create_invites,c.can_assign_invite_roles,p.menu_key,p.access_level
-        FROM role_catalog c JOIN role_menu_permissions p USING(role_key)
-        ORDER BY c.role_key,p.menu_key""").fetchall()
-    result = {}
-    for row in rows:
-        item = result.setdefault(row["role_key"], {"key":row["role_key"],"name":row["name"],
-            "description":row["description"],"available":row["available"],"admin_access":row["admin_access"],
-            "can_create_invites":row["can_create_invites"],"can_assign_invite_roles":row["can_assign_invite_roles"],
-            "permissions":{}})
-        item["permissions"][row["menu_key"]] = row["access_level"]
-    for key, item in result.items():
-        item["capabilities"] = [{"name":name,"available":available} for name,available in ROLE_CAPABILITIES[key]]
-    return {"roles":list(result.values()),"menus":list(MENU_KEYS)}
+    roles = conn.execute("""SELECT c.role_key AS key,c.name,c.description,c.available,c.admin_access,
+        COALESCE(array_agg(g.permission ORDER BY g.permission)
+            FILTER (WHERE g.permission IS NOT NULL), '{}') AS grants
+        FROM role_catalog c LEFT JOIN role_grants g USING(role_key)
+        GROUP BY c.role_key ORDER BY c.name""").fetchall()
+    for role in roles:
+        role["grants"] = [key for key in role["grants"] if key in access.CAPABILITIES]
+    return {"roles": roles, "catalog": access.catalog()}
 
 
 @api.get("/role-catalog")
 def get_role_catalog(conn: DB, user: User):
-    if user["role"] == "superadmin":
-        raise HTTPException(403, "Systémový účet sa nezúčastňuje na klubových rolách.")
     rows=conn.execute("SELECT role_key AS key,name,description,available FROM role_catalog ORDER BY name").fetchall()
     for row in rows:
-        row["capabilities"]=[{"name":name,"available":available} for name,available in ROLE_CAPABILITIES[row["key"]]]
+        grants = access.effective(conn, [row["key"]])
+        row["capabilities"] = [{"name": access.CAPABILITIES[key][1], "available": True}
+                               for key in grants if not key.endswith(".open")]
     return rows
 
 
 @api.put("/role-config/{role_key}")
-def update_role_config(role_key: str, data: RoleMenuConfig, conn: DB, _admin: Superadmin):
-    if role_key not in ROLE_DEFINITIONS or set(data.permissions) != set(MENU_KEYS):
-        raise HTTPException(422, "Nastavenie obsahuje neznámu rolu alebo položku menu.")
-    if (data.can_create_invites or data.can_assign_invite_roles) and not ROLE_DEFINITIONS[role_key][3]:
-        raise HTTPException(422, "Pozvánky môžu vytvárať iba roly s administrátorským prístupom.")
-    if data.can_assign_invite_roles and not data.can_create_invites:
-        raise HTTPException(422, "Priraďovanie rolí vyžaduje povolené vytváranie pozvánok.")
-    with conn.cursor() as cursor:
-        cursor.executemany("""INSERT INTO role_menu_permissions(role_key,menu_key,enabled,access_level)
-            VALUES (%s,%s,%s,%s) ON CONFLICT(role_key,menu_key) DO UPDATE SET
-            enabled=excluded.enabled,access_level=excluded.access_level""",
-            [(role_key, key, value != "none", value) for key, value in data.permissions.items()])
-    conn.execute("""UPDATE role_catalog SET can_create_invites=%s,can_assign_invite_roles=%s
-        WHERE role_key=%s""", (data.can_create_invites,data.can_assign_invite_roles,role_key))
-    return {"ok":True}
+def update_role_config(role_key: str, data: RoleGrantConfig, conn: DB, _admin: Superadmin):
+    if not conn.execute("SELECT 1 FROM role_catalog WHERE role_key=%s FOR UPDATE", (role_key,)).fetchone():
+        raise HTTPException(404, "Rola sa nenašla.")
+    grants = set(data.grants)
+    if not grants <= access.CAPABILITIES.keys() or any(
+        not set(access.dependencies(key)) <= grants for key in grants
+    ):
+        raise HTTPException(422, "Oprávnenia obsahujú neznámu položku alebo chýba potrebný prístup.")
+    stored = {row["permission"] for row in conn.execute(
+        "SELECT permission FROM role_grants WHERE role_key=%s", (role_key,)
+    ).fetchall()} & access.CAPABILITIES.keys()
+    if stored != set(data.expected):
+        raise HTTPException(409, "Oprávnenia sa medzitým zmenili. Načítaj ich znova.")
+    added, removed = sorted(grants - stored), sorted(stored - grants)
+    if added or removed:
+        conn.execute("DELETE FROM role_grants WHERE role_key=%s AND permission=ANY(%s)", (role_key, removed))
+        with conn.cursor() as cursor:
+            cursor.executemany("INSERT INTO role_grants(role_key,permission) VALUES (%s,%s)",
+                               [(role_key, key) for key in added])
+        conn.execute("INSERT INTO role_grant_audit(actor_id,role_key,added,removed) VALUES (%s,%s,%s,%s)",
+                     (_admin["id"], role_key, added, removed))
+    return {"grants": sorted(grants)}
+
+
+@api.get("/role-config/audit")
+def permission_audit(conn: DB, _admin: Superadmin):
+    return conn.execute("""SELECT a.id,a.role_key,a.added,a.removed,a.created_at,m.name AS actor
+        FROM role_grant_audit a LEFT JOIN members m ON m.id=a.actor_id ORDER BY a.id DESC LIMIT 100""").fetchall()
+
+
+@api.get("/role-config/member/{member_id}")
+def permission_member(member_id: int, conn: DB, _admin: Superadmin):
+    member = conn.execute("SELECT name,club_roles FROM members WHERE id=%s AND role<>'superadmin'",
+                          (member_id,)).fetchone()
+    if not member:
+        raise HTTPException(404, "Člen sa nenašiel.")
+    roles = member["club_roles"] or []
+    rows = conn.execute("SELECT role_key,permission FROM role_grants WHERE role_key=ANY(%s)", (roles,)).fetchall()
+    return {"name": member["name"], "roles": roles, "permissions": {
+        key: sorted(row["role_key"] for row in rows if row["permission"] == key)
+        for key in access.effective(conn, roles)
+    }}
+
+
+@api.post("/role-preview")
+def start_permission_preview(data: RoleRequests, conn: DB, user: Superadmin):
+    roles = sorted(set(data.roles))
+    if not roles or not set(roles) <= ROLE_DEFINITIONS.keys():
+        raise HTTPException(422, "Vyber platné roly.")
+    conn.execute("""INSERT INTO permission_previews(session_hash,roles) VALUES (%s,%s)
+        ON CONFLICT(session_hash) DO UPDATE SET roles=excluded.roles""", (user["session_hash"], roles))
+    return {"ok": True}
+
+
+@api.delete("/role-preview")
+def stop_permission_preview(conn: DB, user: User):
+    conn.execute("DELETE FROM permission_previews WHERE session_hash=%s", (user["session_hash"],))
+    return {"ok": True}
 
 
 @api.put("/admin/trial-banner")
@@ -469,21 +449,21 @@ def own_role_requests(conn: DB, user: User):
 
 
 @api.get("/role-requests")
-def role_requests(conn: DB, user: Staff):
-    if user["role"] != "superadmin" and "club_leader" not in user["roles"] and "deputy_leader" not in user["roles"]:
-        raise HTTPException(403, "Žiadosti o roly môže prezerať iba vedenie klubu.")
+def role_requests(conn: DB, user: User):
     return conn.execute("""SELECT r.id,r.member_id,m.name AS member_name,m.email,r.role_key,c.name AS role_name,
         r.created_at,r.status FROM role_requests r JOIN members m ON m.id=r.member_id
         JOIN role_catalog c USING(role_key) WHERE r.status='pending' AND m.role IN ('member','coach') ORDER BY r.created_at,r.id""").fetchall()
 
 
 @api.put("/role-requests/{request_id}")
-def decide_role_request(request_id: int, data: RoleDecision, conn: DB, _admin: Superadmin):
+def decide_role_request(request_id: int, data: RoleDecision, conn: DB, _admin: User):
     request = conn.execute("""SELECT member_id,role_key FROM role_requests
         WHERE id=%s AND status='pending'
         AND member_id IN (SELECT id FROM members WHERE role IN ('member','coach')) FOR UPDATE""", (request_id,)).fetchone()
     if not request:
         raise HTTPException(404, "Čakajúca žiadosť sa nenašla.")
+    if data.status == "approved":
+        require_grantable_roles(conn, _admin, [request["role_key"]])
     conn.execute("UPDATE role_requests SET status=%s,decided_at=now(),decided_by=%s WHERE id=%s",
                  (data.status, _admin["id"], request_id))
     if data.status == "approved":
@@ -540,7 +520,8 @@ def logout(request: Request, response: Response, conn: DB):
 
 @api.get("/me")
 def me(user: User):
-    return user
+    return {key: value for key, value in user.items() if key not in {"club_roles", "session_hash"}}
+
 
 
 class InstallPreferences(BaseModel):
@@ -680,15 +661,23 @@ def own_attendance(conn: DB, user: User):
 @api.get("/members")
 def members(conn: DB, _user: User):
     return conn.execute(
-        """SELECT m.id, m.email, m.name, m.role, m.club_roles AS roles, m.avatar_version, m.active,
-        m.password_hash IS NOT NULL AS registered,
-        (SELECT count(*) FROM participation WHERE member_id=m.id AND attended=true) AS attended_count,
-        (SELECT count(*) FROM participation WHERE member_id=m.id AND attended IS NOT NULL) AS recorded_count,
-        COALESCE((SELECT json_agg(json_build_object('code',a.code,'kind',a.kind,'label',a.label) ORDER BY a.code)
-          FROM equipment_assets a JOIN LATERAL (
-            SELECT action,member_id FROM equipment_events WHERE code=a.code ORDER BY id DESC LIMIT 1
-          ) latest ON latest.action='assigned' AND latest.member_id=m.id), '[]'::json) AS equipment
-        FROM members m WHERE role IN ('member', 'coach') ORDER BY name, id"""
+        """SELECT m.id, CASE WHEN %s THEN m.email END AS email, m.name, m.role,
+        m.club_roles AS roles, m.avatar_version, m.active, m.password_hash IS NOT NULL AS registered,
+        CASE WHEN %s THEN (SELECT count(*) FROM participation WHERE member_id=m.id AND attended=true) END AS attended_count,
+        CASE WHEN %s THEN (SELECT count(*) FROM participation WHERE member_id=m.id AND attended IS NOT NULL) END AS recorded_count,
+        CASE WHEN %s OR (%s AND m.id=%s) THEN COALESCE((
+          SELECT jsonb_agg(to_jsonb(items) ORDER BY items.code) FROM (
+            SELECT a.code,a.kind,a.label,'assigned' AS custody FROM equipment_assets a
+            JOIN equipment_current_assignment c ON c.code=a.code AND c.action='assigned' AND c.member_id=m.id
+            UNION ALL
+            SELECT a.code,a.kind,a.label,l.status FROM equipment_assets a
+            JOIN equipment_loans l ON l.code=a.code AND l.member_id=m.id AND l.status IN ('pending','accepted')
+          ) items
+        ), '[]'::jsonb) ELSE '[]'::jsonb END AS equipment
+        FROM members m WHERE role IN ('member','coach') ORDER BY name,id""",
+        (access.allows(_user, "members.accounts.contacts"),
+         access.allows(_user, "attendance.records.member"), access.allows(_user, "attendance.records.member"),
+         access.allows(_user, "equipment.loans.read"), access.allows(_user, "equipment.loans.own"), _user["id"]),
     ).fetchall()
 
 
@@ -709,8 +698,16 @@ def update_member_roles(member_id: int, data: MemberRoles, conn: DB, _admin: Sup
     return {"roles":sorted(roles)}
 
 
+def require_grantable_roles(conn, user, roles):
+    if user["role"] == "superadmin":
+        return
+    permissions = set(user["permissions"])
+    if any(not set(access.effective(conn, [role])) <= permissions for role in roles):
+        raise HTTPException(403, "Môžeš prideliť iba roly, ktorých práva máš aj ty.")
+
+
 @api.post("/members/invite")
-def invite(data: Invite, conn: DB, user: Staff):
+def invite(data: Invite, conn: DB, user: User):
     if user["role"] != "superadmin" and not user.get("can_create_invites"):
         raise HTTPException(403, "Nemáš oprávnenie vytvárať pozvánky.")
     can_assign_roles = user["role"] == "superadmin" or user.get("can_assign_invite_roles", False)
@@ -719,6 +716,8 @@ def invite(data: Invite, conn: DB, user: Staff):
     roles = sorted(set(data.roles))
     if not roles or not set(roles) <= set(ROLE_DEFINITIONS):
         raise HTTPException(422, "Pozvánka obsahuje neznámu rolu.")
+    if can_assign_roles:
+        require_grantable_roles(conn, user, roles)
     account_role = "coach" if any(ROLE_DEFINITIONS[role][3] for role in roles) else "member"
     token = secrets.token_urlsafe(32)
     member = conn.execute(
@@ -770,7 +769,8 @@ def set_role(member_id: int, data: AccountRole, conn: DB, _admin: Superadmin):
 
 
 @api.delete("/members/{member_id}")
-def delete_member(member_id: int, conn: DB, _admin: Superadmin):
+def delete_member(member_id: int, conn: DB, _admin: User):
+    require_manageable_account(conn, member_id, _admin)
     member = conn.execute(
         "SELECT email FROM members WHERE id=%s AND role IN ('member','coach') FOR UPDATE", (member_id,),
     ).fetchone()
@@ -784,14 +784,25 @@ def delete_member(member_id: int, conn: DB, _admin: Superadmin):
     return {"ok": True}
 
 
+def require_manageable_account(conn, member_id, user):
+    row = conn.execute("SELECT role,club_roles FROM members WHERE id=%s AND role<>'superadmin' FOR UPDATE",
+                       (member_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Člen sa nenašiel.")
+    if row["role"] == "coach":
+        require(user, "members.accounts.manage_staff")
+    require_grantable_roles(conn, user, row["club_roles"] or [])
+
+
 @api.post("/members/{member_id}/reset")
-def reset_member_password(member_id: int, conn: DB, user: Staff):
+def reset_member_password(member_id: int, conn: DB, user: User):
+    require_manageable_account(conn, member_id, user)
     token = secrets.token_urlsafe(32)
     member = conn.execute(
         """UPDATE members SET invite_hash=%s, invite_until=now() + interval '7 days'
         WHERE id=%s AND active AND (role='member' OR (role='coach' AND %s))
         AND password_hash IS NOT NULL RETURNING id""",
-        (digest(token), member_id, user["role"] == "superadmin"),
+        (digest(token), member_id, access.allows(user, "members.accounts.manage_staff")),
     ).fetchone()
     if not member:
         raise HTTPException(404, "Aktívny účet sa nenašiel.")
@@ -825,11 +836,12 @@ def invite_info(token: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]
 
 
 @api.put("/members/{member_id}/active")
-def set_active(member_id: int, data: Active, conn: DB, user: Staff):
+def set_active(member_id: int, data: Active, conn: DB, user: User):
+    require_manageable_account(conn, member_id, user)
     member = conn.execute(
         """UPDATE members SET active=%s WHERE id=%s
         AND (role='member' OR (role='coach' AND %s)) RETURNING id""",
-        (data.active, member_id, user["role"] == "superadmin"),
+        (data.active, member_id, access.allows(user, "members.accounts.manage_staff")),
     ).fetchone()
     if not member:
         raise HTTPException(404, "Člen sa nenašiel.")
@@ -873,12 +885,12 @@ class Attendance(BaseModel):
 
 @api.get("/trainings")
 def trainings(conn: DB, user: User):
-    return conn.execute(
+    rows = conn.execute(
         """SELECT t.*, p.response, p.note, p.attended,
         CASE WHEN latest.schedule_revision = t.schedule_revision THEN latest.response END AS change_response,
         CASE WHEN latest.schedule_revision = t.schedule_revision THEN latest.note END AS change_note,
         coalesce(latest.response, p.response) AS last_response,
-        (%s OR t.created_by=%s OR t.created_by IS NULL) AS can_delete,
+        t.created_by AS author_id,
         (SELECT json_build_object(
             'yes', count(*) FILTER (WHERE r.response='yes'),
             'no', count(*) FILTER (WHERE r.response='no'),
@@ -890,7 +902,8 @@ def trainings(conn: DB, user: User):
          FROM members m LEFT JOIN participation r ON r.member_id=m.id AND r.training_id=t.id
          LEFT JOIN training_change_responses cr ON cr.training_id=t.id
            AND cr.schedule_revision=t.schedule_revision AND cr.member_id=m.id
-         WHERE m.role IN ('member','coach') AND 'player'=ANY(m.club_roles)
+         WHERE m.role IN ('member','coach') AND EXISTS (SELECT 1 FROM role_grants eligible WHERE eligible.role_key=ANY(m.club_roles)
+                    AND eligible.permission IN ('calendar.rsvp.respond','calendar.rsvp.reconfirm'))
          AND m.active AND m.password_hash IS NOT NULL) AS counts
         FROM trainings t
         LEFT JOIN participation p ON p.training_id = t.id AND p.member_id = %s
@@ -901,12 +914,33 @@ def trainings(conn: DB, user: User):
         ) latest ON true
         ORDER BY (t.starts_at >= now()) DESC,
         CASE WHEN t.starts_at >= now() THEN t.starts_at END,
-        t.starts_at DESC LIMIT 300""", (user["role"] == "superadmin", user["id"], user["id"], user["id"]),
+        t.starts_at DESC LIMIT 300""", (user["id"], user["id"]),
     ).fetchall()
+    for row in rows:
+        author = row.pop("author_id")
+        own = author == user["id"]
+        row["can_delete"] = access.allows(user, "calendar.events.delete_all") or (
+            own and access.allows(user, "calendar.events.delete_own")) or (
+            author is None and access.allows(user, "calendar.events.delete_unowned"))
+        row["can_edit"] = access.allows(user, "calendar.events.edit_all") or (
+            own and access.allows(user, "calendar.events.edit_own"))
+        if not access.allows(user, "calendar.rsvp.summary"):
+            row["counts"] = {key: count for key, count in row["counts"].items() if key == "attendance_pending"}
+        if not access.allows(user, "attendance.records.read"):
+            row["counts"].pop("attendance_pending", None)
+        if not access.allows(user, "attendance.records.own"):
+            row.pop("attended", None)
+    return rows
 
 
 @api.post("/trainings")
-def create_training(data: Training, conn: DB, user: Staff):
+def create_training(data: Training, conn: DB, user: User):
+    require(user, "calendar.events." + data.kind)
+    return {"ok": True, "ids": insert_trainings(data, conn, user)}
+
+
+def insert_trainings(data, conn, user):
+    ids = []
     series = uuid4() if data.weeks > 1 else None
     start = data.starts_at.astimezone(CLUB_ZONE)
     starts = [start + timedelta(weeks=week) for week in range(data.weeks)]
@@ -923,9 +957,10 @@ def create_training(data: Training, conn: DB, user: Staff):
             (data.title, stamp, data.location, data.instructions, series, data.kind,
              stamp.astimezone(timezone.utc) + (data.ends_at-data.starts_at) if data.ends_at else None, user["id"]),
         ).fetchone()
+        ids.append(event["id"])
         push_service.enqueue(conn, None, "calendar", "Nová udalosť: " + data.title,
                              f"#page=calendar&event={event['id']}", event_id=event['id'], exclude=user['id'])
-    return {"ok": True}
+    return ids
 
 
 def lock_training(conn, training_id):
@@ -940,8 +975,11 @@ SCHEDULE_FIELDS = {"starts_at", "ends_at", "location"}
 
 
 @api.put("/trainings/{training_id}")
-def edit_training(training_id: int, data: TrainingEdit, conn: DB, staff_user: Staff):
+def edit_training(training_id: int, data: TrainingEdit, conn: DB, staff_user: User):
     training = lock_training(conn, training_id)
+    require_owner(staff_user, training, "calendar.events.edit")
+    if training["kind"] != data.kind:
+        require(staff_user, "calendar.events." + data.kind)
     if training["cancelled"]:
         raise HTTPException(409, "Udalosť bola zrušená.")
     if data.expected_updated_at is not None and training["updated_at"] != data.expected_updated_at:
@@ -982,7 +1020,7 @@ def edit_training(training_id: int, data: TrainingEdit, conn: DB, staff_user: St
 
 
 @api.post("/trainings/{training_id}/cancel")
-def cancel_training(training_id: int, conn: DB, _staff: Staff):
+def cancel_training(training_id: int, conn: DB, _staff: User):
     training = lock_training(conn, training_id)
     if not training["cancelled"]:
         conn.execute("UPDATE trainings SET cancelled=true WHERE id=%s", (training_id,))
@@ -997,10 +1035,10 @@ def cancel_training(training_id: int, conn: DB, _staff: Staff):
 
 
 @api.delete("/trainings/{training_id}")
-def delete_training(training_id: int, conn: DB, user: Staff):
+def delete_training(training_id: int, conn: DB, user: User):
     training = lock_training(conn, training_id)
-    if user["role"] != "superadmin" and training["created_by"] not in (None, user["id"]):
-        raise HTTPException(403, "Vymazať môžeš iba vlastnú udalosť.")
+    if not (training["created_by"] is None and access.allows(user, "calendar.events.delete_unowned")):
+        require_owner(user, training, "calendar.events.delete")
     conn.execute("DELETE FROM trainings WHERE id=%s", (training_id,))
     return {"ok": True}
 
@@ -1011,8 +1049,7 @@ def club_date(timestamp):
 
 @api.put("/trainings/{training_id}/rsvp")
 def rsvp(training_id: int, data: RSVP, conn: DB, user: User):
-    if "player" not in user["roles"]:
-        raise HTTPException(403, "Účasť potvrdzujú členovia.")
+    require(user, "calendar.rsvp.reconfirm" if data.schedule_revision else "calendar.rsvp.respond")
     training = lock_training(conn, training_id)
     if training["cancelled"] or training["starts_at"] <= datetime.now(timezone.utc):
         raise HTTPException(409, "Na túto udalosť sa už nedá prihlásiť.")
@@ -1052,10 +1089,12 @@ def training_history(training_id: int, conn: DB, user: User):
 
 
 @api.get("/trainings/{training_id}/roster")
-def roster(training_id: int, conn: DB, _staff: Staff):
+def roster(training_id: int, conn: DB, _staff: User):
+    require(_staff, "calendar.rsvp.roster", "attendance.records.read",
+            "attendance.records.write", "attendance.records.bulk", "attendance.records.correct")
     if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
         raise HTTPException(404, "Udalosť sa nenašla.")
-    return conn.execute(
+    rows = conn.execute(
         """SELECT m.id, m.name, m.club_roles AS roles, m.avatar_version, p.response, p.note, p.attended,
         coalesce(r.versions, '{}'::jsonb) AS change_responses
         FROM trainings t CROSS JOIN members m
@@ -1066,21 +1105,34 @@ def roster(training_id: int, conn: DB, _staff: Staff):
             FROM training_change_responses WHERE training_id=t.id AND member_id=m.id
         ) r ON true
         WHERE t.id=%s AND m.role IN ('member','coach')
-        AND (('player'=ANY(m.club_roles) AND m.active AND m.password_hash IS NOT NULL)
+        AND ((EXISTS (SELECT 1 FROM role_grants eligible WHERE eligible.role_key=ANY(m.club_roles)
+                    AND eligible.permission IN ('calendar.rsvp.respond','calendar.rsvp.reconfirm')) AND m.active AND m.password_hash IS NOT NULL)
              OR p.member_id IS NOT NULL OR r.versions IS NOT NULL)
         ORDER BY m.name, m.id""",
         (training_id,)
     ).fetchall()
+    for row in rows:
+        if not access.allows(_staff, "calendar.rsvp.roster"):
+            for key in ("response", "note", "change_responses"):
+                row.pop(key, None)
+        if not any(access.allows(_staff, "attendance.records." + key)
+                   for key in ("read", "write", "bulk", "correct")):
+            row.pop("attended", None)
+    return rows
 
 
 @api.put("/trainings/{training_id}/attendance/{member_id}")
-def attendance(training_id: int, member_id: int, data: Attendance, conn: DB, _staff: Staff):
+def attendance(training_id: int, member_id: int, data: Attendance, conn: DB, _staff: User):
     training = lock_training(conn, training_id)
+    ends_at = training["ends_at"] or training["starts_at"] + timedelta(hours=3)
+    if ends_at <= datetime.now(timezone.utc):
+        require(_staff, "attendance.records.correct")
     if training["cancelled"] or training["starts_at"] > datetime.now(timezone.utc):
         raise HTTPException(409, "Dochádzku možno zapísať od začiatku udalosti.")
     if not conn.execute(
         """SELECT 1 FROM members m WHERE id=%s AND role IN ('member','coach') AND (
-            'player'=ANY(club_roles)
+            EXISTS (SELECT 1 FROM role_grants eligible WHERE eligible.role_key=ANY(m.club_roles)
+                    AND eligible.permission IN ('calendar.rsvp.respond','calendar.rsvp.reconfirm'))
             OR EXISTS (SELECT 1 FROM participation p WHERE p.member_id=m.id AND p.training_id=%s)
             OR EXISTS (SELECT 1 FROM training_change_responses r WHERE r.member_id=m.id AND r.training_id=%s))""",
         (member_id, training_id, training_id),
@@ -1100,14 +1152,18 @@ class BulkAttendance(BaseModel):
 
 
 @api.put("/trainings/{training_id}/attendance")
-def bulk_attendance(training_id: int, data: BulkAttendance, conn: DB, _staff: Staff):
+def bulk_attendance(training_id: int, data: BulkAttendance, conn: DB, _staff: User):
     training = lock_training(conn, training_id)
+    ends_at = training["ends_at"] or training["starts_at"] + timedelta(hours=3)
+    if ends_at <= datetime.now(timezone.utc):
+        require(_staff, "attendance.records.correct")
     if training["cancelled"] or training["starts_at"] > datetime.now(timezone.utc):
         raise HTTPException(409, "Dochádzku možno zapísať od začiatku udalosti.")
     ids = set(data.member_ids)
     allowed = conn.execute(
         """SELECT id FROM members m WHERE id=ANY(%s) AND role IN ('member','coach') AND (
-            'player'=ANY(club_roles)
+            EXISTS (SELECT 1 FROM role_grants eligible WHERE eligible.role_key=ANY(m.club_roles)
+                    AND eligible.permission IN ('calendar.rsvp.respond','calendar.rsvp.reconfirm'))
             OR EXISTS (SELECT 1 FROM participation p WHERE p.member_id=m.id AND p.training_id=%s)
             OR EXISTS (SELECT 1 FROM training_change_responses r WHERE r.member_id=m.id AND r.training_id=%s))""",
         (list(ids), training_id, training_id),
@@ -1124,7 +1180,7 @@ def bulk_attendance(training_id: int, data: BulkAttendance, conn: DB, _staff: St
 
 
 @api.get("/attendance")
-def attendance_matrix(conn: DB, _staff: Staff, date_from: CalendarDate | None = None,
+def attendance_matrix(conn: DB, _staff: User, date_from: CalendarDate | None = None,
                       date_to: CalendarDate | None = None,
                       kinds: str = "training,match,meeting", include_cancelled: bool = False):
     if date_from is not None and date_to is not None and date_from > date_to:
@@ -1142,11 +1198,13 @@ def attendance_matrix(conn: DB, _staff: Staff, date_from: CalendarDate | None = 
         (selected_kinds, include_cancelled, date_from, date_from, date_to, date_to),
     ).fetchall()
     members = conn.execute(
-        "SELECT id,name,active,club_roles AS roles FROM members WHERE role IN ('member','coach') AND 'player'=ANY(club_roles) ORDER BY lower(name),id"
+        """SELECT id,name,active,club_roles AS roles FROM members m WHERE role IN ('member','coach') AND EXISTS (SELECT 1 FROM role_grants eligible WHERE eligible.role_key=ANY(m.club_roles)
+                    AND eligible.permission IN ('calendar.rsvp.respond','calendar.rsvp.reconfirm')) ORDER BY lower(name),id"""
     ).fetchall()
     attendance = conn.execute(
         """SELECT p.training_id,p.member_id,p.attended FROM participation p
-        JOIN members m ON m.id=p.member_id WHERE m.role IN ('member','coach') AND 'player'=ANY(m.club_roles)
+        JOIN members m ON m.id=p.member_id WHERE m.role IN ('member','coach') AND EXISTS (SELECT 1 FROM role_grants eligible WHERE eligible.role_key=ANY(m.club_roles)
+                    AND eligible.permission IN ('calendar.rsvp.respond','calendar.rsvp.reconfirm'))
         AND p.training_id=ANY(%s) AND p.attended IS NOT NULL""",
         ([event["id"] for event in events],),
     ).fetchall()
@@ -1154,7 +1212,7 @@ def attendance_matrix(conn: DB, _staff: Staff, date_from: CalendarDate | None = 
 
 
 @api.get("/members/{member_id}/attendance")
-def member_attendance(member_id: int, conn: DB, _staff: Staff):
+def member_attendance(member_id: int, conn: DB, _staff: User):
     return conn.execute(
         """SELECT t.title, t.starts_at, p.attended FROM participation p
         JOIN trainings t ON t.id=p.training_id
@@ -1162,6 +1220,149 @@ def member_attendance(member_id: int, conn: DB, _staff: Staff):
         WHERE p.member_id=%s AND p.attended IS NOT NULL ORDER BY t.starts_at DESC""",
         (member_id,)
     ).fetchall()
+
+
+class ProposalOption(BaseModel):
+    starts_at: AwareDatetime
+    ends_at: AwareDatetime | None = None
+
+
+class ProposalInput(BaseModel):
+    title: Short
+    location: Short
+    instructions: Note = ""
+    options: list[ProposalOption] = Field(min_length=1, max_length=8)
+
+
+class ProposalEdit(ProposalInput):
+    version: int = Field(gt=0)
+
+
+class ProposalDecision(BaseModel):
+    action: Literal["withdraw", "close", "reject", "approve"]
+    option_id: int | None = Field(None, gt=0)
+    version: int = Field(gt=0)
+
+
+class ProposalVote(BaseModel):
+    response: Literal["yes", "no", "maybe"]
+
+
+def lock_proposal(conn, proposal_id):
+    proposal = conn.execute("SELECT * FROM training_proposals WHERE id=%s FOR UPDATE", (proposal_id,)).fetchone()
+    if proposal is None:
+        raise HTTPException(404, "Návrh sa nenašiel.")
+    return proposal
+
+
+def validate_options(options):
+    if len({item.starts_at for item in options}) != len(options) or any(
+        item.starts_at <= datetime.now(timezone.utc)
+        or (item.ends_at is not None and item.ends_at <= item.starts_at)
+        for item in options
+    ):
+        raise HTTPException(422, "Vyber rôzne budúce termíny a skontroluj časy ukončenia.")
+
+
+@api.get("/training-proposals")
+def training_proposals(conn: DB, user: User):
+    proposals = conn.execute("""SELECT p.*, m.name AS author
+        FROM training_proposals p LEFT JOIN members m ON m.id=p.created_by ORDER BY p.id DESC LIMIT 150""").fetchall()
+    index = {row["id"]: row for row in proposals}
+    for row in proposals:
+        row["options"] = []
+    options = conn.execute("""SELECT o.*, own.response AS my_vote,
+        (SELECT jsonb_object_agg(response, amount) FROM (
+            SELECT response,count(*) AS amount FROM training_proposal_votes WHERE option_id=o.id GROUP BY response
+        ) counts) AS results
+        FROM training_proposal_options o LEFT JOIN training_proposal_votes own
+          ON own.option_id=o.id AND own.member_id=%s
+        WHERE o.proposal_id=ANY(%s) ORDER BY o.starts_at""", (user["id"], list(index))).fetchall()
+    named = {}
+    if access.allows(user, "calendar.proposals.voters"):
+        for vote in conn.execute("""SELECT v.option_id,m.name,v.response FROM training_proposal_votes v
+            JOIN members m ON m.id=v.member_id WHERE v.option_id=ANY(%s) ORDER BY m.name""",
+            ([row["id"] for row in options],)).fetchall():
+            named.setdefault(vote.pop("option_id"), []).append(vote)
+    for option in options:
+        if not access.allows(user, "calendar.proposals.results"):
+            option.pop("results")
+        if access.allows(user, "calendar.proposals.voters"):
+            option["votes"] = named.get(option["id"], [])
+        index[option["proposal_id"]]["options"].append(option)
+    return proposals
+
+
+@api.post("/training-proposals")
+def create_training_proposal(data: ProposalInput, conn: DB, user: User):
+    validate_options(data.options)
+    proposal_id = conn.execute("""INSERT INTO training_proposals(title,location,instructions,created_by)
+        VALUES (%s,%s,%s,%s) RETURNING id""", (data.title, data.location, data.instructions, user["id"])).fetchone()["id"]
+    with conn.cursor() as cursor:
+        cursor.executemany("""INSERT INTO training_proposal_options(proposal_id,starts_at,ends_at)
+            VALUES (%s,%s,%s)""", [(proposal_id, item.starts_at, item.ends_at) for item in data.options])
+    return {"id": proposal_id}
+
+
+@api.put("/training-proposals/{proposal_id}")
+def edit_training_proposal(proposal_id: int, data: ProposalEdit, conn: DB, user: User):
+    proposal = lock_proposal(conn, proposal_id)
+    if proposal["created_by"] != user["id"] and user["role"] != "superadmin":
+        raise HTTPException(403, "Upraviť môžeš iba vlastný návrh.")
+    if proposal["status"] != "open" or data.version != proposal["version"]:
+        raise HTTPException(409, "Návrh sa zmenil alebo je uzavretý.")
+    validate_options(data.options)
+    options = {(item.starts_at, item.ends_at) for item in data.options}
+    for row in conn.execute("SELECT * FROM training_proposal_options WHERE proposal_id=%s", (proposal_id,)).fetchall():
+        key = (row["starts_at"], row["ends_at"])
+        if key in options and proposal["location"] == data.location:
+            options.remove(key)
+        else:
+            conn.execute("DELETE FROM training_proposal_options WHERE id=%s", (row["id"],))
+    with conn.cursor() as cursor:
+        cursor.executemany("""INSERT INTO training_proposal_options(proposal_id,starts_at,ends_at)
+            VALUES (%s,%s,%s)""", [(proposal_id, starts_at, ends_at) for starts_at, ends_at in options])
+    conn.execute("""UPDATE training_proposals SET title=%s,location=%s,instructions=%s,version=version+1 WHERE id=%s""",
+                 (data.title, data.location, data.instructions, proposal_id))
+    return {"ok": True}
+
+
+@api.put("/training-proposals/{proposal_id}/options/{option_id}/vote")
+def vote_training_proposal(proposal_id: int, option_id: int, data: ProposalVote, conn: DB, user: User):
+    proposal = lock_proposal(conn, proposal_id)
+    if proposal["status"] != "open":
+        raise HTTPException(409, "Hlasovanie je uzavreté.")
+    option = conn.execute("""SELECT 1 FROM training_proposal_options WHERE id=%s AND proposal_id=%s
+        AND starts_at > now()""", (option_id, proposal_id)).fetchone()
+    if option is None:
+        raise HTTPException(409, "Termín sa zmenil alebo už uplynul.")
+    conn.execute("""INSERT INTO training_proposal_votes(option_id,member_id,response) VALUES (%s,%s,%s)
+        ON CONFLICT(option_id,member_id) DO UPDATE SET response=excluded.response""", (option_id, user["id"], data.response))
+    return {"ok": True}
+
+
+@api.post("/training-proposals/{proposal_id}/decision")
+def update_training_proposal(proposal_id: int, data: ProposalDecision, conn: DB, user: User):
+    permission = "edit" if data.action == "withdraw" else data.action
+    require(user, "calendar.proposals." + permission)
+    proposal = lock_proposal(conn, proposal_id)
+    if data.action == "withdraw" and proposal["created_by"] != user["id"] and user["role"] != "superadmin":
+        raise HTTPException(403, "Stiahnuť môžeš iba vlastný návrh.")
+    if proposal["status"] not in ({"open", "closed"} if data.action in {"approve", "reject"} else {"open"}) or data.version != proposal["version"]:
+        raise HTTPException(409, "Návrh sa zmenil alebo už bol vybavený.")
+    training_id = None
+    if data.action == "approve":
+        option = conn.execute("""SELECT starts_at,ends_at FROM training_proposal_options
+            WHERE proposal_id=%s AND id=%s AND starts_at>now()""", (proposal_id, data.option_id)).fetchone()
+        if option is None:
+            raise HTTPException(422, "Vyber budúci termín z návrhu.")
+        training = Training(title=proposal["title"], location=proposal["location"],
+                            instructions=proposal["instructions"], **option)
+        training_id = insert_trainings(training, conn, user)[0]
+    status = {"withdraw": "withdrawn", "close": "closed", "reject": "rejected", "approve": "approved"}[data.action]
+    conn.execute("""UPDATE training_proposals SET status=%s,training_id=%s,version=version+1,
+        decided_at=now(),decided_by=%s WHERE id=%s""", (status, training_id, user["id"], proposal_id))
+    return {"training_id": training_id}
 
 
 class DrillInput(BaseModel):
@@ -1182,6 +1383,14 @@ class TrainingFeedbackInput(BaseModel):
     went_well: Annotated[str, StringConstraints(max_length=1000)] = ""
     difficult: Annotated[str, StringConstraints(max_length=1000)] = ""
     next_focus: Annotated[str, StringConstraints(max_length=1000)] = ""
+
+
+class Publication(BaseModel):
+    published: bool
+
+
+class NominationResponse(BaseModel):
+    accepted: bool
 
 
 class TrainingLineupInput(BaseModel):
@@ -1248,7 +1457,7 @@ def get_general_lineup(conn: DB, _user: User):
 
 
 @api.put("/lineup/general")
-def save_general_lineup(data: TrainingLineupInput, conn: DB, user: Staff):
+def save_general_lineup(data: TrainingLineupInput, conn: DB, user: User):
     players = clean_lineup(conn, data.players)
     conn.execute(
         """INSERT INTO club_lineup(id,players,updated_by) VALUES (1,%s,%s)
@@ -1258,31 +1467,76 @@ def save_general_lineup(data: TrainingLineupInput, conn: DB, user: Staff):
     return {"ok": True}
 
 
+@api.get("/lineup/events")
+def lineup_events(conn: DB, _user: User):
+    return conn.execute("""SELECT id,title,starts_at,kind,cancelled FROM trainings
+        WHERE kind IN ('training','match') ORDER BY starts_at DESC LIMIT 300""").fetchall()
+
+
 @api.get("/trainings/{training_id}/lineup")
 def get_training_lineup(training_id: int, conn: DB, _user: User):
     if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
         raise HTTPException(404, "Udalosť sa nenašla.")
-    saved = conn.execute("SELECT players FROM training_lineups WHERE training_id=%s", (training_id,)).fetchone()
-    general = conn.execute("SELECT players FROM club_lineup WHERE id=1").fetchone()
+    saved = conn.execute("SELECT players,published FROM training_lineups WHERE training_id=%s", (training_id,)).fetchone()
+    general = conn.execute("SELECT players FROM club_lineup WHERE id=1").fetchone() if access.allows(_user, "team.lineup.club_read") else None
+    may_view_draft = any(access.allows(_user, key) for key in ("team.lineup.event_edit", "team.lineup.publish"))
+    draft = saved and not saved["published"]
+    lineup = saved if saved and (not draft or may_view_draft) else general
     roster = conn.execute(
         """SELECT id,name,avatar_version,club_roles AS roles FROM members WHERE role IN ('member','coach') AND 'player'=ANY(club_roles) AND active AND password_hash IS NOT NULL
         ORDER BY lower(name),id"""
     ).fetchall()
-    return {"players": club_lineup_players(conn, saved if saved else general),
-            "source": "event" if saved else "general", "roster": roster}
+    players = club_lineup_players(conn, lineup)
+    nominated = bool(saved and saved["published"] and any(
+        player.get("member_id") == _user["id"] for player in saved["players"]))
+    response = conn.execute(
+        "SELECT accepted FROM nomination_responses WHERE training_id=%s AND member_id=%s",
+        (training_id, _user["id"]),
+    ).fetchone() if nominated else None
+    result = {"players": players, "source": "event" if lineup is not None and lineup is saved else "general",
+              "roster": roster, "published": bool(saved and saved["published"]), "nominated": nominated,
+              "my_response": response["accepted"] if response is not None else None}
+    if access.allows(_user, "team.lineup.responses"):
+        result["responses"] = conn.execute("""SELECT m.name,r.accepted FROM nomination_responses r
+            JOIN members m ON m.id=r.member_id WHERE r.training_id=%s ORDER BY m.name""", (training_id,)).fetchall()
+    return result
 
 
 @api.put("/trainings/{training_id}/lineup")
-def save_training_lineup(training_id: int, data: TrainingLineupInput, conn: DB, user: Staff):
-    if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
-        raise HTTPException(404, "Udalosť sa nenašla.")
+def save_training_lineup(training_id: int, data: TrainingLineupInput, conn: DB, user: User):
+    lock_training(conn, training_id)
     players = clean_lineup(conn, data.players)
     conn.execute(
-        """INSERT INTO training_lineups(training_id,players,updated_by) VALUES (%s,%s,%s)
-        ON CONFLICT(training_id) DO UPDATE SET players=excluded.players,updated_by=excluded.updated_by,updated_at=now()""",
-        (training_id, Jsonb(players), user["id"]),
+        """INSERT INTO training_lineups(training_id,players,updated_by,published) VALUES (%s,%s,%s,%s)
+        ON CONFLICT(training_id) DO UPDATE SET players=excluded.players,updated_by=excluded.updated_by,updated_at=now(),published=false""",
+        (training_id, Jsonb(players), user["id"], False),
     )
+    conn.execute("DELETE FROM nomination_responses WHERE training_id=%s", (training_id,))
     return {"ok": True}
+
+
+@api.put("/trainings/{training_id}/lineup/publication")
+def publish_training_lineup(training_id: int, data: Publication, conn: DB, _user: User):
+    lock_training(conn, training_id)
+    result = conn.execute("UPDATE training_lineups SET published=%s WHERE training_id=%s", (data.published, training_id))
+    if not result.rowcount:
+        raise HTTPException(404, "Ulož zostavu pred zverejnením.")
+    return {"published": data.published}
+
+
+@api.put("/trainings/{training_id}/lineup/response")
+def respond_training_lineup(training_id: int, data: NominationResponse, conn: DB, user: User):
+    training = lock_training(conn, training_id)
+    if training["cancelled"] or training["starts_at"] <= datetime.now(timezone.utc):
+        raise HTTPException(409, "Na túto nomináciu už nie je možné odpovedať.")
+    lineup = conn.execute("SELECT players FROM training_lineups WHERE training_id=%s AND published",
+                          (training_id,)).fetchone()
+    if not lineup or not any(player.get("member_id") == user["id"] for player in lineup["players"]):
+        raise HTTPException(404, "Nemáš nomináciu na túto udalosť.")
+    conn.execute("""INSERT INTO nomination_responses(training_id,member_id,accepted) VALUES (%s,%s,%s)
+        ON CONFLICT(training_id,member_id) DO UPDATE SET accepted=excluded.accepted,updated_at=now()""",
+        (training_id, user["id"], data.accepted))
+    return {"accepted": data.accepted}
 
 
 class MemberCoachNoteInput(BaseModel):
@@ -1296,12 +1550,12 @@ class MemberSkillInput(BaseModel):
 
 
 @api.get("/drills")
-def list_drills(conn: DB, _staff: Staff):
+def list_drills(conn: DB, _staff: User):
     return conn.execute("SELECT * FROM drills ORDER BY lower(title), id").fetchall()
 
 
 @api.post("/drills")
-def create_drill(data: DrillInput, conn: DB, user: Staff):
+def create_drill(data: DrillInput, conn: DB, user: User):
     return conn.execute(
         """INSERT INTO drills(title,objective,duration_minutes,difficulty,equipment,created_by)
         VALUES (%s,%s,%s,%s,%s,%s) RETURNING *""",
@@ -1311,20 +1565,28 @@ def create_drill(data: DrillInput, conn: DB, user: Staff):
 
 @api.get("/trainings/{training_id}/workspace")
 def training_workspace(training_id: int, conn: DB, user: User):
+    require(user, *("calendar.workspace." + key for key in
+                    ("read", "team_read", "private_read", "feedback_own", "feedback_all", "publish")))
     training = conn.execute("SELECT id FROM trainings WHERE id=%s", (training_id,)).fetchone()
     if not training:
         raise HTTPException(404, "Udalosť sa nenašla.")
     workspace = conn.execute(
-        """SELECT plan,member_note,coach_note FROM training_workspace WHERE training_id=%s""",
+        """SELECT plan,member_note,coach_note,published FROM training_workspace WHERE training_id=%s""",
         (training_id,),
-    ).fetchone() or {"plan": [], "member_note": "", "coach_note": ""}
-    if user["role"] not in STAFF_ROLES:
-        workspace["coach_note"] = ""
-        workspace["feedback"] = conn.execute(
+    ).fetchone() or {"plan": [], "member_note": "", "coach_note": "", "published": False}
+    see_draft = access.allows(user, "calendar.workspace.edit") or access.allows(user, "calendar.workspace.publish")
+    if not access.allows(user, "calendar.workspace.read") or (not workspace["published"] and not see_draft):
+        workspace.pop("plan")
+    if not access.allows(user, "calendar.workspace.team_read"):
+        workspace.pop("member_note")
+    if not access.allows(user, "calendar.workspace.private_read"):
+        workspace.pop("coach_note")
+    if access.allows(user, "calendar.workspace.feedback_own"):
+        workspace["own_feedback"] = conn.execute(
             """SELECT went_well,difficult,next_focus,updated_at FROM training_feedback
             WHERE training_id=%s AND member_id=%s""", (training_id, user["id"]),
         ).fetchone()
-    else:
+    if access.allows(user, "calendar.workspace.feedback_all"):
         workspace["feedback"] = conn.execute(
             """SELECT f.member_id,m.name,m.club_roles AS roles,f.went_well,f.difficult,f.next_focus,f.updated_at
             FROM training_feedback f JOIN members m ON m.id=f.member_id
@@ -1334,9 +1596,15 @@ def training_workspace(training_id: int, conn: DB, user: User):
 
 
 @api.put("/trainings/{training_id}/workspace")
-def save_training_workspace(training_id: int, data: TrainingWorkspaceInput, conn: DB, user: Staff):
-    if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
-        raise HTTPException(404, "Udalosť sa nenašla.")
+def save_training_workspace(training_id: int, data: TrainingWorkspaceInput, conn: DB, user: User):
+    if not data.model_fields_set:
+        raise HTTPException(422, "Zadaj aspoň jednu zmenu plánu.")
+    lock_training(conn, training_id)
+    old = conn.execute("SELECT plan,member_note,coach_note FROM training_workspace WHERE training_id=%s",
+                       (training_id,)).fetchone() or {"plan": [], "member_note": "", "coach_note": ""}
+    fields = {"plan": "edit", "member_note": "team_edit", "coach_note": "private_edit"}
+    for field in data.model_fields_set:
+        require(user, "calendar.workspace." + fields[field])
     plan = []
     for item in data.plan:
         title = str(item.get("title", "")).strip()[:120]
@@ -1348,19 +1616,30 @@ def save_training_workspace(training_id: int, data: TrainingWorkspaceInput, conn
             plan.append({"title": title, "duration_minutes": duration,
                          "notes": str(item.get("notes", ""))[:1000]})
     conn.execute(
-        """INSERT INTO training_workspace(training_id,plan,member_note,coach_note,updated_by)
-        VALUES (%s,%s,%s,%s,%s) ON CONFLICT(training_id) DO UPDATE SET
+        """INSERT INTO training_workspace(training_id,plan,member_note,coach_note,updated_by,published)
+        VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT(training_id) DO UPDATE SET
         plan=excluded.plan,member_note=excluded.member_note,coach_note=excluded.coach_note,
         updated_by=excluded.updated_by,updated_at=now()""",
-        (training_id, Jsonb(plan), data.member_note, data.coach_note, user["id"]),
+        (training_id, Jsonb(plan if "plan" in data.model_fields_set else old["plan"]),
+         data.member_note if "member_note" in data.model_fields_set else old["member_note"],
+         data.coach_note if "coach_note" in data.model_fields_set else old["coach_note"], user["id"],
+         False),
     )
     return {"ok": True}
 
 
+@api.put("/trainings/{training_id}/workspace/publication")
+def publish_training_workspace(training_id: int, data: Publication, conn: DB, _user: User):
+    lock_training(conn, training_id)
+    result = conn.execute("UPDATE training_workspace SET published=%s WHERE training_id=%s",
+                          (data.published, training_id))
+    if not result.rowcount:
+        raise HTTPException(404, "Najprv ulož tréningový plán.")
+    return {"published": data.published}
+
+
 @api.put("/trainings/{training_id}/feedback")
 def save_training_feedback(training_id: int, data: TrainingFeedbackInput, conn: DB, user: User):
-    if "player" not in user["roles"]:
-        raise HTTPException(403, "Spätnú väzbu odovzdávajú členovia.")
     eligible = conn.execute(
         """SELECT t.starts_at <= now() AS started, t.cancelled, p.attended
         FROM trainings t LEFT JOIN participation p ON p.training_id=t.id AND p.member_id=%s
@@ -1380,8 +1659,18 @@ def save_training_feedback(training_id: int, data: TrainingFeedbackInput, conn: 
     return {"ok": True}
 
 
+@api.get("/development/players")
+def development_players(conn: DB, _user: User):
+    return conn.execute("""SELECT id,name,avatar_version,active,club_roles AS roles
+        FROM members WHERE role IN ('member','coach') AND 'player'=ANY(club_roles) ORDER BY name,id""").fetchall()
+
+
 @api.get("/members/{member_id}/development")
-def member_development(member_id: int, conn: DB, _staff: Staff):
+def member_development(member_id: int, conn: DB, _staff: User):
+    if member_id == _staff["id"]:
+        require(_staff, "development.skills.read", "development.skills.own")
+    else:
+        require(_staff, "development.skills.read")
     if not conn.execute("SELECT 1 FROM members WHERE id=%s AND role IN ('member','coach') AND 'player'=ANY(club_roles)", (member_id,)).fetchone():
         raise HTTPException(404, "Člen sa nenašiel.")
     note = conn.execute("SELECT note,updated_at FROM member_coach_notes WHERE member_id=%s", (member_id,)).fetchone()
@@ -1391,11 +1680,13 @@ def member_development(member_id: int, conn: DB, _staff: Staff):
         FROM training_feedback f JOIN trainings t ON t.id=f.training_id WHERE f.member_id=%s
         ORDER BY t.starts_at DESC LIMIT 30""", (member_id,),
     ).fetchall()
-    return {"note": note["note"] if note else "", "skills": skills, "feedback": feedback}
+    return {"note": note["note"] if note and access.allows(_staff, "development.skills.private_read") else "",
+            "skills": skills, "feedback": feedback if member_id == _staff["id"] or
+            access.allows(_staff, "calendar.workspace.feedback_all") else []}
 
 
 @api.put("/members/{member_id}/development/note")
-def save_member_coach_note(member_id: int, data: MemberCoachNoteInput, conn: DB, user: Staff):
+def save_member_coach_note(member_id: int, data: MemberCoachNoteInput, conn: DB, user: User):
     if not conn.execute("SELECT 1 FROM members WHERE id=%s AND role IN ('member','coach') AND 'player'=ANY(club_roles)", (member_id,)).fetchone():
         raise HTTPException(404, "Člen sa nenašiel.")
     conn.execute(
@@ -1407,7 +1698,7 @@ def save_member_coach_note(member_id: int, data: MemberCoachNoteInput, conn: DB,
 
 
 @api.put("/members/{member_id}/development/skills")
-def save_member_skill(member_id: int, data: MemberSkillInput, conn: DB, user: Staff):
+def save_member_skill(member_id: int, data: MemberSkillInput, conn: DB, user: User):
     if not conn.execute("SELECT 1 FROM members WHERE id=%s AND role IN ('member','coach') AND 'player'=ANY(club_roles)", (member_id,)).fetchone():
         raise HTTPException(404, "Člen sa nenašiel.")
     conn.execute(
@@ -1420,6 +1711,7 @@ def save_member_skill(member_id: int, data: MemberSkillInput, conn: DB, user: St
 
 
 class Announcement(BaseModel):
+    published: bool = True
     title: Short
     body: Body
     pinned: bool = False
@@ -1430,16 +1722,17 @@ class Announcement(BaseModel):
     draft_id: int | None = None
 
 
-def notice_access(conn, announcement_id, user, *, lock=False):
+def notice_access(conn, announcement_id, user, *, lock=False, workbench=False):
     notice = conn.execute("SELECT * FROM announcements WHERE id=%s" + (" FOR UPDATE" if lock else ""),
                           (announcement_id,)).fetchone()
-    if not notice:
+    if not notice or (not notice["published"] and not workbench):
         raise HTTPException(404, "Oznam sa nenašiel.")
-    allowed = user["role"] in STAFF_ROLES or notice["audience"] == "team" or (notice["audience"] == "selected" and conn.execute(
+    allowed = access.allows(user, "announcements.notices.read_all") or notice["audience"] == "team" or (notice["audience"] == "coaches" and access.allows(user, "announcements.notices.coaches")) or (notice["audience"] == "selected" and conn.execute(
         "SELECT 1 FROM announcement_recipients WHERE announcement_id=%s AND member_id=%s",
         (announcement_id,user["id"]),
     ).fetchone())
-    if not allowed:
+    if not allowed and not (workbench and not notice["published"] and
+                            (notice["author_id"] == user["id"] or access.allows(user, "announcements.notices.edit"))):
         raise HTTPException(404, "Oznam sa nenašiel.")
     return notice
 
@@ -1455,14 +1748,22 @@ def notice_recipients(conn, data):
             raise HTTPException(422, "Vyber aktívnych členov alebo trénerov.")
         return ids
     return [r["id"] for r in conn.execute(
-        "SELECT id FROM members WHERE active AND role IN ('member','coach') AND (%s='team' OR 'coach'=ANY(club_roles))",
+        """SELECT id FROM members WHERE active AND role IN ('member','coach') AND (%s='team' OR EXISTS (
+            SELECT 1 FROM role_grants g WHERE g.role_key=ANY(members.club_roles)
+            AND g.permission='announcements.notices.coaches'))""",
         (data.audience,),
     ).fetchall()]
 
 
 def save_notice(conn, data, user, announcement_id=None):
+    if data.published:
+        require(user, "announcements.notices.publish")
+    if data.published and data.notify:
+        require(user, "announcements.notices.push")
     if announcement_id is not None:
-        old = notice_access(conn, announcement_id, user, lock=True)
+        old = notice_access(conn, announcement_id, user, lock=True, workbench=True)
+        if old["published"] and not data.published:
+            raise HTTPException(409, "Zverejnený oznam nemôžeš vrátiť na koncept.")
         if old["event_id"] is not None:
             # Keep automatic calendar notices in their own notification category.
             channel = "calendar"
@@ -1470,15 +1771,32 @@ def save_notice(conn, data, user, announcement_id=None):
             channel = "announcements"
     else:
         channel = "announcements"
-    ids = notice_recipients(conn, data)
+    previous_audience = old["audience"] if announcement_id is not None else "team"
+    previous_ids = [row["member_id"] for row in conn.execute(
+        "SELECT member_id FROM announcement_recipients WHERE announcement_id=%s", (announcement_id,)
+    ).fetchall()] if announcement_id and previous_audience == "selected" else []
+    if access.allows(user, "announcements.notices.audience"):
+        ids = notice_recipients(conn, data)
+    else:
+        if data.audience != previous_audience or data.recipient_ids:
+            require(user, "announcements.notices.audience")
+        ids = previous_ids if previous_audience == "selected" else notice_recipients(conn, data)
+    if data.pinned != (old["pinned"] if announcement_id is not None else False):
+        require(user, "announcements.notices.pin")
+    if data.draft_id is not None:
+        require(user, "announcements.files.upload")
+    if announcement_id is not None and not access.allows(user, "announcements.files.upload"):
+        data.keep_attachment_ids = [row["id"] for row in conn.execute(
+            "SELECT id FROM announcement_attachments WHERE announcement_id=%s", (announcement_id,)
+        ).fetchall()]
     if announcement_id is None:
         announcement_id = conn.execute(
-            "INSERT INTO announcements(title,body,pinned,audience) VALUES (%s,%s,%s,%s) RETURNING id",
-            (data.title,data.body,data.pinned,data.audience),
+            "INSERT INTO announcements(title,body,pinned,audience,published,author_id) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
+            (data.title,data.body,data.pinned,data.audience,data.published,user["id"]),
         ).fetchone()["id"]
     else:
-        conn.execute("UPDATE announcements SET title=%s,body=%s,pinned=%s,audience=%s,updated_at=now() WHERE id=%s",
-                     (data.title,data.body,data.pinned,data.audience,announcement_id))
+        conn.execute("UPDATE announcements SET title=%s,body=%s,pinned=%s,audience=%s,published=%s,updated_at=now() WHERE id=%s",
+                     (data.title,data.body,data.pinned,data.audience,data.published,announcement_id))
         conn.execute("DELETE FROM announcement_recipients WHERE announcement_id=%s", (announcement_id,))
         # Revoke queued/late push for the previous version and its old audience.
         conn.execute("DELETE FROM push_notifications WHERE announcement_id=%s", (announcement_id,))
@@ -1499,7 +1817,7 @@ def save_notice(conn, data, user, announcement_id=None):
                           (announcement_id,)).fetchone()
     if sizes["n"]>5 or sizes["size"]>5*1024*1024:
         raise HTTPException(413, "Najviac 5 príloh, spolu najviac 5 MB.")
-    if data.notify:
+    if data.published and data.notify:
         push_service.enqueue(conn, ids, channel, data.title, f"#page=announcements&notice={announcement_id}",
                              announcement_id=announcement_id)
     return {"ok":True,"id":announcement_id}
@@ -1523,50 +1841,98 @@ class Message(BaseModel):
 
 @api.get("/announcements")
 def announcements(conn: DB, user: User):
-    return conn.execute(
+    rows = conn.execute(
         """SELECT a.*, EXISTS (
             SELECT 1 FROM announcement_reads r WHERE r.announcement_id=a.id AND r.member_id=%s
         ) AS is_read,
         ARRAY(SELECT member_id FROM announcement_recipients WHERE announcement_id=a.id) AS recipient_ids,
         COALESCE((SELECT json_agg(json_build_object('id',f.id,'filename',f.filename))
           FROM announcement_attachments f WHERE f.announcement_id=a.id),'[]') AS attachments
-        FROM announcements a WHERE %s OR a.audience='team' OR (a.audience='selected' AND EXISTS (
-          SELECT 1 FROM announcement_recipients r WHERE r.announcement_id=a.id AND r.member_id=%s))
+        FROM announcements a WHERE a.published AND (%s OR a.audience='team' OR (a.audience='coaches' AND %s) OR (a.audience='selected' AND EXISTS (
+          SELECT 1 FROM announcement_recipients r WHERE r.announcement_id=a.id AND r.member_id=%s)))
         ORDER BY a.pinned DESC, a.id DESC LIMIT 100""",
-        (user["id"], user["role"] in STAFF_ROLES, user["id"]),
+        (user["id"], access.allows(user, "announcements.notices.read_all"),
+         access.allows(user, "announcements.notices.coaches"), user["id"]),
     ).fetchall()
+    for row in rows:
+        if not access.allows(user, "announcements.notices.audience"):
+            row.pop("recipient_ids", None)
+        if not access.allows(user, "announcements.files.read") and not access.allows(user, "announcements.files.upload"):
+            row.pop("attachments", None)
+    return rows
+
+
+@api.get("/announcement-workbench")
+def announcement_workbench(conn: DB, user: User):
+    require(user, "announcements.notices.create", "announcements.notices.edit", "announcements.notices.publish")
+    may_review = access.allows(user, "announcements.notices.edit") or access.allows(user, "announcements.notices.publish")
+    rows = conn.execute("""SELECT a.*, ARRAY(SELECT member_id FROM announcement_recipients WHERE announcement_id=a.id) AS recipient_ids,
+        COALESCE((SELECT json_agg(json_build_object('id',f.id,'filename',f.filename))
+          FROM announcement_attachments f WHERE f.announcement_id=a.id),'[]') AS attachments
+        FROM announcements a WHERE NOT a.published AND (%s OR a.author_id=%s) ORDER BY a.id DESC LIMIT 100""",
+        (may_review, user["id"])).fetchall()
+    for row in rows:
+        if not access.allows(user, "announcements.notices.audience"):
+            row.pop("recipient_ids", None)
+        if not access.allows(user, "announcements.files.read") and not access.allows(user, "announcements.files.upload"):
+            row.pop("attachments", None)
+    return rows
+
+
+class PublishAnnouncement(BaseModel):
+    notify: bool = False
+
+
+@api.post("/announcements/{announcement_id}/publish")
+def publish_announcement(announcement_id: int, data: PublishAnnouncement, conn: DB, user: User):
+    if data.notify:
+        require(user, "announcements.notices.push")
+    notice = conn.execute("""UPDATE announcements SET published=true,updated_at=now()
+        WHERE id=%s AND NOT published RETURNING title,audience""", (announcement_id,)).fetchone()
+    if notice is None:
+        raise HTTPException(409, "Koncept sa nenašiel alebo už bol zverejnený.")
+    if data.notify:
+        if notice["audience"] == "selected":
+            recipients = [row["member_id"] for row in conn.execute(
+                "SELECT member_id FROM announcement_recipients WHERE announcement_id=%s", (announcement_id,)
+            ).fetchall()]
+        else:
+            recipients = notice_recipients(conn, Announcement(title=notice["title"], body="-", audience=notice["audience"]))
+        push_service.enqueue(conn, recipients, "announcements", notice["title"],
+                             f"#page=announcements&notice={announcement_id}", announcement_id=announcement_id)
+    return {"ok": True}
 
 
 @api.post("/announcements")
-def announce(data: Announcement, conn: DB, user: Staff):
+def announce(data: Announcement, conn: DB, user: User):
     return save_notice(conn,data,user)
 
 
 @api.put("/announcements/{announcement_id}")
-def edit_announcement(announcement_id: int, data: Announcement, conn: DB, user: Staff):
+def edit_announcement(announcement_id: int, data: Announcement, conn: DB, user: User):
     return save_notice(conn,data,user,announcement_id)
 
 
 @api.delete("/announcements/{announcement_id}")
-def delete_announcement(announcement_id: int, conn: DB, user: Staff):
-    notice_access(conn,announcement_id,user,lock=True)
+def delete_announcement(announcement_id: int, conn: DB, user: User):
+    notice_access(conn,announcement_id,user,lock=True,workbench=True)
     conn.execute("DELETE FROM announcements WHERE id=%s", (announcement_id,))
     return {"ok":True}
 
 
 @api.get("/announcement-recipients")
-def announcement_contacts(conn: DB, _user: Staff):
+def announcement_contacts(conn: DB, _user: User):
     return conn.execute("SELECT id,name,role,club_roles AS roles FROM members WHERE active AND role IN ('member','coach') ORDER BY name,id").fetchall()
 
 
 @api.post("/announcement-drafts")
-def create_announcement_draft(conn: DB, user: Staff):
+def create_announcement_draft(conn: DB, user: User):
     conn.execute("DELETE FROM announcement_drafts WHERE created_at<now()-interval '1 day'")
     return conn.execute("INSERT INTO announcement_drafts(member_id) VALUES (%s) RETURNING id", (user["id"],)).fetchone()
 
 
 @api.post("/announcement-drafts/{draft_id}/attachments")
-async def upload_announcement_attachment(draft_id: int, request: Request, conn: DB, user: Staff):
+async def upload_announcement_attachment(draft_id: int, request: Request, conn: DB, user: User):
     if not conn.execute("SELECT 1 FROM announcement_drafts WHERE id=%s AND member_id=%s FOR UPDATE",
                          (draft_id,user["id"])).fetchone():
         raise HTTPException(404,"Koncept sa nenašiel.")
@@ -1607,7 +1973,7 @@ class Pin(BaseModel):
 
 
 @api.put("/announcements/{announcement_id}/pin")
-def pin_announcement(announcement_id: int, data: Pin, conn: DB, _staff: Staff):
+def pin_announcement(announcement_id: int, data: Pin, conn: DB, _staff: User):
     if not conn.execute(
         "UPDATE announcements SET pinned=%s WHERE id=%s RETURNING id",
         (data.pinned, announcement_id),
@@ -1636,7 +2002,7 @@ def places(conn: DB, _user: User):
 
 
 @api.post("/places")
-def add_place(data: Place, conn: DB, _staff: Staff):
+def add_place(data: Place, conn: DB, _staff: User):
     conn.execute("INSERT INTO places (name) VALUES (%s) ON CONFLICT DO NOTHING", (data.name,))
     return {"ok": True}
 
@@ -1644,12 +2010,14 @@ def add_place(data: Place, conn: DB, _staff: Staff):
 @api.get("/documents")
 def documents(conn: DB, _user: User):
     return conn.execute(
-        "SELECT id, title, filename, created_at FROM documents ORDER BY id DESC"
+        """SELECT d.id,d.title,d.filename,d.created_at,d.requires_acknowledgement,
+            EXISTS (SELECT 1 FROM document_acknowledgements a WHERE a.document_id=d.id AND a.member_id=%s)
+              AS acknowledged FROM documents d ORDER BY d.id DESC""", (_user["id"],)
     ).fetchall()
 
 
 @api.post("/documents")
-async def upload_document(request: Request, conn: DB, _staff: Staff):
+async def upload_document(request: Request, conn: DB, _staff: User):
     # Read in bounded chunks even when Content-Length is missing.
     content = bytearray()
     async for chunk in request.stream():
@@ -1680,14 +2048,42 @@ def download_document(document_id: int, conn: DB, _user: User):
 
 
 @api.delete("/documents/{document_id}")
-def delete_document(document_id: int, conn: DB, _staff: Staff):
+def delete_document(document_id: int, conn: DB, _staff: User):
     conn.execute("DELETE FROM documents WHERE id=%s", (document_id,))
     return {"ok": True}
 
 
+class DocumentAcknowledgementSetting(BaseModel):
+    required: bool
+
+
+@api.put("/documents/{document_id}/acknowledgement-settings")
+def configure_document_ack(document_id: int, data: DocumentAcknowledgementSetting, conn: DB, _user: User):
+    result = conn.execute("UPDATE documents SET requires_acknowledgement=%s WHERE id=%s",
+                          (data.required, document_id))
+    if not result.rowcount:
+        raise HTTPException(404, "Dokument sa nenašiel.")
+    return {"required": data.required}
+
+
+@api.post("/documents/{document_id}/acknowledgement")
+def acknowledge_document(document_id: int, conn: DB, user: User):
+    document = conn.execute("SELECT requires_acknowledgement FROM documents WHERE id=%s FOR UPDATE",
+                            (document_id,)).fetchone()
+    if not document or not document["requires_acknowledgement"]:
+        raise HTTPException(404, "Dokument nevyžaduje potvrdenie.")
+    conn.execute("""INSERT INTO document_acknowledgements(document_id,member_id) VALUES (%s,%s)
+        ON CONFLICT DO NOTHING""", (document_id, user["id"]))
+    return {"ok": True}
+
+
+@api.get("/documents/{document_id}/acknowledgements")
+def list_document_ack(document_id: int, conn: DB, _user: User):
+    return conn.execute("""SELECT m.id,m.name,a.created_at FROM document_acknowledgements a
+        JOIN members m ON m.id=a.member_id WHERE a.document_id=%s ORDER BY m.name""", (document_id,)).fetchall()
+
+
 def chat_user(user: User):
-    if user["role"] not in ("member", "coach"):
-        raise HTTPException(403, "Klubové správy sú určené členom a trénerom.")
     return user
 
 
@@ -1711,8 +2107,8 @@ def accessible_group(conn, group_id, user, lock=False):
     if not group:
         raise HTTPException(404, "Skupina sa nenašla.")
     allowed = (
-        group["system_key"] == "team"
-        or (group["system_key"] == "coaches" and "coach" in user["roles"])
+        user["role"] == "superadmin" or group["system_key"] == "team"
+        or (group["system_key"] == "coaches" and access.allows(user, "messages.groups.coaches"))
         or (group["system_key"] is None and conn.execute(
             "SELECT 1 FROM chat_group_members WHERE group_id=%s AND member_id=%s",
             (group_id, user["id"]),
@@ -1727,7 +2123,9 @@ def group_participants(conn, group):
     if group["system_key"]:
         return conn.execute(
             """SELECT id, name, role, avatar_version, club_roles AS roles FROM members WHERE active AND password_hash IS NOT NULL
-            AND role IN ('member','coach') AND (%s OR 'coach'=ANY(club_roles)) ORDER BY name, id""",
+            AND role IN ('member','coach') AND (%s OR EXISTS (
+                SELECT 1 FROM role_grants g WHERE g.role_key=ANY(members.club_roles)
+                AND g.permission='messages.groups.coaches')) ORDER BY name, id""",
             (group["system_key"] == "team",),
         ).fetchall()
     return conn.execute(
@@ -1739,12 +2137,10 @@ def group_participants(conn, group):
 
 
 def validate_group_members(conn, data, user):
-    if user["role"] != "coach":
-        raise HTTPException(403, "Skupiny vytvárajú a upravujú tréneri.")
     member_ids = set(data.member_ids) | {user["id"]}
     found = conn.execute(
         """SELECT id FROM members WHERE id=ANY(%s) AND active AND password_hash IS NOT NULL
-        AND role IN ('member', 'coach')""", (list(member_ids),),
+        AND (role IN ('member', 'coach') OR (id=%s AND role='superadmin'))""", (list(member_ids), user["id"]),
     ).fetchall()
     if len(found) != len(member_ids):
         raise HTTPException(422, "Vyber aktívnych členov alebo trénerov.")
@@ -1767,20 +2163,18 @@ def conversations(conn: DB, user: ChatUser):
         (SELECT count(*) FROM messages WHERE sender_id=r.contact_id AND recipient_id=%s
          AND read_at IS NULL) AS unread
         FROM recent r JOIN members m ON m.id=r.contact_id
-        WHERE m.role IN ('coach', 'member') ORDER BY r.id DESC""",
+        ORDER BY r.id DESC""",
         (user["id"], user["id"], user["id"], user["id"]),
     ).fetchall()
     groups = conn.execute(
         """SELECT g.id AS group_id, g.name, g.system_key, true AS active, 'group' AS type,
         latest.id, latest.body, latest.created_at, author.name AS sender,
         (SELECT count(*) FROM messages p WHERE p.group_id=g.id AND p.sender_id<>%s
-         AND p.sender_id IN (SELECT id FROM members WHERE role IN ('member','coach'))
          AND p.id>COALESCE(gr.last_message_id, 0)) AS unread
         FROM chat_groups g
         LEFT JOIN chat_group_reads gr ON gr.group_id=g.id AND gr.member_id=%s
         LEFT JOIN LATERAL (
             SELECT id, body, created_at, sender_id FROM messages WHERE group_id=g.id
-            AND sender_id IN (SELECT id FROM members WHERE role IN ('member','coach'))
             ORDER BY id DESC LIMIT 1
         ) latest ON true
         LEFT JOIN members author ON author.id=latest.sender_id
@@ -1789,7 +2183,7 @@ def conversations(conn: DB, user: ChatUser):
             SELECT 1 FROM chat_group_members gm WHERE gm.group_id=g.id AND gm.member_id=%s
         ))
         ORDER BY g.system_key IS NULL, latest.id DESC NULLS LAST, g.id""",
-        (user["id"], user["id"], "coach" in user["roles"], user["id"]),
+        (user["id"], user["id"], access.allows(user, "messages.groups.coaches"), user["id"]),
     ).fetchall()
     # Default rooms remain visible before their first message.
     return groups + private
@@ -1797,6 +2191,7 @@ def conversations(conn: DB, user: ChatUser):
 
 @api.get("/contacts")
 def contacts(conn: DB, user: ChatUser):
+    require(user, "messages.chat.direct", "messages.groups.create", "messages.groups.edit")
     return conn.execute(
         """SELECT id, name, role, avatar_version, club_roles AS roles FROM members WHERE active AND password_hash IS NOT NULL
         AND role IN ('member', 'coach') AND id<>%s ORDER BY name, id""", (user["id"],),
@@ -1807,7 +2202,7 @@ def contacts(conn: DB, user: ChatUser):
 def group_detail(group_id: int, conn: DB, user: ChatUser):
     group = accessible_group(conn, group_id, user)
     return {**group, "members": group_participants(conn, group),
-            "can_manage": user["role"] == "coach" and group["system_key"] is None}
+            "can_manage": access.allows(user, "messages.groups.edit") and group["system_key"] is None}
 
 
 @api.post("/chat-groups")
@@ -1860,7 +2255,7 @@ def enrich_messages(conn, user, rows):
         """SELECT r.message_id, r.emoji, count(*) AS count, bool_or(r.member_id=%s) AS mine
         FROM message_reactions r JOIN messages p ON p.id=r.message_id
         JOIN members m ON m.id=r.member_id
-        WHERE r.message_id=ANY(%s) AND r.member_id<>p.sender_id AND m.role IN ('member','coach')
+        WHERE r.message_id=ANY(%s) AND r.member_id<>p.sender_id
         GROUP BY r.message_id,r.emoji ORDER BY r.emoji""",
         (user["id"], list(by_id)),
     ).fetchall()
@@ -1882,8 +2277,7 @@ def interactive_message(conn, message_id, user, *, edit_options=False):
         """SELECT p.id,p.sender_id,p.recipient_id,p.group_id,p.poll_options
         FROM messages p JOIN members s ON s.id=p.sender_id
         LEFT JOIN members r ON r.id=p.recipient_id
-        WHERE p.id=%s AND s.role IN ('member','coach')
-        AND (p.group_id IS NOT NULL OR (r.role IN ('member','coach') AND %s IN (p.sender_id,p.recipient_id))) """ + lock,
+        WHERE p.id=%s AND (p.group_id IS NOT NULL OR %s IN (p.sender_id,p.recipient_id)) """ + lock,
         (message_id, user["id"]),
     ).fetchone()
     if not row:
@@ -1929,7 +2323,7 @@ def message_reactors(message_id: int, emoji: ReactionEmoji, conn: DB, user: Chat
         raise HTTPException(403, "Zoznam reakcií vidí iba autor správy.")
     return conn.execute(
         """SELECT m.id,m.name,m.avatar_version FROM message_reactions r JOIN members m ON m.id=r.member_id
-        WHERE r.message_id=%s AND r.emoji=%s AND r.member_id<>%s AND m.role IN ('member','coach')
+        WHERE r.message_id=%s AND r.emoji=%s AND r.member_id<>%s
         ORDER BY lower(m.name),m.id""",
         (message_id, emoji, user["id"]),
     ).fetchall()
@@ -1980,7 +2374,7 @@ def messages(conn: DB, user: ChatUser, before: int | None = None,
         rows = conn.execute(
             """SELECT p.*, s.name AS sender, s.avatar_version AS sender_avatar_version, s.club_roles AS sender_roles
             FROM messages p JOIN members s ON s.id=p.sender_id
-            WHERE p.group_id=%s AND p.id<%s AND s.role IN ('member','coach') ORDER BY p.id DESC LIMIT 200""",
+            WHERE p.group_id=%s AND p.id<%s ORDER BY p.id DESC LIMIT 200""",
             (group_id, before or 9223372036854775807),
         ).fetchall()
         return enrich_messages(conn, user, rows)
@@ -1988,7 +2382,6 @@ def messages(conn: DB, user: ChatUser, before: int | None = None,
         """SELECT p.*, s.name AS sender, s.avatar_version AS sender_avatar_version, r.name AS recipient FROM messages p
         JOIN members s ON s.id=p.sender_id JOIN members r ON r.id=p.recipient_id
         WHERE p.group_id IS NULL AND (sender_id=%s OR recipient_id=%s) AND p.id < %s
-        AND s.role IN ('member', 'coach') AND r.role IN ('member', 'coach')
         AND (%s::bigint IS NULL OR sender_id=%s OR recipient_id=%s)
         ORDER BY p.id DESC LIMIT 200""",
         (user["id"], user["id"], before or 9223372036854775807, contact_id, contact_id, contact_id),
@@ -1998,6 +2391,9 @@ def messages(conn: DB, user: ChatUser, before: int | None = None,
 
 @api.post("/messages")
 def send_message(data: Message, conn: DB, user: ChatUser):
+    require(user, "messages.chat.send_group" if data.group_id is not None else "messages.chat.direct")
+    if data.poll_options is not None:
+        require(user, "messages.poll.create")
     options = Jsonb(data.poll_options) if data.poll_options is not None else None
     if data.group_id is not None:
         accessible_group(conn, data.group_id, user, lock=True)
@@ -2008,8 +2404,9 @@ def send_message(data: Message, conn: DB, user: ChatUser):
     else:
         target = conn.execute(
             """SELECT id FROM members WHERE id=%s AND id<>%s AND active
-            AND role IN ('member', 'coach') AND password_hash IS NOT NULL""",
-            (data.recipient_id, user["id"]),
+            AND password_hash IS NOT NULL AND (role<>'superadmin' OR EXISTS (
+                SELECT 1 FROM messages WHERE sender_id=members.id AND recipient_id=%s AND group_id IS NULL))
+            """, (data.recipient_id, user["id"], user["id"]),
         ).fetchone()
         if not target:
             raise HTTPException(404, "Adresát sa nenašiel.")
@@ -2099,7 +2496,7 @@ def battery_timeline(end: CalendarDate, conn: DB, _user: User):
 
 
 @api.post("/batteries")
-def add_battery(data: Battery, conn: DB, _staff: Staff):
+def add_battery(data: Battery, conn: DB, _staff: User):
     result = conn.execute("INSERT INTO batteries VALUES (%s,%s) ON CONFLICT DO NOTHING",
                           (data.code, data.label))
     if not result.rowcount:
@@ -2129,6 +2526,7 @@ def delete_battery_event(code: Code, event_id: int, conn: DB, user: User):
 
 @api.post("/batteries/{code}/events")
 def add_event(code: Code, data: BatteryEvent, conn: DB, user: User):
+    require(user, "equipment.battery." + data.action)
     if not conn.execute("SELECT 1 FROM batteries WHERE code=%s FOR UPDATE", (code,)).fetchone():
         raise HTTPException(404, "Batéria sa nenašla.")
     if data.request_id is not None:
@@ -2179,16 +2577,23 @@ class EquipmentEventInput(BaseModel):
 def equipment_assets(conn: DB, _user: User):
     return conn.execute(
         """SELECT a.code,a.kind,a.label,a.created_at,e.action AS status,e.created_at AS status_at,
-        CASE WHEN e.action='assigned' THEN e.member_id END AS assigned_member_id,
-        CASE WHEN e.action='assigned' THEN m.name END AS assigned_member_name
+        CASE WHEN %s OR (%s AND c.member_id=%s) THEN m.name END AS assigned_member_name,
+        l.status AS loan_status,
+        CASE WHEN %s OR (%s AND l.member_id=%s) THEN borrower.name END AS loan_member_name
         FROM equipment_assets a LEFT JOIN LATERAL (
-            SELECT action,created_at,member_id FROM equipment_events WHERE code=a.code ORDER BY id DESC LIMIT 1
-        ) e ON true LEFT JOIN members m ON m.id=e.member_id ORDER BY a.kind,a.code"""
+            SELECT action,created_at FROM equipment_events WHERE code=a.code
+            AND action NOT IN ('note','assigned','returned') ORDER BY id DESC LIMIT 1
+        ) e ON true LEFT JOIN equipment_current_assignment c ON c.code=a.code AND c.action='assigned'
+        LEFT JOIN members m ON m.id=c.member_id
+        LEFT JOIN equipment_loans l ON l.code=a.code AND l.status IN ('pending','accepted')
+        LEFT JOIN members borrower ON borrower.id=l.member_id ORDER BY a.kind,a.code""",
+        (access.allows(_user, "equipment.loans.read"), access.allows(_user, "equipment.loans.own"), _user["id"],
+         access.allows(_user, "equipment.loans.read"), access.allows(_user, "equipment.loans.own"), _user["id"]),
     ).fetchall()
 
 
 @api.post("/equipment/assets")
-def add_equipment_asset(data: EquipmentAssetInput, conn: DB, _staff: Staff):
+def add_equipment_asset(data: EquipmentAssetInput, conn: DB, _staff: User):
     result = conn.execute("INSERT INTO equipment_assets(code,kind,label) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
                           (data.code, data.kind, data.label))
     if not result.rowcount:
@@ -2203,16 +2608,19 @@ def equipment_asset_events(code: EquipmentCode, conn: DB, _user: User):
     return conn.execute(
         """SELECT e.id,e.code,e.action,e.note,e.created_at,
         CASE WHEN actor.role='superadmin' THEN 'Systém' ELSE COALESCE(actor.name,'Odstránený účet') END AS name,
-        assigned.name AS assigned_member_name
+        CASE WHEN %s OR (%s AND e.member_id=%s) THEN assigned.name END AS assigned_member_name
         FROM equipment_events e LEFT JOIN members actor ON actor.id=e.actor_id
         LEFT JOIN members assigned ON assigned.id=e.member_id
         WHERE e.code=%s ORDER BY e.id DESC LIMIT 100""",
-        (code,),
+        (access.allows(_user, "equipment.loans.read"), access.allows(_user, "equipment.loans.own"), _user["id"], code),
     ).fetchall()
 
 
 @api.post("/equipment/assets/{code}/events")
 def add_equipment_event(code: EquipmentCode, data: EquipmentEventInput, conn: DB, user: User):
+    key = {"assigned": "equipment.loans.assign", "returned": "equipment.loans.unassign"}.get(
+        data.action, "equipment.service." + data.action)
+    require(user, key)
     asset = conn.execute("SELECT kind FROM equipment_assets WHERE code=%s FOR UPDATE", (code,)).fetchone()
     if not asset:
         raise HTTPException(404, "Zariadenie sa nenašlo.")
@@ -2227,12 +2635,111 @@ def add_equipment_event(code: EquipmentCode, data: EquipmentEventInput, conn: DB
             raise HTTPException(422, "Vybraný člen nemá aktívny účet.")
     elif data.member_id is not None:
         raise HTTPException(422, "Člen sa vyberá iba pri pridelení zariadenia.")
+    if data.action in {"assigned", "retired"} and conn.execute(
+        "SELECT 1 FROM equipment_loans WHERE code=%s AND status IN ('pending','accepted')", (code,)
+    ).fetchone():
+        raise HTTPException(409, "Zariadenie má otvorenú zápožičku.")
     if data.action != "note":
-        last = conn.execute("SELECT action FROM equipment_events WHERE code=%s ORDER BY id DESC LIMIT 1", (code,)).fetchone()
+        last = conn.execute("""SELECT action FROM equipment_events WHERE code=%s
+            AND action NOT IN ('note','assigned','returned') ORDER BY id DESC LIMIT 1""", (code,)).fetchone()
         if last and last["action"] == "retired":
             raise HTTPException(409, "Zariadenie je vyradené.")
     conn.execute("INSERT INTO equipment_events(code,actor_id,action,member_id,note) VALUES (%s,%s,%s,%s,%s)",
                   (code, user["id"], data.action, data.member_id, data.note))
+    return {"ok": True}
+
+
+class EquipmentLabel(BaseModel):
+    label: Short
+
+
+class EquipmentLoanInput(BaseModel):
+    member_id: int = Field(gt=0)
+    due_at: AwareDatetime | None = None
+
+
+class EquipmentLoanAction(BaseModel):
+    action: Literal["accept", "return", "cancel"]
+
+
+def set_equipment_label(conn, table, code, label):
+    # Only table names from these two static routes are accepted.
+    result = conn.execute(f"UPDATE {table} SET label=%s WHERE code=%s", (label, code))
+    if not result.rowcount:
+        raise HTTPException(404, "Zariadenie sa nenašlo.")
+    return {"ok": True}
+
+
+@api.put("/equipment/assets/{code}")
+def edit_equipment_asset(code: EquipmentCode, data: EquipmentLabel, conn: DB, _user: User):
+    return set_equipment_label(conn, "equipment_assets", code, data.label)
+
+
+@api.put("/batteries/{code}")
+def edit_battery(code: Code, data: EquipmentLabel, conn: DB, _user: User):
+    return set_equipment_label(conn, "batteries", code, data.label)
+
+
+@api.get("/equipment/loan-members")
+def loan_members(conn: DB, user: User):
+    require(user, *("equipment.loans." + key for key in ("assign", "drone", "controller", "charger")))
+    return conn.execute("""SELECT id,name FROM members WHERE active AND password_hash IS NOT NULL
+        AND role IN ('member','coach') ORDER BY name,id""").fetchall()
+
+
+@api.get("/equipment/assets/{code}/loans")
+def equipment_loans(code: EquipmentCode, conn: DB, user: User):
+    require(user, "equipment.loans.read", "equipment.loans.own", "equipment.loans.accept",
+            "equipment.loans.return", "equipment.loans.cancel")
+    return conn.execute("""SELECT l.*,m.name AS member_name FROM equipment_loans l
+        LEFT JOIN members m ON m.id=l.member_id WHERE l.code=%s AND (%s OR l.member_id=%s)
+        ORDER BY l.id DESC LIMIT 100""",
+        (code, any(access.allows(user, "equipment.loans." + key) for key in ("read","return","cancel")), user["id"])).fetchall()
+
+
+def lock_asset(conn, code):
+    asset = conn.execute("SELECT * FROM equipment_assets WHERE code=%s FOR UPDATE", (code,)).fetchone()
+    if asset is None:
+        raise HTTPException(404, "Zariadenie sa nenašlo.")
+    return asset
+
+
+@api.post("/equipment/assets/{code}/loans")
+def create_equipment_loan(code: EquipmentCode, data: EquipmentLoanInput, conn: DB, user: User):
+    asset = lock_asset(conn, code)
+    require(user, "equipment.loans." + asset["kind"])
+    custody = conn.execute("SELECT action FROM equipment_current_assignment WHERE code=%s", (code,)).fetchone()
+    if custody and custody["action"] in {"assigned", "retired"}:
+        raise HTTPException(409, "Zariadenie je pridelené alebo vyradené.")
+    if not conn.execute("""SELECT 1 FROM members WHERE id=%s AND active AND password_hash IS NOT NULL
+        AND role IN ('member','coach') FOR KEY SHARE""", (data.member_id,)).fetchone():
+        raise HTTPException(422, "Vybraný člen nemá aktívny účet.")
+    if data.due_at and data.due_at <= datetime.now(timezone.utc):
+        raise HTTPException(422, "Termín vrátenia musí byť v budúcnosti.")
+    loan = conn.execute("""INSERT INTO equipment_loans(code,member_id,created_by,due_at)
+        VALUES (%s,%s,%s,%s) ON CONFLICT (code) WHERE status IN ('pending','accepted')
+        DO NOTHING RETURNING id""", (code, data.member_id, user["id"], data.due_at)).fetchone()
+    if loan is None:
+        raise HTTPException(409, "Zariadenie už má otvorenú zápožičku.")
+    return loan
+
+
+@api.put("/equipment/assets/{code}/loans/{loan_id}")
+def update_equipment_loan(code: EquipmentCode, loan_id: int, data: EquipmentLoanAction, conn: DB, user: User):
+    require(user, "equipment.loans." + data.action)
+    lock_asset(conn, code)
+    loan = conn.execute("SELECT * FROM equipment_loans WHERE id=%s AND code=%s FOR UPDATE", (loan_id, code)).fetchone()
+    if loan is None or (data.action == "accept" and loan["member_id"] != user["id"]):
+        raise HTTPException(404, "Zápožička sa nenašla.")
+    expected = "accepted" if data.action == "return" else "pending"
+    if loan["status"] != expected:
+        raise HTTPException(409, "Zápožička už zmenila stav.")
+    if data.action == "accept":
+        conn.execute("UPDATE equipment_loans SET status='accepted',accepted_at=now() WHERE id=%s", (loan_id,))
+    else:
+        status = "returned" if data.action == "return" else "cancelled"
+        conn.execute("UPDATE equipment_loans SET status=%s,closed_by=%s,closed_at=now() WHERE id=%s",
+                     (status, user["id"], loan_id))
     return {"ok": True}
 
 
@@ -2313,7 +2820,7 @@ def scan_value(value):
 
 
 @api.get('/scan/events')
-def scan_events(conn:DB, _staff:Staff, day:CalendarDate | None = None):
+def scan_events(conn:DB, _staff:User, day:CalendarDate | None = None):
     day=day or datetime.now(CLUB_ZONE).date()
     return conn.execute(
         """SELECT id,title,kind,starts_at,ends_at,
@@ -2332,7 +2839,7 @@ class PrivateScanEvent(BaseModel):
 
 
 @api.post('/scan/private-events')
-def create_private_scan_event(data:PrivateScanEvent,conn:DB,user:Staff):
+def create_private_scan_event(data:PrivateScanEvent,conn:DB,user:User):
     if data.starts_at > datetime.now(timezone.utc) or (data.ends_at and data.ends_at <= data.starts_at):
         raise HTTPException(422,"Súkromná udalosť musí práve prebiehať alebo už začať a koniec musí nasledovať po začiatku.")
     event=conn.execute(
@@ -2346,6 +2853,9 @@ def create_private_scan_event(data:PrivateScanEvent,conn:DB,user:Staff):
 @api.post('/scan')
 def scan(data:ScanRequest, conn:DB, user:User):
     kind,code=scan_value(data.value)
+    if kind in {"charger", "drone", "controller", "battery"}:
+        require(user, "scanner.codes.equipment")
+        require(user, "equipment.assets.read")
     if kind=='charger':
         batteries=conn.execute(
             """SELECT b.code,b.label,
@@ -2354,19 +2864,26 @@ def scan(data:ScanRequest, conn:DB, user:User):
               ORDER BY id DESC LIMIT 1) AS status
             FROM batteries b ORDER BY b.code"""
         ).fetchall()
-        return {'type':'charger','code':code,'batteries':batteries}
+        asset = conn.execute("""SELECT a.code,a.kind,a.label,l.status AS loan_status
+            FROM equipment_assets a LEFT JOIN equipment_loans l ON l.code=a.code AND l.status IN ('pending','accepted')
+            WHERE a.code=%s""", (code,)).fetchone()
+        return {'type':'charger','code':code,'batteries':batteries,'asset':asset}
     if kind in {'controller','drone'}:
         asset=conn.execute(
-            """SELECT a.code,a.kind,a.label,e.action AS status,e.created_at AS status_at
+            """SELECT a.code,a.kind,a.label,e.action AS status,e.created_at AS status_at,
+              l.status AS loan_status
             FROM equipment_assets a LEFT JOIN LATERAL (
-              SELECT action,created_at FROM equipment_events WHERE code=a.code ORDER BY id DESC LIMIT 1
-            ) e ON true WHERE a.code=%s""",(code,),
+              SELECT action,created_at FROM equipment_events WHERE code=a.code
+              AND action NOT IN ('note','assigned','returned') ORDER BY id DESC LIMIT 1
+            ) e ON true LEFT JOIN equipment_loans l ON l.code=a.code AND l.status IN ('pending','accepted')
+            WHERE a.code=%s""",(code,),
         ).fetchone()
-        if not asset and user['role'] not in STAFF_ROLES:
+        if not asset and not access.allows(user, "equipment.assets.create"):
             raise HTTPException(404,'Zariadenie nie je evidované. Požiadaj trénera o jeho pridanie.')
         return {'type':'equipment','exists':bool(asset),'code':code,
                 'kind':asset['kind'] if asset else kind,'label':asset['label'] if asset else code,
-                'status':asset['status'] if asset else None,'status_at':asset['status_at'] if asset else None}
+                'status':asset['status'] if asset else None,'status_at':asset['status_at'] if asset else None,
+                'loan_status':asset['loan_status'] if asset else None}
     if kind=='battery':
         battery=conn.execute(
             """SELECT b.*,(SELECT CASE WHEN action='used' THEN 'in_drone' ELSE action END FROM battery_events WHERE code=b.code
@@ -2378,21 +2895,23 @@ def scan(data:ScanRequest, conn:DB, user:User):
             FROM batteries b WHERE b.code=%s""",(code,),
         ).fetchone()
         if not battery:
-            if user['role'] not in STAFF_ROLES:
+            if not access.allows(user, "equipment.assets.create"):
                 raise HTTPException(404,'Batéria nie je evidovaná. Požiadaj trénera o jej pridanie.')
             return {'type':'battery','exists':False,'code':code}
         return {'type':'battery','exists':True,**battery}
-    if user['role'] not in STAFF_ROLES:
-        raise HTTPException(403,'Členské QR kódy môže skenovať iba tréner.')
+    require(user, "scanner.codes.member")
     # Match the same locking order as attendance edits and event deletion.
     if data.event_id is not None:
+        if user.get('preview'):
+            raise HTTPException(403, "V náhľade roly sa údaje nemenia.")
         event=lock_training(conn,data.event_id)
+        require(user, "attendance.records.scan")
         if event['cancelled'] or event['starts_at']>datetime.now(timezone.utc) or (event['ends_at'] and event['ends_at']<datetime.now(timezone.utc)):
             raise HTTPException(409,'Dochádzku možno zapísať iba počas prebiehajúcej alebo začatej nezrušenej udalosti.')
     person=conn.execute(
-        "SELECT id,name FROM members WHERE card_token=%s AND role IN ('member','coach') AND 'player'=ANY(club_roles) AND active FOR UPDATE",(code,),
+        "SELECT id,name FROM members WHERE card_token=%s AND role IN ('member','coach') AND active FOR UPDATE",(code,),
     ).fetchone()
-    if not person:
+    if not person or not card_eligible(conn, person["id"]):
         raise HTTPException(404,'Členský QR už neplatí alebo člen nie je aktívny.')
     if data.event_id is None:
         return {'type':'member',**person,'recorded':False}
@@ -2442,10 +2961,18 @@ def charge_batteries(data:BatteryChargeBatch,conn:DB,user:User):
     return {'ok':True,'count':len(codes)}
 
 
+def card_eligible(conn, member_id):
+    member = conn.execute("SELECT role,club_roles FROM members WHERE id=%s AND active", (member_id,)).fetchone()
+    return member and (member["role"] == "superadmin" or
+                       "profile.card.own" in access.effective(conn, member["club_roles"] or []))
+
+
 def digital_card(conn,member_id):
+    if not card_eligible(conn, member_id):
+        raise HTTPException(404, "Členský QR nie je dostupný.")
     card=conn.execute(
         """UPDATE members SET card_token=COALESCE(card_token,%s)
-        WHERE id=%s AND role IN ('member','coach') AND 'player'=ANY(club_roles) AND active RETURNING id,name,card_token""",
+        WHERE id=%s AND active RETURNING id,name,card_token""",
         (secrets.token_urlsafe(32),member_id),
     ).fetchone()
     if not card:
@@ -2493,31 +3020,27 @@ def card_qr(conn,member_id):
 
 @api.get('/me/card')
 def my_card(conn:DB,user:User):
-    if 'player' not in user['roles']:
-        raise HTTPException(403,'Členský QR je určený členom tímu.')
     return digital_card(conn,user['id'])
 
 
 @api.get('/me/card.svg')
 def my_card_qr(conn:DB,user:User):
-    if 'player' not in user['roles']:
-        raise HTTPException(403,'Členský QR je určený členom tímu.')
     return card_qr(conn,user['id'])
 
 
 @api.get('/members/{member_id}/card')
-def member_card(member_id:int,conn:DB,_staff:Staff):
+def member_card(member_id:int,conn:DB,_staff:User):
     return digital_card(conn,member_id)
 
 
 @api.get('/members/{member_id}/card.svg')
-def member_card_qr(member_id:int,conn:DB,_staff:Staff):
+def member_card_qr(member_id:int,conn:DB,_staff:User):
     return card_qr(conn,member_id)
 
 
 @api.post('/members/{member_id}/card/reset')
-def reset_member_card(member_id:int,conn:DB,_staff:Staff):
-    if not conn.execute("UPDATE members SET card_token=%s WHERE id=%s AND role IN ('member','coach') AND 'player'=ANY(club_roles) AND active",
+def reset_member_card(member_id:int,conn:DB,_staff:User):
+    if not conn.execute("UPDATE members SET card_token=%s WHERE id=%s AND role IN ('member','coach') AND active",
                         (secrets.token_urlsafe(32),member_id)).rowcount:
         raise HTTPException(404,'Aktívny člen sa nenašiel.')
     return digital_card(conn,member_id)
@@ -2598,6 +3121,8 @@ def push_notification(notification_id:int, conn:DB, user:User):
                       (notification_id,user['id'])).fetchone()
     if not item or not user['push_'+item['channel']]:
         raise HTTPException(404,'Upozornenie už nie je dostupné.')
+    require(user, {"calendar": "calendar.events.read", "messages": "messages.chat.read",
+                   "announcements": "announcements.notices.read"}[item["channel"]])
     if item['announcement_id'] is not None:
         notice=notice_access(conn,item['announcement_id'],user)
         if notice['audience']=='selected' and not conn.execute(

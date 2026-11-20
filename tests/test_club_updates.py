@@ -45,12 +45,14 @@ class ClubUpdates(unittest.TestCase):
             conn.execute("INSERT INTO chat_groups(name,system_key) VALUES ('Celý tím','team'),('Tréneri','coaches')")
         self.as_user('coach')
 
-    def as_user(self,name):
-        def current():
-            with portal.connect() as conn:
-                return conn.execute("SELECT *, club_roles AS roles FROM members WHERE id=%s",
-                                    (self.ids[name],)).fetchone()
-        portal.app.dependency_overrides[portal.identity]=current
+    def as_user(self, name):
+        # Exercise the same authorization dependency as production requests.
+        from secrets import token_urlsafe
+        token = token_urlsafe(32)
+        self.sql("INSERT INTO sessions(token_hash,member_id,expires_at) VALUES (%s,%s,now()+interval '1 hour')",
+                 (portal.digest(token), self.ids[name]))
+        self.client.cookies.clear()
+        self.client.cookies.set(portal.COOKIE, token)
 
     def sql(self,query,args=()):
         with portal.connect() as conn:
@@ -207,7 +209,8 @@ class ClubUpdates(unittest.TestCase):
         self.assertEqual(self.post('scan',{'value':'LF-B123'})['exists'],True)
         self.assertEqual(self.client.post(portal.PREFIX+'/api/scan',json={'value':'LF-B999'}).status_code,404)
         self.assertEqual(self.client.post(portal.PREFIX+'/api/batteries',json={'code':'LF-B999','label':'Test'}).status_code,403)
-        self.assertEqual(self.client.post(portal.PREFIX+'/api/batteries/LF-B123/events',json={'action':'charged'}).status_code,403)
+        self.post("batteries/LF-B123/events", {"action":"charged"})
+        self.assertEqual(self.client.post(portal.PREFIX+'/api/batteries/LF-B123/events',json={'action':'retired'}).status_code,403)
 
     def test_scan_battery_usage_retries_and_protection(self):
         self.post('batteries',{'code':'LF-B01','label':'Batéria'})
@@ -295,7 +298,7 @@ class ClubUpdates(unittest.TestCase):
     def test_legacy_migration_is_repeatable_and_precise(self):
         event,data=self.event()
         self.sql('UPDATE trainings SET created_by=NULL WHERE id=%s',(event,))
-        stamp=portal.club_date(datetime.fromisoformat(data['starts_at']))
+        stamp=datetime.fromisoformat(data['starts_at']).astimezone(portal.CLUB_ZONE).strftime("%d.%m.%Y %H:%M")
         for _ in range(2):
             self.sql("INSERT INTO announcements(title,body) VALUES (%s,%s)",('Zrušený tréning: Stretnutie',f'Termín {stamp} · Hala bol zrušený.'))
         for _ in range(2):
@@ -339,7 +342,7 @@ class ClubUpdates(unittest.TestCase):
         self.post('announcements',{'title':'Tréneri','body':'Text','audience':'coaches'})
         self.as_user('member')
         self.assertFalse(self.get('announcements'))
-        self.sql("UPDATE members SET role='member' WHERE id=%s",(self.ids['other'],))
+        self.sql("UPDATE members SET role='member',club_roles=ARRAY['player'] WHERE id=%s",(self.ids['other'],))
         self.as_user('other')
         self.assertFalse(self.get('announcements'))
         self.as_user('coach')

@@ -925,3 +925,16 @@ details p {font-size: 13px; margin-top: 12px;}
   .calendar-month-layout .event-list > :first-child {margin-top: 0;}
   .announcements-page .body {max-width: 80ch;}
 }
+
+.permission-admin, .training-proposals {display:grid; gap:1rem}
+.permission-branch {margin:.55rem 0; padding:.6rem .75rem; border:1px solid var(--line); border-radius:.65rem}
+.permission-branch details {margin:.4rem 0 .4rem .75rem}
+.permission-branch summary {cursor:pointer; font-weight:600}
+.permission-branch .checkbox {margin:.4rem 0 .4rem .75rem}
+.permission-diff {padding:.75rem; margin-top:1rem; border:1px solid var(--line); border-radius:.65rem}
+.permission-diff button {margin-right:.45rem}
+.permission-preview-roles {display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.4rem}
+.training-proposals > button {justify-self:start}
+.proposal-options > li {flex-wrap:wrap;justify-content:space-between}
+.preview-return {white-space:nowrap; max-width:40vw}
+.preview-return svg {flex-shrink:0}

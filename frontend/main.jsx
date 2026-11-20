@@ -175,8 +175,227 @@ function Modal({title, close, children}) {
   </dialog>;
 }
 
+const PermissionContext = React.createContext(null);
+const hasRight = (user, key) => Boolean(user?.permissions?.includes(key));
+const useRight = () => {
+  const user = useContext(PermissionContext);
+  return key => hasRight(user, key);
+};
+const eventTypes = ["training", "meeting", "match"];
+const maySchedule = user => eventTypes.some(kind => hasRight(user, "calendar.events." + kind));
+const mayRespond = (user, event) => hasRight(user, event.schedule_revision ? "calendar.rsvp.reconfirm" : "calendar.rsvp.respond");
+
+function PermissionCheckbox({keys, selected, label, change}) {
+  const node = useRef(null);
+  const count = keys.filter(key => selected.has(key)).length;
+  useEffect(() => {node.current.indeterminate = count > 0 && count < keys.length;}, [count, keys.length]);
+  return <label className="checkbox"><input type="checkbox" ref={node} checked={count === keys.length}
+    onChange={event => change(keys, event.target.checked)} />{label}</label>;
+}
+
+function PermissionsPanel({roles, catalog, members, update}) {
+  const [roleKey, setRoleKey] = useState("");
+  const [query, setQuery] = useState("");
+  const [draft, setDraft] = useState(null);
+  const [preview, setPreview] = useState([]);
+  const [member, setMember] = useState("");
+  const [effective, setEffective] = useState(null);
+  const [audit, setAudit] = useState(null);
+  const role = roles.find(item => item.key === roleKey) || roles[0];
+  const saved = role?.grants || [];
+  const selected = new Set(draft ?? saved);
+  const byKey = Object.fromEntries(catalog.map(item => [item.key, item]));
+  const names = Object.fromEntries(roles.map(item => [item.key, item.name]));
+  const added = [...selected].filter(key => !saved.includes(key)).sort();
+  const removed = saved.filter(key => !selected.has(key));
+  const pages = [...new Set(catalog.map(item => item.page))];
+  const text = key => byKey[key]?.label || key;
+
+  function change(keys, enabled) {
+    function enable(key) {
+      if (selected.has(key)) return;
+      selected.add(key);
+      byKey[key].requires.forEach(enable);
+    }
+    for (const key of keys) enabled ? enable(key) : selected.delete(key);
+    if (!enabled) {
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const key of selected) {
+          if (byKey[key].requires.some(required => !selected.has(required))) {
+            selected.delete(key);
+            changed = true;
+          }
+        }
+      }
+    }
+    setDraft([...selected]);
+  }
+
+  return <div className="permission-admin">
+    <section className="card">
+      <h2>Oprávnenia rolí</h2>
+      <div className="form-row">
+        <label>Rola<select value={role?.key || ""} onChange={event => {setRoleKey(event.target.value);setDraft(null);}}>
+          {roles.map(item => <option key={item.key} value={item.key}>{item.name}</option>)}
+        </select></label>
+        <label>Hľadať v oprávneniach<input type="search" value={query} onChange={event => setQuery(event.target.value)} /></label>
+      </div>
+      {pages.map(page => {
+        const branch = catalog.filter(item => item.page === page);
+        const shown = branch.filter(item => [item.label, item.block_label, item.page_label].join(" ").toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+        if (!shown.length) return null;
+        const blocks = [...new Set(shown.filter(item => item.block !== "open").map(item => item.block))];
+        return <details key={page} open={query ? true : undefined} className="permission-branch">
+          <summary>{branch[0].page_label} · {branch.filter(item => selected.has(item.key)).length}/{branch.length}</summary>
+          <PermissionCheckbox keys={branch.map(item => item.key)} selected={selected} label="Celá vetva" change={change} />
+          {shown.some(item => item.block === "open") && <PermissionCheckbox keys={[page + ".open"]}
+            selected={selected} label="Otvoriť stránku" change={change} />}
+          {blocks.map(block => {
+            const items = shown.filter(item => item.block === block);
+            const blockKeys = branch.filter(item => item.block === block).map(item => item.key);
+            return <details key={block} open={query ? true : undefined}>
+              <summary>{items[0].block_label}</summary>
+              <PermissionCheckbox keys={blockKeys} selected={selected} label="Všetky akcie bloku" change={change} />
+              {items.map(item => <PermissionCheckbox key={item.key} keys={[item.key]} selected={selected} label={item.label} change={change} />)}
+            </details>;
+          })}
+        </details>;
+      })}
+      {(added.length > 0 || removed.length > 0) && <div className="permission-diff">
+        {added.length > 0 && <p><strong>Pribudne:</strong> {added.map(text).join(", ")}</p>}
+        {removed.length > 0 && <p><strong>Odoberie sa:</strong> {removed.map(text).join(", ")}</p>}
+        <Action className="primary" run={async () => {
+          const result = await api("role-config/" + role.key, "PUT", {grants: [...selected], expected: saved});
+          update(role.key, result.grants);setDraft(null);setAudit(null);setEffective(null);
+        }}>Uložiť oprávnenia</Action>
+        <button type="button" onClick={() => setDraft(null)}>Zahodiť zmeny</button>
+      </div>}
+    </section>
+    <section className="card">
+      <h2>Vyskúšať ako rola</h2>
+      <p className="muted">Náhľad v tejto relácii. Údaje sa v náhľade nemenia.</p>
+      <div className="permission-preview-roles">{roles.map(item => <label className="checkbox" key={item.key}>
+        <input type="checkbox" checked={preview.includes(item.key)} onChange={event => setPreview(value =>
+          event.target.checked ? [...value, item.key] : value.filter(key => key !== item.key))} />{item.name}
+      </label>)}</div>
+      <Action disabled={!preview.length} run={async () => {
+        await api("role-preview", "POST", {roles: preview});
+        location.reload();
+      }}>Otvoriť náhľad</Action>
+    </section>
+    <section className="card">
+      <h2>Práva konkrétneho člena</h2>
+      <label>Člen<select value={member} onChange={event => {setMember(event.target.value);setEffective(null);}}>
+        <option value="">Vyber člena</option>{members.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}
+      </select></label>
+      <Action disabled={!member} run={async () => setEffective(await api("role-config/member/" + member))}>Zobraziť práva</Action>
+      {effective && <ul className="records">{Object.entries(effective.permissions).map(([key, sources]) =>
+        <li key={key}>{text(key)} · {sources.map(source => names[source] || source).join(", ")}</li>)}</ul>}
+    </section>
+    <section className="card">
+      <h2>História zmien oprávnení</h2>
+      <Action run={async () => setAudit(await api("role-config/audit"))}>Načítať históriu</Action>
+      {audit?.length === 0 && <p className="muted">Zatiaľ bez zmien.</p>}
+      {audit && <ul className="timeline">{audit.map(row => <li key={row.id}>
+        <strong>{names[row.role_key] || row.role_key}</strong><span className="meta">{date(row.created_at)} · {row.actor || "Odstránený účet"}</span>
+        {row.added.length > 0 && <p>Pridané: {row.added.map(text).join(", ")}</p>}
+        {row.removed.length > 0 && <p>Odobrané: {row.removed.map(text).join(", ")}</p>}
+      </li>)}</ul>}
+    </section>
+  </div>;
+}
+
+const proposalStatus = {open: "Otvorené", closed: "Hlasovanie uzavreté", withdrawn: "Stiahnuté", rejected: "Zamietnuté", approved: "Schválené"};
+const proposalVotes = {yes: "Vyhovuje", no: "Nevyhovuje", maybe: "Možno"};
+
+function ProposalForm({proposal, done}) {
+  const [slots, setSlots] = useState(() => (proposal?.options || [{id: 0}]).map(option => ({
+    id: option.id, starts_at: option.starts_at ? clubLocal(option.starts_at) : "",
+    ends_at: option.ends_at ? clubLocal(option.ends_at) : "",
+  })));
+  const next = useRef(1000000);
+  return <Form label={proposal ? "Uložiť návrh" : "Navrhnúť tréning"} submit={async data => {
+    await api(proposal ? "training-proposals/" + proposal.id : "training-proposals", proposal ? "PUT" : "POST", {
+      ...data, version: proposal?.version,
+      options: slots.map(slot => ({
+        starts_at: trainingISO(slot.starts_at),
+        ends_at: slot.ends_at ? trainingISO(slot.ends_at) : null,
+      })),
+    });
+    await done();
+  }}>
+    <label>Názov<input name="title" maxLength={120} defaultValue={proposal?.title || "Tréning"} required /></label>
+    <label>Miesto<input name="location" maxLength={120} defaultValue={proposal?.location} required /></label>
+    <label>Poznámka<textarea name="instructions" maxLength={1000} defaultValue={proposal?.instructions} /></label>
+    {slots.map(slot => <div className="form-row" key={slot.id}>
+      <label>Začiatok<input type="datetime-local" value={slot.starts_at} required
+        onChange={event => setSlots(items => items.map(item => item.id === slot.id ? {...item, starts_at: event.target.value} : item))} /></label>
+      <label>Koniec<input type="datetime-local" value={slot.ends_at}
+        onChange={event => setSlots(items => items.map(item => item.id === slot.id ? {...item, ends_at: event.target.value} : item))} /></label>
+      {slots.length > 1 && <button type="button" onClick={() => setSlots(items => items.filter(item => item.id !== slot.id))}>Odobrať termín</button>}
+    </div>)}
+    <button type="button" disabled={slots.length >= 8} onClick={() => {
+      const id = next.current++;
+      setSlots(items => [...items, {id, starts_at: "", ends_at: ""}]);
+    }}>Pridať termín</button>
+  </Form>;
+}
+
+function TrainingProposals({refresh, openTraining}) {
+  const user = useContext(PermissionContext);
+  const can = useRight();
+  const [items, setItems] = useState([]);
+  const [editor, setEditor] = useState(null);
+  const [error, setError] = useState("");
+  async function load() {setItems(await api("training-proposals"));}
+  useEffect(() => {load().catch(problem => setError(problem.message));}, []);
+  async function decide(proposal, action, option_id) {
+    const result = await api("training-proposals/" + proposal.id + "/decision", "POST", {action, option_id, version: proposal.version});
+    await load();
+    if (result.training_id) {await refresh();openTraining(result.training_id);}
+  }
+  return <section className="training-proposals">
+    {can("calendar.proposals.create") && <button className="primary" onClick={() => setEditor({})}>Navrhnúť tréning</button>}
+    {error && <p className="error" role="alert">{error}</p>}
+    {items.length === 0 && <Empty>Zatiaľ nie sú žiadne návrhy tréningov.</Empty>}
+    {items.map(proposal => <article className="card" key={proposal.id}>
+      <h2>{proposal.title}</h2><p>{proposal.location} · {proposalStatus[proposal.status]}</p>
+      {proposal.author && <span className="meta">{proposal.author}</span>}
+      {proposal.instructions && <p>{proposal.instructions}</p>}
+      <ul className="records proposal-options">{proposal.options.map(option => <li key={option.id}>
+        <div><strong>{date(option.starts_at)}{option.ends_at ? " – " + date(option.ends_at) : ""}</strong>
+          {option.results !== undefined && <p className="meta">{Object.entries(proposalVotes).map(([key, label]) =>
+            label + " " + (option.results?.[key] || 0)).join(" · ")}</p>}
+          {option.votes?.length > 0 && <details><summary>Menné hlasy</summary><ul>{option.votes.map((vote, index) =>
+            <li key={index}>{vote.name} · {proposalVotes[vote.response]}</li>)}</ul></details>}
+        </div>
+        <div className="actions">{proposal.status === "open" && upcoming(option) && can("calendar.proposals.vote") &&
+          Object.entries(proposalVotes).map(([response, label]) => <Action key={response} pressed={option.my_vote === response}
+            run={async () => {await api("training-proposals/" + proposal.id + "/options/" + option.id + "/vote", "PUT", {response});await load();}}>{label}</Action>)}
+          {["open", "closed"].includes(proposal.status) && upcoming(option) && can("calendar.proposals.approve") &&
+            <Action className="primary" run={() => decide(proposal, "approve", option.id)}>Schváliť tento termín</Action>}
+        </div>
+      </li>)}</ul>
+      <div className="actions">
+        {proposal.status === "open" && (proposal.created_by === user.id || user.role === "superadmin") && can("calendar.proposals.edit") && <>
+          <button onClick={() => setEditor(proposal)}>Upraviť návrh</button><Action run={() => decide(proposal, "withdraw")}>Stiahnuť návrh</Action>
+        </>}
+        {proposal.status === "open" && can("calendar.proposals.close") && <Action run={() => decide(proposal, "close")}>Uzavrieť hlasovanie</Action>}
+        {["open", "closed"].includes(proposal.status) && can("calendar.proposals.reject") && <Action run={() => decide(proposal, "reject")}>Zamietnuť návrh</Action>}
+        {proposal.training_id && can("calendar.events.read") && <button onClick={() => openTraining(proposal.training_id)}>Otvoriť tréning</button>}
+      </div>
+    </article>)}
+    {editor && <Modal title={editor.id ? "Upraviť návrh" : "Návrh tréningu"} close={() => setEditor(null)}>
+      <ProposalForm proposal={editor.id ? editor : null} done={async () => {await load();setEditor(null);}} />
+    </Modal>}
+  </section>;
+}
+
 function TrainingForm({training, initialDay, places, done}) {
-  const [kind, setKind] = useState(training?.kind || "training");
+  const can = useRight();
+  const [kind, setKind] = useState(training?.kind || eventTypes.find(type => can("calendar.events." + type)));
   const [repeat, setRepeat] = useState(false);
   const [place, setPlace] = useState(training?.location || places[0]?.name || "");
   const [newPlace, setNewPlace] = useState(places.length === 0 || Boolean(training && !places.some(p => p.name === training.location)));
@@ -186,7 +405,7 @@ function TrainingForm({training, initialDay, places, done}) {
     const ends_at = !data.ends_at ? null : training?.ends_at && data.ends_at === clubLocal(training.ends_at)
       ? training.ends_at : trainingISO(data.ends_at);
     if (ends_at && new Date(ends_at) <= new Date(starts_at)) throw new Error("Koniec musí nasledovať po začiatku.");
-    if (newPlace) await api("places", "POST", {name: data.location});
+    if (newPlace && can("calendar.places.create")) await api("places", "POST", {name: data.location});
     await api(training ? "trainings/" + training.id : "trainings", training ? "PUT" : "POST", {
       title: data.title || kinds[kind], kind, starts_at, ends_at, location: data.location,
       instructions: data.instructions, weeks: Number(data.weeks || 1),
@@ -195,7 +414,7 @@ function TrainingForm({training, initialDay, places, done}) {
     await done();
   }}>
     <label>Typ udalosti<select value={kind} onChange={event => setKind(event.target.value)}>
-      {Object.entries(kinds).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+      {Object.entries(kinds).filter(([type]) => type === training?.kind || can("calendar.events." + type)).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
     </select></label>
     <label>Názov<input name="title" maxLength="120" defaultValue={training?.title} placeholder={kinds[kind]} /></label>
     <div className="form-row">
@@ -276,13 +495,16 @@ function TrainingCard({training, staff, canRespond = !staff, refresh, open, prom
           ? <span><i className="dot pending" />{training.counts?.change_yes || 0} <span>prídu po zmene</span> · {training.counts?.change_pending || 0} <span>bez potvrdenia zmeny</span></span>
           : <span><i className="dot pending" />{training.counts?.unanswered || 0} bez odpovede</span>}
         <ArrowUpRight size={16} />
-      </button> : upcoming(training) ? canRespond && <RSVP key={training.schedule_revision} training={training} refresh={refresh} /> :
-        <p className="meta">{canRespond && (training.attended === true ? "Bol si prítomný" : training.attended === false ? "Bol si neprítomný" : "Udalosť sa už začala")}</p>}
+      </button> : null}
+      {upcoming(training) && canRespond && <RSVP key={training.schedule_revision} training={training} refresh={refresh} />}
+      {!upcoming(training) && training.attended !== undefined && <p className="meta">{training.attended === true ? "Bol si prítomný" : training.attended === false ? "Bol si neprítomný" : "Udalosť sa už začala"}</p>}
     </>}
   </article>;
 }
 
-function TrainingWorkspace({training, staff}) {
+function TrainingWorkspace({training}) {
+  const can = useRight();
+  const canEdit = ["edit", "team_edit", "private_edit"].some(key => can("calendar.workspace." + key));
   const [data, setData] = useState({plan: [], member_note: "", coach_note: "", feedback: []});
   const [draft, setDraft] = useState(null);
   const [drills, setDrills] = useState([]);
@@ -294,8 +516,8 @@ function TrainingWorkspace({training, staff}) {
   async function load() {
     const workspace = await api("trainings/" + training.id + "/workspace");
     setData(workspace);
-    if (workspace.feedback && !Array.isArray(workspace.feedback)) setFeedback({went_well: workspace.feedback.went_well || "", difficult: workspace.feedback.difficult || "", next_focus: workspace.feedback.next_focus || ""});
-    if (staff) setDrills(await api("drills"));
+    if (workspace.own_feedback) setFeedback(workspace.own_feedback);
+    if (can("drills.library.read")) setDrills(await api("drills"));
   }
   useEffect(() => {load().catch(e => setError(e.message));}, [training.id]);
   useEffect(() => {
@@ -305,16 +527,23 @@ function TrainingWorkspace({training, staff}) {
   }, [running]);
   const changed = (key, value) => setDraft(current => ({...current, [key]: value}));
   async function save() {
-    await api("trainings/" + training.id + "/workspace", "PUT", draft);
-    setData(draft); setEditing(false);
+    await api("trainings/" + training.id + "/workspace", "PUT", Object.fromEntries(Object.entries(draft).filter(([key]) =>
+      ({plan: "edit", member_note: "team_edit", coach_note: "private_edit"}[key]) &&
+      can("calendar.workspace." + {plan: "edit", member_note: "team_edit", coach_note: "private_edit"}[key]))));
+    await load(); setEditing(false);
   }
   const canFeedback = past(training) && training.attended === true && !training.cancelled;
   return <section className="training-workspace">
     {error && <p className="error" role="alert">{error}</p>}
-    {staff ? <div className="toolbar end"><button onClick={() => {setDraft({...data, plan: [...(data.plan || [])]}); setEditing(!editing);}}><Pencil size={16} />{editing ? "Zavrieť úpravy" : "Upraviť plán a poznámky"}</button>
+    {canEdit ? <div className="toolbar end"><button onClick={() => {setDraft({...data, plan: [...(data.plan || [])]}); setEditing(!editing);}}><Pencil size={16} />{editing ? "Zavrieť úpravy" : "Upraviť plán a poznámky"}</button>
       {editing && <Action className="primary" run={save}>Uložiť</Action>}</div> : null}
     <section className="card workout-section"><h3><BookOpen size={19} />Plán tréningu</h3>
+      {can("calendar.workspace.publish") && <Action run={async () => {
+        await api("trainings/" + training.id + "/workspace/publication", "PUT", {published: !data.published});
+        await load();
+      }}>{data.published ? "Skryť plán pred tímom" : "Sprístupniť plán tímu"}</Action>}
       {editing ? <>
+        {can("calendar.workspace.edit") && <>
         {(draft.plan || []).map((block, index) => <div className="workout-block-edit" key={index}>
           <label>Cvičenie<input value={block.title} maxLength="120" onChange={e => changed("plan", draft.plan.map((item, i) => i === index ? {...item, title: e.target.value} : item))} /></label>
           <div className="form-row"><label>Minúty<input type="number" min="1" max="240" value={block.duration_minutes || 10} onChange={e => changed("plan", draft.plan.map((item, i) => i === index ? {...item, duration_minutes: Number(e.target.value)} : item))} /></label>
@@ -323,27 +552,28 @@ function TrainingWorkspace({training, staff}) {
         </div>)}
         <button className="button" onClick={() => changed("plan", [...(draft.plan || []), {title: "", duration_minutes: 10, notes: ""}])}><Plus size={16} />Pridať blok</button>
         {drills.length > 0 && <label>Pridať z knižnice cvičení<select value="" onChange={e => {const drill = drills.find(item => String(item.id) === e.target.value); if (drill) changed("plan", [...draft.plan, {title: drill.title, duration_minutes: drill.duration_minutes, notes: drill.objective}]);}}><option value="">Vybrať cvičenie</option>{drills.map(drill => <option key={drill.id} value={drill.id}>{drill.title} · {drill.duration_minutes} min</option>)}</select></label>}
-        <Form label="Pridať cvičenie do knižnice" reset submit={async form => {await api("drills", "POST", {...form, duration_minutes: Number(form.duration_minutes), difficulty: "basic"}); await load();}}>
+        </>}
+        {can("drills.library.create") && <Form label="Pridať cvičenie do knižnice" reset submit={async form => {await api("drills", "POST", {...form, duration_minutes: Number(form.duration_minutes), difficulty: "basic"}); await load();}}>
           <details><summary>Nové cvičenie</summary><label>Názov<input name="title" maxLength="120" required /></label><label>Cieľ<input name="objective" maxLength="1000" /></label><label>Trvanie v minútach<input name="duration_minutes" type="number" min="1" max="240" defaultValue="10" /></label><label>Pomôcky<input name="equipment" maxLength="1000" /></label></details>
-        </Form>
-        <label>Poznámka pre členov<textarea rows="3" maxLength="4000" value={draft.member_note} onChange={e => changed("member_note", e.target.value)} /></label>
-        <label>Súkromná poznámka trénerov<textarea rows="3" maxLength="4000" value={draft.coach_note} onChange={e => changed("coach_note", e.target.value)} /></label>
+        </Form>}
+        {can("calendar.workspace.team_edit") && <label>Poznámka pre členov<textarea rows="3" maxLength="4000" value={draft.member_note || ""} onChange={e => changed("member_note", e.target.value)} /></label>}
+        {can("calendar.workspace.private_edit") && <label>Súkromná poznámka trénerov<textarea rows="3" maxLength="4000" value={draft.coach_note || ""} onChange={e => changed("coach_note", e.target.value)} /></label>}
       </> : <>
         {data.plan?.length ? <ol className="workout-plan">{data.plan.map((block, index) => <li key={index}><div><strong>{block.title}</strong><span className="meta"><Timer size={14} />{block.duration_minutes} min</span>{block.notes && <p className="body small">{block.notes}</p>}</div>
-          {staff && <button className="text-button" onClick={() => {setSeconds((block.duration_minutes || 10) * 60); setRunning(true);}}>Spustiť čas</button>}</li>)}</ol> : <p className="muted">Plán zatiaľ nie je pripravený.</p>}
+          {can("calendar.workspace.read") && <button className="text-button" onClick={() => {setSeconds((block.duration_minutes || 10) * 60); setRunning(true);}}>Spustiť čas</button>}</li>)}</ol> : <p className="muted">Plán zatiaľ nie je pripravený.</p>}
         {running && <div className="timer-display" role="timer">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")} <button className="text-button" onClick={() => setRunning(false)}>Zastaviť</button></div>}
         {data.member_note && <div className="notice"><strong>Poznámka pre tím</strong><p>{data.member_note}</p></div>}
-        {staff && data.coach_note && <div className="private-note"><strong>Iba tréneri</strong><p>{data.coach_note}</p></div>}
+        {data.coach_note && <div className="private-note"><strong>Iba tréneri</strong><p>{data.coach_note}</p></div>}
       </>}
     </section>
-    {!staff && canFeedback && <section className="card workout-section"><h3>Spätná väzba po tréningu</h3><p className="muted">Vidíš ju ty a tréneri.</p>
+    {can("calendar.workspace.feedback_write") && canFeedback && <section className="card workout-section"><h3>Spätná väzba po tréningu</h3><p className="muted">Vidíš ju ty a tréneri.</p>
       <Form label="Uložiť feedback" submit={async values => {await api("trainings/" + training.id + "/feedback", "PUT", values); await load();}}>
         <label>Čo sa podarilo?<textarea name="went_well" rows="2" maxLength="1000" value={feedback.went_well} onChange={e => setFeedback({...feedback, went_well: e.target.value})} /></label>
         <label>Čo bolo náročné?<textarea name="difficult" rows="2" maxLength="1000" value={feedback.difficult} onChange={e => setFeedback({...feedback, difficult: e.target.value})} /></label>
         <label>Na čo sa chceš zamerať nabudúce?<textarea name="next_focus" rows="2" maxLength="1000" value={feedback.next_focus} onChange={e => setFeedback({...feedback, next_focus: e.target.value})} /></label>
       </Form>
     </section>}
-    {staff && data.feedback?.length > 0 && <details className="card feedback-list"><summary>Feedback od členov ({data.feedback.length})</summary><ul className="people-list">{data.feedback.map(row => <li key={row.member_id}><div className="grow"><strong>{row.name}</strong><span className="meta">{clubRoleLabel(row.roles)}</span>{row.went_well && <p><b>Podarilo sa:</b> {row.went_well}</p>}{row.difficult && <p><b>Náročné:</b> {row.difficult}</p>}{row.next_focus && <p><b>Nabudúce:</b> {row.next_focus}</p>}</div></li>)}</ul></details>}
+    {data.feedback?.length > 0 && <details className="card feedback-list"><summary>Feedback od členov ({data.feedback.length})</summary><ul className="people-list">{data.feedback.map(row => <li key={row.member_id}><div className="grow"><strong>{row.name}</strong><span className="meta">{clubRoleLabel(row.roles)}</span>{row.went_well && <p><b>Podarilo sa:</b> {row.went_well}</p>}{row.difficult && <p><b>Náročné:</b> {row.difficult}</p>}{row.next_focus && <p><b>Nabudúce:</b> {row.next_focus}</p>}</div></li>)}</ul></details>}
   </section>;
 }
 
@@ -375,7 +605,13 @@ function TrainingHistory({history}) {
   </li>)}</ol>;
 }
 
-function TrainingDetail({training, staff, canRespond, places, close, refresh, openScanner}) {
+function TrainingDetail({training, canRespond, places, close, refresh}) {
+  const can = useRight();
+  const roster = can("calendar.rsvp.roster");
+  const readAttendance = ["read", "write", "bulk"].some(key => can("attendance.records." + key));
+  const closed = new Date(training.ends_at || new Date(Date.parse(training.starts_at) + 10800000)) <= new Date();
+  const writable = past(training) && !training.cancelled && (!closed || can("attendance.records.correct"));
+  const workspace = ["read","edit","team_read","team_edit","private_read","private_edit","feedback_own","feedback_all","publish"].some(key => can("calendar.workspace." + key));
   const [tab, setTab] = useState("info");
   const [rows, setRows] = useState([]);
   const [selected, setSelected] = useState([]);
@@ -386,22 +622,22 @@ function TrainingDetail({training, staff, canRespond, places, close, refresh, op
   const [error, setError] = useState("");
   async function load() {setRows(await api("trainings/" + training.id + "/roster"));}
   useEffect(() => {
-    if (staff && (tab === "rsvp" || tab === "attendance")) load().catch(error => setError(error.message));
-  }, [staff, tab, training.id, training.updated_at, training.counts?.unanswered, training.counts?.change_pending,
+    if ((roster && tab === "rsvp") || (readAttendance && tab === "attendance")) load().catch(error => setError(error.message));
+  }, [roster, readAttendance, tab, training.id, training.updated_at, training.counts?.unanswered, training.counts?.change_pending,
     training.counts?.yes, training.counts?.no, training.counts?.change_yes]);
   useEffect(() => {
-    if (tab !== "history" && !(tab === "rsvp" && staff && training.schedule_revision > 0)) return;
+    if (!can("calendar.events.history") || (tab !== "history" && !(tab === "rsvp" && roster && training.schedule_revision > 0))) return;
     let current = true;
     api("trainings/" + training.id + "/changes").then(entries => {
       if (current) setHistory(entries);
     }).catch(error => {if (current) setError(error.message);});
     return () => {current = false;};
-  }, [tab, staff, training.id, training.updated_at, training.schedule_revision, training.change_response]);
+  }, [tab, roster, training.id, training.updated_at, training.schedule_revision, training.change_response]);
   const revision = selectedRevision ?? training.schedule_revision ?? 0;
   const responseFor = row => revision ? row.change_responses?.[revision]?.response : row.response;
   const filtered = rows.filter(row => filter === "all" || (filter === "none" ? !responseFor(row) : responseFor(row) === filter));
-  async function saveAttendance(ids, attended) {
-    await api("trainings/" + training.id + "/attendance", "PUT", {member_ids: ids, attended});
+  async function saveAttendance(ids, attended, bulk = false) {
+    await api("trainings/" + training.id + "/attendance" + (bulk ? "" : "/" + ids[0]), "PUT", bulk ? {member_ids: ids, attended} : {attended});
     setSelected([]);
     await load();
     await refresh();
@@ -409,25 +645,25 @@ function TrainingDetail({training, staff, canRespond, places, close, refresh, op
   return <Modal title={training.title} close={close}>
     {edit ? <TrainingForm training={training} places={places} done={async () => {setEdit(false); await refresh();}} /> : <>
       <div className="tabs training-tabs" role="tablist" aria-label="Detail udalosti">
-        {[["info", "Informácie"], ["workout", "Tréning"], ...(staff ? [["rsvp", "Účasť"], ["attendance", "Dochádzka"]] : []), ["history", "História zmien"]].map(([value, text]) =>
+        {[["info", "Informácie"], ...(workspace ? [["workout", "Tréning"]] : []), ...(roster ? [["rsvp", "Účasť"]] : []), ...(readAttendance ? [["attendance", "Dochádzka"]] : []), ...(can("calendar.events.history") ? [["history", "História zmien"]] : [])].map(([value, text]) =>
           <button role="tab" aria-selected={tab === value} key={value} onClick={() => setTab(value)}>{text}</button>)}
       </div>
       {error && <p className="error" role="alert">{error}</p>}
-      {tab === "workout" ? <TrainingWorkspace training={training} staff={staff} /> : tab === "history" ? <TrainingHistory history={history} /> : tab === "info" ? <>
+      {tab === "workout" ? <TrainingWorkspace training={training} /> : tab === "history" ? <TrainingHistory history={history} /> : tab === "info" ? <>
         {training.cancelled && <p className="notice">Udalosť bola zrušená</p>}
         <div className="detail-facts"><p><CalendarDays />{date(training.starts_at)}</p>
           {training.ends_at && <p><Clock />Do {clock(training.ends_at)}</p>}
           <p><MapPin />{training.location}</p></div>
         {training.instructions && <p className="body">{training.instructions}</p>}
         {canRespond && upcoming(training) && <RSVP key={training.schedule_revision} training={training} refresh={refresh} />}
-        {staff && !training.cancelled && <div className="actions section-space">
-          <button onClick={() => setEdit(true)}><Pencil size={17} />Upraviť</button>
-          <Action className="danger" run={async () => {
+        {(training.can_edit || can("calendar.events.cancel")) && !training.cancelled && <div className="actions section-space">
+          {training.can_edit && <button onClick={() => setEdit(true)}><Pencil size={17} />Upraviť</button>}
+          {can("calendar.events.cancel") && <Action className="danger" run={async () => {
             if (!window.confirm(localizeText("Zrušiť udalosť a zverejniť oznam pre tím? Udalosť zostane v kalendári označená ako zrušená.", activeLanguage))) return;
             await api("trainings/" + training.id + "/cancel", "POST"); await refresh();
-          }}>Zrušiť udalosť</Action>
+          }}>Zrušiť udalosť</Action>}
         </div>}
-        {staff && training.can_delete && <div className="section-space"><Action className="danger" run={async () => {
+        {training.can_delete && <div className="section-space"><Action className="danger" run={async () => {
           if (!window.confirm(localizeText("Natrvalo vymazať túto udalosť aj jej prihlášky, dochádzku a súvisiace automatické oznamy? Bez odoslania upozornenia. Táto akcia sa nedá vrátiť.", activeLanguage))) return;
           await api("trainings/" + training.id, "DELETE"); close(); await refresh();
         }}>Vymazať bez upozornenia</Action></div>}
@@ -447,17 +683,17 @@ function TrainingDetail({training, staff, canRespond, places, close, refresh, op
           </div>
         </>}
         {tab === "attendance" && (!past(training) || training.cancelled) && <p className="notice">Dochádzku možno zapísať od začiatku nezrušenej udalosti.</p>}
-        {tab === "attendance" && past(training) && !training.cancelled && rows.length > 0 && <>
+        {tab === "attendance" && writable && can("attendance.records.bulk") && rows.length > 0 && <>
           <label className="checkbox"><input type="checkbox" checked={selected.length === rows.length} onChange={event => setSelected(event.target.checked ? rows.map(row => row.id) : [])} />Vybrať všetkých</label>
-          {selected.length > 0 && <div className="actions"><Action run={() => saveAttendance(selected, true)}>Prítomní ({selected.length})</Action>
-            <Action run={() => saveAttendance(selected, false)}>Neprítomní ({selected.length})</Action></div>}
+          {selected.length > 0 && <div className="actions"><Action run={() => saveAttendance(selected, true, true)}>Prítomní ({selected.length})</Action>
+            <Action run={() => saveAttendance(selected, false, true)}>Neprítomní ({selected.length})</Action></div>}
         </>}
         <ul className="people-list">{(tab === "rsvp" ? filtered : rows).map(row => {
           const currentResponse = row.change_responses?.[training.schedule_revision];
           const latestResponse = tab === "attendance" ? Object.values(row.change_responses || {}).at(-1) : null;
           return <li key={row.id}
           className={tab === "rsvp" ? "rsvp-person rsvp-" + (responseFor(row) || "none") : undefined}>
-          {tab === "attendance" && past(training) && !training.cancelled &&
+          {tab === "attendance" && writable && can("attendance.records.bulk") &&
             <input type="checkbox" aria-label={"Vybrať " + row.name} checked={selected.includes(row.id)}
               onChange={event => setSelected(event.target.checked ? [...selected, row.id] : selected.filter(id => id !== row.id))} />}
           <Avatar name={row.name} id={row.id} version={row.avatar_version} /><div className="grow"><strong>{row.name}</strong><span className="meta">{clubRoleLabel(row.roles)}</span>
@@ -474,7 +710,7 @@ function TrainingDetail({training, staff, canRespond, places, close, refresh, op
               {latestResponse?.note && <p className="small body">{latestResponse.note}</p>}
               {row.note && <p className="small body">{row.note}</p>}
             </>}</div>
-          {tab === "attendance" && past(training) && !training.cancelled && <div className="attendance-buttons">
+          {tab === "attendance" && writable && can("attendance.records.write") && <div className="attendance-buttons">
             <Action className={row.attended === true ? "yes selected" : ""} pressed={row.attended === true} run={() => saveAttendance([row.id], true)}><Check size={18} /><span className="sr-only">Prítomný {row.name}</span></Action>
             <Action className={row.attended === false ? "no selected" : ""} pressed={row.attended === false} run={() => saveAttendance([row.id], false)}><X size={18} /><span className="sr-only">Neprítomný {row.name}</span></Action>
           </div>}
@@ -485,7 +721,14 @@ function TrainingDetail({training, staff, canRespond, places, close, refresh, op
   </Modal>;
 }
 
-function Calendar({trainings, staff, canRespond, places, refresh, openTraining}) {
+function Calendar({trainings, places, refresh, openTraining}) {
+  const user = useContext(PermissionContext);
+  const can = useRight();
+  const [section, setSection] = useState("");
+  const proposals = can("calendar.proposals.read");
+  const events = can("calendar.events.read");
+  const showProposals = proposals && (section === "proposals" || !events);
+  const staff = can("calendar.rsvp.summary");
   const [month, setMonth] = useState(() => today().slice(0, 7));
   const [selectedDay, setSelectedDay] = useState(null);
   const [create, setCreate] = useState(false);
@@ -499,14 +742,20 @@ function Calendar({trainings, staff, canRespond, places, refresh, openTraining})
   }
   const shown = trainings.filter(t => dayKey(t.starts_at).startsWith(month) && (!selectedDay || dayKey(t.starts_at) === selectedDay))
     .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
+  const sectionButtons = proposals && events && <div className="segmented">
+    <button aria-pressed={!showProposals} onClick={() => setSection("events")}>Udalosti</button>
+    <button aria-pressed={showProposals} onClick={() => setSection("proposals")}>Návrhy tréningov</button>
+  </div>;
+  if (showProposals) return <><PageToolbar>{sectionButtons}</PageToolbar><TrainingProposals refresh={refresh} openTraining={openTraining} /></>;
+  if (!events && !maySchedule(user)) return <Empty>Nemáš prístup k udalostiam.</Empty>;
   return <>
-    <PageToolbar><div className="page-toolbar-row">
+    <PageToolbar>{sectionButtons}<div className="page-toolbar-row">
       <div className="period-control">
         <button className="icon-button" aria-label="Predchádzajúci mesiac" onClick={() => moveMonth(-1)}><ChevronLeft size={18} /></button>
         <span aria-live="polite">{start.toLocaleDateString(uiLocale(), {month: "long", year: "numeric", timeZone: "UTC"})}</span>
         <button className="icon-button" aria-label="Nasledujúci mesiac" onClick={() => moveMonth(1)}><ChevronRight size={18} /></button>
       </div>
-      {staff && <button className="primary page-primary" onClick={() => setCreate(true)}><Plus size={18} />
+      {maySchedule(user) && <button className="primary page-primary" onClick={() => setCreate(true)}><Plus size={18} />
         {selectedDay ? <>Pridať udalosť na {formatShortDate(selectedDay)}</> : "Naplánovať"}
       </button>}
     </div></PageToolbar>
@@ -531,40 +780,41 @@ function Calendar({trainings, staff, canRespond, places, refresh, openTraining})
       </section>
       <div className="event-list">{shown.length ? shown.map((t, i) => <React.Fragment key={t.id}>
         {(i === 0 || dayKey(shown[i - 1].starts_at) !== dayKey(t.starts_at)) && <h2 className="day-heading">{new Date(t.starts_at).toLocaleDateString(uiLocale(), {weekday: "long", day: "numeric", month: "long", timeZone})}</h2>}
-        <TrainingCard training={t} staff={staff} canRespond={canRespond} refresh={refresh} open={() => openTraining(t.id)} />
+        <TrainingCard training={t} staff={staff} canRespond={mayRespond(user, t)} refresh={refresh} open={() => openTraining(t.id)} />
       </React.Fragment>) : <Empty>V tomto období nie sú žiadne udalosti.</Empty>}</div>
     </div>
     {create && <Modal title="Nová udalosť" close={() => setCreate(false)}><TrainingForm initialDay={selectedDay} places={places} done={async () => {setCreate(false); await refresh();}} /></Modal>}
   </>;
 }
 
-function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,userId}) {
+function Members({user,superadmin,onMessage,onCard,onTrialBanner,userId}) {
+  const can = useRight();
+  const mayManage = member => member.role === "member" || can("members.accounts.manage_staff");
   const [members,setMembers]=useState([]),[query,setQuery]=useState(""),[filter,setFilter]=useState("active");
   const [selected,setSelected]=useState(null),[form,setForm]=useState(false),[link,setLink]=useState(""),[inviteTarget,setInviteTarget]=useState(null);
   const [attendance,setAttendance]=useState([]),[development,setDevelopment]=useState(null),[error,setError]=useState("");
-  const [section,setSection]=useState("members"),[catalog,setCatalog]=useState([]),[requested,setRequested]=useState([]);
-  const [requests,setRequests]=useState([]),[config,setConfig]=useState([]),[menus,setMenus]=useState([]);
+  const [section,setSection]=useState("members"),[catalog,setCatalog]=useState([]);
+  const [requests,setRequests]=useState([]),[config,setConfig]=useState([]),[permissionCatalog,setPermissionCatalog]=useState([]);
   const [inviteRoles,setInviteRoles]=useState(["player"]),[editRoles,setEditRoles]=useState([]),[bannerEnabled,setBannerEnabled]=useState(true);
-  const canReview=user.role==="superadmin"||user.roles?.includes("club_leader")||user.roles?.includes("deputy_leader");
-  const canCreateInvites=staff&&(superadmin||user.can_create_invites);
-  const canAssignInviteRoles=staff&&(superadmin||user.can_assign_invite_roles);
+  const canReview=can("members.requests.read");
+  const canCreateInvites=can("members.accounts.invite");
+  const canAssignInviteRoles=can("members.accounts.invite_roles");
   const inviteRoleOptions=superadmin?config:catalog;
-  async function load() {setMembers(await api("members"));}
+  async function load() {if (can("members.accounts.read")) setMembers(await api("members"));}
   async function loadRequests() {if(canReview)setRequests(await api("role-requests"));}
   async function loadAdmin() {
     if(!superadmin)return;
     const [result,settings]=await Promise.all([api("role-config"),api("public/settings")]);
-    setConfig(result.roles);setCatalog(result.roles);setMenus(result.menus);setBannerEnabled(settings.trial_banner_enabled);
+    setConfig(result.roles);setCatalog(result.roles);setPermissionCatalog(result.catalog);setBannerEnabled(settings.trial_banner_enabled);
   }
   useEffect(()=>{Promise.all([load(),loadRequests(),loadAdmin(),superadmin?Promise.resolve():api("role-catalog").then(setCatalog)]).catch(e=>setError(e.message));},[]);
-  useEffect(()=>{let current=true;setAttendance([]);if(staff&&(selected?.roles||[]).includes("player"))api("members/"+selected.id+"/attendance").then(v=>{if(current)setAttendance(v);}).catch(e=>setError(e.message));return()=>{current=false};},[staff,selected?.id,selected?.role]);
-  useEffect(()=>{let current=true;setDevelopment(null);if(staff&&(selected?.roles||[]).includes("player"))api("members/"+selected.id+"/development").then(v=>{if(current)setDevelopment(v);}).catch(e=>setError(e.message));return()=>{current=false};},[staff,selected?.id,selected?.role]);
+  useEffect(()=>{let current=true;setAttendance([]);if(can("attendance.records.member")&&selected)api("members/"+selected.id+"/attendance").then(v=>{if(current)setAttendance(v);}).catch(e=>setError(e.message));return()=>{current=false};},[selected?.id,user.permissions]);
+  useEffect(()=>{let current=true;setDevelopment(null);if(can("development.skills.read")&&(selected?.roles||[]).includes("player"))api("members/"+selected.id+"/development").then(v=>{if(current)setDevelopment(v);}).catch(e=>setError(e.message));return()=>{current=false};},[selected?.id,user.permissions]);
   useEffect(()=>{if(superadmin&&selected)setEditRoles(selected.roles||["player"]);},[superadmin,selected?.id]);
   const found=members.filter(m=>(m.name+" "+(m.email||"")).toLowerCase().includes(query.toLowerCase())&&
     (filter==="all"||(filter==="coaches"?(m.roles||[]).includes("coach")&&m.active:filter==="invited"?!m.registered&&m.active:filter==="inactive"?!m.active:m.active&&m.registered)));
   const status=m=>!m.active?"Neaktívny":!m.registered?"Pozvaný":"Aktívny";
   function toggle(setter,current,key){setter(current.includes(key)?current.filter(x=>x!==key):[...current,key]);}
-  const navLabel={home:"Domov",calendar:"Kalendár",attendance:"Dochádzka",scanner:"Skenovať",messages:"Správy",announcements:"Oznamy",members:"Členovia",team:"Tímy",development:"Rozvoj hráčov",lineups:"Zostavy",drills:"Knižnica cvičení",equipment:"Vybavenie",documents:"Dokumenty"};
   return <>
     <PageToolbar>
       <div className="page-toolbar-row">
@@ -583,7 +833,7 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
       {error&&<p className="error" role="alert">{error}</p>}
       <div className="card flush"><ul className="people-list">{found.map(member=><li key={member.id}><button className="person-link" onClick={()=>{setSelected(member);setLink("");}}>
         <Avatar name={member.name} id={member.id} version={member.avatar_version}/><span className="grow"><strong>{member.name}</strong><span className="meta">{[clubRoleLabel(member.roles), member.email].filter(Boolean).join(" · ")}</span>
-        <span className="meta">{member.recorded_count>0?"Dochádzka "+member.attended_count+"/"+member.recorded_count:"Dochádzka zatiaľ bez záznamu"}</span>
+        {can("attendance.records.member")&&<span className="meta">{member.recorded_count>0?"Dochádzka "+member.attended_count+"/"+member.recorded_count:"Dochádzka zatiaľ bez záznamu"}</span>}
         {member.equipment?.length>0&&<span className="meta member-equipment-summary"><Boxes size={13}/>{member.equipment.map(item=>item.code).join(", ")}</span>}</span>
         <span className={"badge "+(member.active?"positive":"")}>{status(member)}</span><ChevronRight size={18}/></button></li>)}
       </ul>{found.length===0&&<Empty icon={Users}>Žiadne zodpovedajúce účty.</Empty>}</div>
@@ -594,44 +844,35 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
         {canAssignInviteRoles&&<fieldset className="role-checkboxes"><legend>Roly pri pozvánke</legend>{inviteRoleOptions.map(item=><label className="checkbox" key={item.key}><input type="checkbox" checked={inviteRoles.includes(item.key)} onChange={()=>toggle(setInviteRoles,inviteRoles,item.key)}/>{item.name}{!item.available&&<span className="badge">Funkcia zatiaľ nedostupná</span>}</label>)}</fieldset>}
       </Form>}</Modal>}
       {selected&&<Modal title={selected.name} close={()=>setSelected(null)}><div className="profile-heading"><Avatar name={selected.name} id={selected.id} version={selected.avatar_version}/><div><span className="badge">{clubRoleLabel(selected.roles)}</span><p>{selected.email}</p></div></div>
-        {staff&&(selected.roles||[]).includes("player")&&selected.active&&<button className="section-space" onClick={()=>onCard(selected)}><QrCode size={17}/>Členský QR kód</button>}
-        <div className="actions">{!superadmin&&selected.id!==userId&&selected.active&&selected.registered&&<button className="primary" onClick={()=>{onMessage(selected.id);setSelected(null);}}><MessageCircle size={17}/>Napísať správu</button>}
-          {staff&&<>
-          {(superadmin||selected.role==="member")&&<Action run={async()=>{await api("members/"+selected.id+"/active","PUT",{active:!selected.active});setSelected({...selected,active:!selected.active});await load();}}>{selected.active?"Deaktivovať":"Aktivovať"}</Action>}
-          {(superadmin||selected.role==="member")&&selected.active&&selected.registered&&<Action run={async()=>{const r=await api("members/"+selected.id+"/reset","POST");setLink(r.invite_url);}}>Obnoviť heslo</Action>}
+        {can("members.card.read")&&(selected.roles||[]).includes("player")&&selected.active&&<button className="section-space" onClick={()=>onCard(selected)}><QrCode size={17}/>Členský QR kód</button>}
+        <div className="actions">{can("messages.chat.direct")&&selected.id!==userId&&selected.active&&selected.registered&&<button className="primary" onClick={()=>{onMessage(selected.id);setSelected(null);}}><MessageCircle size={17}/>Napísať správu</button>}
+          {<>
+          {can("members.accounts.active")&&mayManage(selected)&&<Action run={async()=>{await api("members/"+selected.id+"/active","PUT",{active:!selected.active});setSelected({...selected,active:!selected.active});await load();}}>{selected.active?"Deaktivovať":"Aktivovať"}</Action>}
+          {can("members.accounts.reset")&&mayManage(selected)&&selected.active&&selected.registered&&<Action run={async()=>{const r=await api("members/"+selected.id+"/reset","POST");setLink(r.invite_url);}}>Obnoviť heslo</Action>}
           {canCreateInvites&&selected.active&&!selected.registered&&<Action run={async()=>{setInviteTarget(selected);setInviteRoles(canAssignInviteRoles?(selected.roles||["player"]):["player"]);setLink("");setForm(true);setSelected(null);}}>Nová pozvánka</Action>}
           </>}
         </div>{link&&<InviteLink link={link}/>}
         {superadmin&&<section className="section-space"><h3>Funkčné roly</h3>{config.map(role=><label className="checkbox role-member-checkbox" key={role.key}><input type="checkbox" checked={editRoles.includes(role.key)} onChange={()=>toggle(setEditRoles,editRoles,role.key)}/>{role.name}{!role.available&&<span className="badge">Funkcia zatiaľ nedostupná</span>}</label>)}
           <Action className="primary section-space" run={async()=>{if(!editRoles.length)throw new Error("Vyber aspoň jednu rolu.");const r=await api("members/"+selected.id+"/roles","PUT",{roles:editRoles});const updated={...selected,roles:r.roles,role:r.roles.some(k=>config.find(x=>x.key===k)?.admin_access)?"coach":"member"};setSelected(updated);await load();}}>Uložiť roly</Action>
-          {selected.registered&&<Action className="danger section-space" run={async()=>{if(!window.confirm("Natrvalo odstrániť člena "+selected.name+"?"))return;await api("members/"+selected.id,"DELETE");setSelected(null);await load();}}>Natrvalo odstrániť člena</Action>}
-        </section>}
+          </section>}
+          {can("members.accounts.delete")&&mayManage(selected)&&selected.registered&&<Action className="danger section-space" run={async()=>{if(!window.confirm("Natrvalo odstrániť člena "+selected.name+"?"))return;await api("members/"+selected.id,"DELETE");setSelected(null);await load();}}>Natrvalo odstrániť člena</Action>}
         {selected.equipment?.length>0&&<section className="section-space member-equipment"><h3>Pridelené vybavenie</h3><ul>{selected.equipment.map(item=><li key={item.code}><Boxes size={15}/><span><strong>{item.code}</strong><span className="meta">{equipmentKindLabels[item.kind]} · {item.label}</span></span></li>)}</ul></section>}
-        {(selected.roles||[]).includes("player")&&<section className="section-space"><h3>Dochádzka</h3>{attendance.length?<ul className="records">{attendance.map((row,i)=><li key={i}><div className="grow"><strong>{row.title}</strong><span className="meta">{date(row.starts_at)}</span></div><span className={"badge "+(row.attended?"positive":"")}>{row.attended?"Prítomný":"Neprítomný"}</span></li>)}</ul>:<p className="muted">Zatiaľ bez záznamu.</p>}</section>}
-        {(selected.roles||[]).includes("player")&&staff&&<section className="section-space development-section"><h3>Rozvoj hráča</h3>{development?<>
-          <Form label="Uložiť trénerovu poznámku" submit={async({note})=>{await api("members/"+selected.id+"/development/note","PUT",{note});setDevelopment({...development,note});}}><label>Súkromná poznámka trénerov<textarea name="note" rows="3" maxLength="4000" defaultValue={development.note}/></label></Form>
-          <div className="skill-list">{development.skills.map(skill=><div className="skill-row" key={skill.skill}><strong>{skill.skill}</strong><span className="skill-level">{[1,2,3,4].map(level=><button type="button" aria-label={skill.skill+" "+level} className={level<=skill.level?"filled":""} key={level} onClick={async()=>{await api("members/"+selected.id+"/development/skills","PUT",{...skill,level});setDevelopment(await api("members/"+selected.id+"/development"));}}>●</button>)}</span></div>)}</div>
-          <Form key={selected.id+":skill"} label="Pridať zručnosť" reset submit={async values=>{await api("members/"+selected.id+"/development/skills","PUT",{...values,level:Number(values.level)});setDevelopment(await api("members/"+selected.id+"/development"));}}><label>Zručnosť<input name="skill" maxLength="120" required/></label><label>Úroveň<select name="level" defaultValue="2"><option value="0">Na začiatku</option><option value="1">Základy</option><option value="2">Rozvíja sa</option><option value="3">Samostatný</option><option value="4">Istý</option></select></label><label>Poznámka<input name="note" maxLength="1000"/></label></Form>
+        {can("attendance.records.member")&&(selected.roles||[]).includes("player")&&<section className="section-space"><h3>Dochádzka</h3>{attendance.length?<ul className="records">{attendance.map((row,i)=><li key={i}><div className="grow"><strong>{row.title}</strong><span className="meta">{date(row.starts_at)}</span></div><span className={"badge "+(row.attended?"positive":"")}>{row.attended?"Prítomný":"Neprítomný"}</span></li>)}</ul>:<p className="muted">Zatiaľ bez záznamu.</p>}</section>}
+        {(selected.roles||[]).includes("player")&&can("development.skills.read")&&<section className="section-space development-section"><h3>Rozvoj hráča</h3>{development?<>
+          {can("development.skills.private_write") && <Form label="Uložiť trénerovu poznámku" submit={async({note})=>{await api("members/"+selected.id+"/development/note","PUT",{note});setDevelopment({...development,note});}}><label>Súkromná poznámka trénerov<textarea name="note" rows="3" maxLength="4000" defaultValue={development.note}/></label></Form>}
+          {!can("development.skills.private_write") && development.note && <p>{development.note}</p>}
+          <div className="skill-list">{development.skills.map(skill=><div className="skill-row" key={skill.skill}><strong>{skill.skill}</strong><span className="skill-level">{[1,2,3,4].map(level=><button disabled={!can("development.skills.write")} type="button" aria-label={skill.skill+" "+level} className={level<=skill.level?"filled":""} key={level} onClick={async()=>{await api("members/"+selected.id+"/development/skills","PUT",{...skill,level});setDevelopment(await api("members/"+selected.id+"/development"));}}>●</button>)}</span></div>)}</div>
+          {can("development.skills.write") && <Form key={selected.id+":skill"} label="Pridať zručnosť" reset submit={async values=>{await api("members/"+selected.id+"/development/skills","PUT",{...values,level:Number(values.level)});setDevelopment(await api("members/"+selected.id+"/development"));}}><label>Zručnosť<input name="skill" maxLength="120" required/></label><label>Úroveň<select name="level" defaultValue="2"><option value="0">Na začiatku</option><option value="1">Základy</option><option value="2">Rozvíja sa</option><option value="3">Samostatný</option><option value="4">Istý</option></select></label><label>Poznámka<input name="note" maxLength="1000"/></label></Form>}
           {development.feedback.length>0&&<details className="section-space"><summary>Tréningový feedback ({development.feedback.length})</summary><ul className="records">{development.feedback.map(row=><li key={row.training_id}><strong>{row.title}</strong><span className="meta">{date(row.starts_at)}</span>{row.next_focus&&<p>{row.next_focus}</p>}</li>)}</ul></details>}
         </>:<p className="muted">Načítava sa…</p>}</section>}
       </Modal>}
     </>}
     {section==="requests"&&<section className="card role-requests-panel"><h2>Žiadosti o pridanie rolí</h2>{requests.length?requests.map(item=><article className="role-request-row" key={item.id}><div className="grow"><strong>{item.member_name} · {item.role_name}</strong><span className="meta">{item.email} · {date(item.created_at)}</span></div>
-      {superadmin?<><Action className="primary" run={async()=>{await api("role-requests/"+item.id,"PUT",{status:"approved"});await Promise.all([loadRequests(),load()]);}}>Schváliť</Action><Action className="danger" run={async()=>{await api("role-requests/"+item.id,"PUT",{status:"rejected"});await loadRequests();}}>Zamietnuť</Action></>:<span className="badge">Čaká na schválenie</span>}</article>):<p className="muted">Žiadne čakajúce žiadosti.</p>}</section>}
+      {can("members.requests.decide")?<><Action className="primary" run={async()=>{await api("role-requests/"+item.id,"PUT",{status:"approved"});await Promise.all([loadRequests(),load()]);}}>Schváliť</Action><Action className="danger" run={async()=>{await api("role-requests/"+item.id,"PUT",{status:"rejected"});await loadRequests();}}>Zamietnuť</Action></>:<span className="badge">Čaká na schválenie</span>}</article>):<p className="muted">Žiadne čakajúce žiadosti.</p>}</section>}
     {section==="roles"&&superadmin&&<>
       <section className="card"><h2>Skúšobná prevádzka</h2><label className="checkbox"><input type="checkbox" checked={bannerEnabled} onChange={async e=>{const value=e.target.checked;setBannerEnabled(value);try{await api("admin/trial-banner","PUT",{enabled:value});onTrialBanner(value);}catch(err){setBannerEnabled(!value);setError(err.message);}}}/>Zobrazovať banner o skúšobnej prevádzke všetkým používateľom</label></section>
-      <section className="card role-permissions-panel"><h2>Prístupy rolí k položkám menu</h2><p className="muted">Prístup sa uplatňuje v menu aj na API. Budúce moduly sú označené ako zatiaľ nedostupné.</p>
-        {config.map(role=><details className="role-config-row" key={role.key}><summary><strong>{role.name}</strong><span className="meta">{role.available?"Dostupná rola":"Funkcie roly zatiaľ nie sú dostupné"}</span></summary><p>{role.description}</p>
-          <div className="role-capabilities">{(role.capabilities||[]).map(feature=><span className="role-capability" key={feature.name}><span>{feature.name}</span><span className={"badge "+(feature.available?"positive":"planned-role")}>{feature.available?"Dostupné":"Zatiaľ nedostupné"}</span></span>)}</div>
-          <div className="role-invite-permissions">
-            <label className="checkbox"><input type="checkbox" checked={role.can_create_invites} disabled={!role.admin_access} onChange={e=>setConfig(rows=>rows.map(row=>row.key===role.key?{...row,can_create_invites:e.target.checked,can_assign_invite_roles:e.target.checked?row.can_assign_invite_roles:false}:row))}/>Môže vytvárať pozvánky</label>
-            <label className="checkbox"><input type="checkbox" checked={role.can_assign_invite_roles} disabled={!role.admin_access||!role.can_create_invites} onChange={e=>setConfig(rows=>rows.map(row=>row.key===role.key?{...row,can_assign_invite_roles:e.target.checked}:row))}/>Môže priraďovať roly v pozvánkach</label>
-            {!role.admin_access&&<span className="meta">Tieto oprávnenia vyžadujú administrátorský prístup.</span>}
-          </div>
-          <div className="role-menu-grid">{menus.map(menu=><label className="role-menu-setting" key={menu}><span>{navLabel[menu]}</span><select value={role.permissions[menu]||"none"} onChange={e=>setConfig(rows=>rows.map(row=>row.key===role.key?{...row,permissions:{...row.permissions,[menu]:e.target.value}}:row))}><option value="none">Bez prístupu</option><option value="read">Iba čítanie</option><option value="edit">Úprava</option></select></label>)}</div>
-          <Action className="primary section-space" run={async()=>{await api("role-config/"+role.key,"PUT",{permissions:role.permissions,can_create_invites:role.can_create_invites,can_assign_invite_roles:role.can_assign_invite_roles});}}>Uložiť prístupy</Action>
-        </details>)}
-      </section>
+      <PermissionsPanel roles={config} catalog={permissionCatalog} members={members} update={(key, grants) =>
+        setConfig(rows => rows.map(row => row.key === key ? {...row, grants} : row))} />
     </>}
   </>;
 }
@@ -639,6 +880,18 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
 function InviteLink({link}) {
   return <div className="invite"><p>Odkaz je platný 7 dní. Pošli ho používateľovi.</p><label>Odkaz<input readOnly value={link} onFocus={event => event.target.select()} /></label>
     {navigator.clipboard && <Action run={() => navigator.clipboard.writeText(link)}>Kopírovať odkaz</Action>}</div>;
+}
+
+function OwnAttendance() {
+  const [rows, setRows] = useState([]);
+  const [error, setError] = useState("");
+  useEffect(() => {api("me/attendance").then(setRows).catch(problem => setError(problem.message));}, []);
+  return <section className="card"><h2>Moja dochádzka</h2>
+    {error && <p className="error" role="alert">{error}</p>}
+    <ul className="records">{rows.map(row => <li key={row.id}><strong className="grow">{row.title}</strong>
+      <span>{date(row.starts_at)}</span><span className="badge">{row.attended ? "Prítomný" : "Neprítomný"}</span></li>)}</ul>
+    {!error && !rows.length && <p className="muted">Zatiaľ bez záznamu.</p>}
+  </section>;
 }
 
 function AttendanceOverview({openScanner}) {
@@ -739,6 +992,8 @@ function AttendanceOverview({openScanner}) {
 }
 
 function AnnouncementEditor({item, close, refresh}) {
+  const can = useRight();
+  const [draftMode, setDraftMode] = useState(item?.published === false || !can("announcements.notices.publish"));
   const [audience,setAudience]=useState(item?.audience || "team");
   const [people,setPeople]=useState([]);
   const [selected,setSelected]=useState(item?.recipient_ids || []);
@@ -746,11 +1001,11 @@ function AnnouncementEditor({item, close, refresh}) {
   const [files,setFiles]=useState([]);
   const [query,setQuery]=useState("");
   const [error,setError]=useState("");
-  useEffect(()=>{api("announcement-recipients").then(setPeople).catch(e=>setError(e.message));},[]);
+  useEffect(()=>{if (can("announcements.notices.audience")) api("announcement-recipients").then(setPeople).catch(e=>setError(e.message));},[]);
   return <Modal title={item ? "Upraviť oznam" : "Nový oznam"} close={close}>
     {error && <p className="error" role="alert">{error}</p>}
-    <Form label={item ? "Uložiť zmeny" : "Zverejniť oznam"} submit={async data=>{
-      if (audience === "selected" && !selected.length) throw new Error("Vyber aspoň jedného adresáta.");
+    <Form label={draftMode ? "Uložiť koncept" : item ? "Uložiť zmeny" : "Zverejniť oznam"} submit={async data=>{
+      if (can("announcements.notices.audience") && audience === "selected" && !selected.length) throw new Error("Vyber aspoň jedného adresáta.");
       const existing=(item?.attachments || []).filter(f=>keep.includes(f.id));
       if(existing.length+files.length>5 || files.reduce((sum,f)=>sum+f.size,0)>5*1024*1024)
         throw new Error("Najviac 5 príloh, spolu najviac 5 MB.");
@@ -765,56 +1020,75 @@ function AnnouncementEditor({item, close, refresh}) {
         }
       }
       await api("announcements"+(item ? "/"+item.id : ""),item ? "PUT" : "POST",{
-        title:data.title,body:data.body,pinned:data.pinned==="on",audience,recipient_ids:selected,
+        title:data.title,body:data.body,published:!draftMode,pinned:can("announcements.notices.pin") ? data.pinned==="on" : Boolean(item?.pinned),audience,recipient_ids:can("announcements.notices.audience") && audience==="selected" ? selected : [],
         keep_attachment_ids:keep,draft_id:draft?.id || null,notify:data.notify==="on"});
       close();await refresh();
     }}>
+      {item?.published !== true && can("announcements.notices.publish") && <label className="checkbox"><input type="checkbox" checked={draftMode} onChange={event => setDraftMode(event.target.checked)} />Uložiť ako koncept</label>}
       <label>Názov<input name="title" maxLength="120" defaultValue={item?.title || ""} required /></label>
       <label>Text<textarea name="body" maxLength="4000" defaultValue={item?.body || ""} required /></label>
-      <label>Adresáti<select value={audience} onChange={e=>setAudience(e.target.value)}>
+      {can("announcements.notices.audience") && <label>Adresáti<select value={audience} onChange={e=>setAudience(e.target.value)}>
         <option value="team">Celý tím</option><option value="coaches">Iba tréneri</option><option value="selected">Vybraní členovia a tréneri</option>
-      </select></label>
-      {audience==="selected" && <><label>Vyhľadať adresáta<input type="search" value={query} onChange={e=>setQuery(e.target.value)} /></label>
+      </select></label>}
+      {can("announcements.notices.audience") && audience==="selected" && <><label>Vyhľadať adresáta<input type="search" value={query} onChange={e=>setQuery(e.target.value)} /></label>
         <div className="recipient-picker">{people.filter(p=>p.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(person=><label className="checkbox" key={person.id}>
           <input type="checkbox" checked={selected.includes(person.id)} onChange={e=>setSelected(e.target.checked ? [...selected,person.id] : selected.filter(id=>id!==person.id))} />
           {person.name} · {clubRoleLabel(person.roles)}
         </label>)}</div><p className="meta">Vybraných: {selected.length}</p></>}
-      <label className="checkbox"><input name="pinned" type="checkbox" defaultChecked={item?.pinned || false} />Pripnúť na nástenku</label>
-      {(item?.attachments || []).map(file=><label className="checkbox" key={file.id}><input type="checkbox" checked={keep.includes(file.id)} onChange={e=>setKeep(e.target.checked ? [...keep,file.id] : keep.filter(id=>id!==file.id))} />Ponechať {file.filename}</label>)}
+      {can("announcements.notices.pin") && <label className="checkbox"><input name="pinned" type="checkbox" defaultChecked={item?.pinned || false} />Pripnúť na nástenku</label>}
+      {can("announcements.files.upload") && <>{(item?.attachments || []).map(file=><label className="checkbox" key={file.id}><input type="checkbox" checked={keep.includes(file.id)} onChange={e=>setKeep(e.target.checked ? [...keep,file.id] : keep.filter(id=>id!==file.id))} />Ponechať {file.filename}</label>)}
       <label>Pridať prílohy<input type="file" multiple accept=".pdf,.png,.jpg,.jpeg" onChange={e=>setFiles(Array.from(e.target.files || []))} /></label>
-      <p className="meta">PDF, PNG alebo JPEG. Najviac 5 príloh, spolu 5 MB.</p>
-      <label className="checkbox"><input name="notify" type="checkbox" defaultChecked={!item} />Poslať push upozornenie adresátom</label>
+      <p className="meta">PDF, PNG alebo JPEG. Najviac 5 príloh, spolu 5 MB.</p></>}
+      {!draftMode && can("announcements.notices.push") && <label className="checkbox"><input name="notify" type="checkbox" defaultChecked={!item} />Poslať push upozornenie adresátom</label>}
       <p className="meta">Oznamy spravujú tréneri a vedenie klubu. Pri úprave sa potvrdenia prečítania vynulujú.</p>
     </Form>
   </Modal>;
 }
 
-function Bulletin({items, staff, refresh}) {
+function Bulletin({items, refresh}) {
+  const can = useRight();
   const [editor,setEditor]=useState(null);
+  const [drafts, setDrafts] = useState([]);
+  const [draftError, setDraftError] = useState("");
+  const maySeeDrafts = ["create","edit","publish"].some(key => can("announcements.notices." + key));
+  async function loadDrafts() {if (maySeeDrafts) setDrafts(await api("announcement-workbench"));}
+  useEffect(() => {loadDrafts().catch(problem => setDraftError(problem.message));}, [maySeeDrafts]);
   useEffect(()=>{
     const id=Number(hash().get("notice"));
     if(id) document.getElementById("notice-"+id)?.scrollIntoView?.({block:"center"});
   },[items]);
   return <>
-    {staff && <PageToolbar><div className="page-toolbar-row"><button className="primary page-primary" onClick={()=>setEditor({})}><Plus size={18} />Nový oznam</button></div></PageToolbar>}
+    {can("announcements.notices.create") && <PageToolbar><div className="page-toolbar-row"><button className="primary page-primary" onClick={()=>setEditor({})}><Plus size={18} />Nový oznam</button></div></PageToolbar>}
+    {draftError && <p className="error" role="alert">{draftError}</p>}
+    {drafts.length > 0 && <section className="card">
+      <h2>Rozpracované oznamy</h2>
+      <ul className="records">{drafts.map(item => <li key={item.id}>
+        <div className="grow"><strong>{item.title}</strong><p>{item.body}</p></div>
+        <div className="actions">
+          {can("announcements.notices.edit") && <button onClick={() => setEditor(item)}>Upraviť koncept</button>}
+          {can("announcements.notices.publish") && <Action run={async () => {
+            await api("announcements/" + item.id + "/publish", "POST", {notify: false});
+            await Promise.all([loadDrafts(), refresh()]);
+          }}>Zverejniť</Action>}
+        </div>
+      </li>)}</ul>
+    </section>}
     {items.length ? <div className="bulletin-list">{items.map(item=><article className="card" key={item.id} id={"notice-"+item.id}>
       <div className="row-between"><span className="meta">{date(item.created_at)}</span>{item.pinned && <span className="badge"><Pin size={13} />Pripnuté</span>}</div>
       <h2>{item.title}</h2><p className="body">{item.body}</p>
-      {staff && <p className="meta">{item.audience==="selected" ? "Vybraní adresáti" : item.audience==="coaches" ? "Iba tréneri" : "Celý tím"}</p>}
-      {(item.attachments || []).length>0 && <ul className="attachment-list">{item.attachments.map(file=><li key={file.id}><a href={new URL("api/announcements/"+item.id+"/attachments/"+file.id,base).href}><Download size={16} />{file.filename}</a></li>)}</ul>}
+      {can("announcements.notices.audience") && <p className="meta">{item.audience==="selected" ? "Vybraní adresáti" : item.audience==="coaches" ? "Iba tréneri" : "Celý tím"}</p>}
+      {can("announcements.files.read") && (item.attachments || []).length>0 && <ul className="attachment-list">{item.attachments.map(file=><li key={file.id}><a href={new URL("api/announcements/"+item.id+"/attachments/"+file.id,base).href}><Download size={16} />{file.filename}</a></li>)}</ul>}
       <div className="actions section-space">
         {!item.is_read ? <Action className="text-button" run={async()=>{await api("announcements/"+item.id+"/read","POST");await refresh();}}><CheckCheck size={16} />Prečítané</Action> : <span className="meta"><CheckCheck size={16} />Prečítané</span>}
-        {staff && <>
-          <Action className="text-button" run={async()=>{await api("announcements/"+item.id+"/pin","PUT",{pinned:!item.pinned});await refresh();}}><Pin size={16} />{item.pinned ? "Odopnúť" : "Pripnúť"}</Action>
-          <button onClick={()=>setEditor(item)}><Pencil size={16} />Upraviť</button>
-          <Action className="danger" run={async()=>{
+        {can("announcements.notices.pin") && <Action className="text-button" run={async()=>{await api("announcements/"+item.id+"/pin","PUT",{pinned:!item.pinned});await refresh();}}><Pin size={16} />{item.pinned ? "Odopnúť" : "Pripnúť"}</Action>}
+        {can("announcements.notices.edit") && can("announcements.notices.publish") && <button onClick={()=>setEditor(item)}><Pencil size={16} />Upraviť</button>}
+        {can("announcements.notices.delete") && <Action className="danger" run={async()=>{
             if(!window.confirm(localizeText("Natrvalo vymazať oznam aj prílohy? Bez odoslania upozornenia.", activeLanguage))) return;
             await api("announcements/"+item.id,"DELETE");await refresh();
-          }}>Vymazať</Action>
-        </>}
+          }}>Vymazať</Action>}
       </div>
     </article>)}</div> : <Empty icon={Megaphone}>Zatiaľ žiadne oznamy.</Empty>}
-    {editor && <AnnouncementEditor item={editor.id ? editor : null} close={()=>setEditor(null)} refresh={refresh} />}
+    {editor && <AnnouncementEditor item={editor.id ? editor : null} close={()=>setEditor(null)} refresh={async () => {await Promise.all([loadDrafts(), refresh()]);}} />}
   </>;
 }
 
@@ -843,6 +1117,7 @@ function GroupEditor({contacts, group, user, close, done}) {
 }
 
 function MessageInteractions({item, own, change}) {
+  const can = useRight();
   const [picker, setPicker] = useState(false);
   const [reactors, setReactors] = useState(null);
   const [addingOption, setAddingOption] = useState(false);
@@ -863,14 +1138,14 @@ function MessageInteractions({item, own, change}) {
       <p className="poll-question">{item.body}</p>
       {item.poll_options.map((option, choice) => {
         const count = item.poll_results?.find(result => result.choice === choice)?.count || 0;
-        return <Action key={choice} className="poll-option" pressed={vote === choice}
+        return <Action key={choice} className="poll-option" disabled={!can("messages.poll.vote")} pressed={vote === choice}
           run={() => change(item.id, "vote", {choice: vote === choice ? null : choice})}>
           <span>{option}</span><span>{total ? Math.round(count / total * 100) : 0}%</span>
         </Action>;
       })}
       <small className="poll-total"><span>Počet hlasov</span> · {total}</small>
-      <button type="button" className="text-button poll-add-option" aria-expanded={addingOption}
-        onClick={() => setAddingOption(value => !value)}><Plus size={14} />Pridať možnosť</button>
+      {can("messages.poll.options") && <button type="button" className="text-button poll-add-option" aria-expanded={addingOption}
+        onClick={() => setAddingOption(value => !value)}><Plus size={14} />Pridať možnosť</button>}
       {addingOption && <Form label="Uložiť možnosť" submit={async ({option}) => {
         await change(item.id, "poll-options", {option}, "POST");
         setAddingOption(false);
@@ -880,11 +1155,11 @@ function MessageInteractions({item, own, change}) {
     </div>}
     {(!own || reactions.length > 0) && <div className="message-reactions">
       {reactions.map(({emoji, count, mine}) =>
-        <Action key={emoji} className="reaction-button" pressed={own ? undefined : mine}
+        <Action key={emoji} className="reaction-button" disabled={!can(own ? "messages.chat.reactors" : "messages.chat.react")} pressed={own ? undefined : mine}
           run={() => own ? showReactors(emoji) : react(emoji)}>
           <span className="sr-only">{own ? "Zobraziť reakciu" : "Reakcia"}</span>{emoji}<span>{count}</span>
         </Action>)}
-      {!own && <button type="button" className="reaction-button reaction-trigger" aria-expanded={picker} aria-label="Pridať reakciu"
+      {!own && can("messages.chat.react") && <button type="button" className="reaction-button reaction-trigger" aria-expanded={picker} aria-label="Pridať reakciu"
         onClick={() => setPicker(value => !value)}><SmilePlus size={15} /></button>}
       {!own && picker && <div className="reaction-picker" aria-label="Vybrať reakciu">
         <EmojiPicker.Root locale={activeLanguage === "uk" ? "uk" : activeLanguage === "hu" ? "hu" : "en"}
@@ -935,6 +1210,7 @@ function Messages({user, conversations, refresh, initialContact}) {
   const [messages, setMessages] = useState([]);
   const [more, setMore] = useState(false);
   const [query, setQuery] = useState("");
+  const can = useRight();
   const [pollOpen, setPollOpen] = useState(false);
   const [newMessage, setNewMessage] = useState(false);
   const [groupEditor, setGroupEditor] = useState(null);
@@ -948,6 +1224,7 @@ function Messages({user, conversations, refresh, initialContact}) {
   activeKey.current = selectedKey;
   useEffect(() => {
     let current = true;
+    if (!["messages.chat.direct", "messages.groups.create", "messages.groups.edit"].some(can)) return;
     const load = () => api("contacts").then(rows => {if (current) setContacts(rows);}).catch(error => {if (current) setError(error.message);});
     load();
     const timer = setInterval(() => {if (!document.hidden) load();}, 15000);
@@ -961,10 +1238,11 @@ function Messages({user, conversations, refresh, initialContact}) {
   }
   const activeConversation = rows.find(row => conversationKey(row) === selectedKey);
   const person = selected?.type === "private" ? contacts.find(person => person.id === selected.id) : null;
-  const canSend = selected?.type === "group" ? Boolean(activeConversation) : Boolean(person);
+  const canSend = selected?.type === "group" ? can("messages.chat.send_group") && Boolean(activeConversation) : can("messages.chat.direct") && Boolean(person?.active || activeConversation?.active);
   const latest = activeConversation?.id;
   const messagePath = selection => "messages?" + (selection.type === "group" ? "group_id=" : "contact_id=") + selection.id;
   async function markRead(selection, rows) {
+    if (user.preview) return;
     if (selection.type === "group" && rows.length) {
       await api("chat-groups/" + selection.id + "/read", "POST", {last_message_id: rows[0].id});
     } else {
@@ -1043,8 +1321,8 @@ function Messages({user, conversations, refresh, initialContact}) {
     <PageToolbar><div className={"page-toolbar-row chat-toolbar" + (selected ? " conversation-open" : "")}>
       <label className="search"><Search size={17} /><input type="search" aria-label="Hľadať konverzáciu" placeholder="Hľadať konverzáciu…" value={query} onChange={event => setQuery(event.target.value)} /></label>
       <div className="actions page-primary">
-        {user.role === "coach" && <button className="icon-button" aria-label="Nová skupina" onClick={() => setGroupEditor({})}><Users size={20} /></button>}
-        <button className="primary" onClick={() => {setRecipientQuery(""); setNewMessage(true);}}><Plus size={17} />Nová správa</button>
+        {can("messages.groups.create") && <button className="icon-button" aria-label="Nová skupina" onClick={() => setGroupEditor({})}><Users size={20} /></button>}
+        {can("messages.chat.direct") && <button className="primary" onClick={() => {setRecipientQuery(""); setNewMessage(true);}}><Plus size={17} />Nová správa</button>}
       </div>
     </div></PageToolbar>
     <div className={"chat card flush " + (selected ? "conversation-open" : "")}>
@@ -1093,7 +1371,7 @@ function Messages({user, conversations, refresh, initialContact}) {
           </div>) : <p className="muted small">Tu sa začína vaša konverzácia.</p>}
         </div>
         {canSend ? <div className="composer with-poll">
-          <button type="button" className="icon-button" aria-label="Vytvoriť anketu" title="Vytvoriť anketu" onClick={() => setPollOpen(true)}><ClipboardCheck size={20} /></button>
+          {can("messages.poll.create") && <button type="button" className="icon-button" aria-label="Vytvoriť anketu" title="Vytvoriť anketu" onClick={() => setPollOpen(true)}><ClipboardCheck size={20} /></button>}
           <Form key={selectedKey} label={<><Send size={18} /><span className="sr-only">Odoslať správu</span></>} reset submit={data => send({body: data.body})}>
             <label className="sr-only" htmlFor="message-body">Správa</label><textarea id="message-body" name="body" rows="1" maxLength="4000" placeholder="Napíš správu…" required />
           </Form>
@@ -1102,10 +1380,10 @@ function Messages({user, conversations, refresh, initialContact}) {
       </> : <Empty icon={MessageCircle}>Vyber konverzáciu alebo vytvor novú správu.</Empty>}
     </section>
     </div>
-    {canSend && pollOpen && <PollComposer close={() => setPollOpen(false)} send={send} />}
+    {canSend && can("messages.poll.create") && pollOpen && <PollComposer close={() => setPollOpen(false)} send={send} />}
     {newMessage && <Modal title="Nová správa" close={() => setNewMessage(false)}>
       <label className="search"><Search size={18} /><input type="search" aria-label="Hľadať adresáta" value={recipientQuery} placeholder="Hľadať člena alebo trénera…" onChange={event => setRecipientQuery(event.target.value)} /></label>
-      {user.role === "coach" && <button className="button section-space" onClick={() => {setNewMessage(false); setGroupEditor({});}}><Users size={18} />Vytvoriť skupinu</button>}
+      {can("messages.groups.create") && <button className="button section-space" onClick={() => {setNewMessage(false); setGroupEditor({});}}><Users size={18} />Vytvoriť skupinu</button>}
       <ul className="people-list recipient-list">{contacts.filter(person => person.name.toLowerCase().includes(recipientQuery.toLowerCase())).map(person =>
         <li key={person.id}><button className="person-link" onClick={() => openConversation({type: "private", id: person.id})}><Avatar name={person.name} id={person.id} version={person.avatar_version} /><span className="grow"><strong>{person.name}</strong><span className="meta">{clubRoleLabel(person.roles)}</span></span><ChevronRight size={18} /></button></li>)}</ul>
       {contacts.length === 0 && <p className="muted section-space">Zatiaľ žiadne dostupné kontakty.</p>}
@@ -1122,14 +1400,16 @@ function Messages({user, conversations, refresh, initialContact}) {
 }
 
 function BatteryActionPicker({action,onAction,status}) {
+  const can = useRight();
   const [showMore,setShowMore]=useState(false);
   const more=Object.entries(batteryLabels)
+    .filter(([key]) => can("equipment.battery." + key))
     .filter(([key])=>key!=="storage_exit"||status==="stored")
     .filter(([key])=>status!=="damaged"||["damaged","retired","note"].includes(key))
     .filter(([key])=>status!=="retired"||key==="note");
   return <div className="battery-actions">
-    {["charged","used","discharged"].filter(key=>status!==({charged:"charged",used:"in_drone",discharged:"discharged"}[key])).map(key=><button type="button" key={key} className={action===key?"selected":""} disabled={["damaged","retired"].includes(status)} onClick={()=>onAction(key)}>{batteryLabels[key]}</button>)}
-    <button type="button" aria-expanded={showMore} className="text-button battery-more-link" onClick={()=>setShowMore(value=>!value)}>{showMore?"Skryť":"Viac"}</button>
+    {["charged","used","discharged"].filter(key=>can("equipment.battery." + key) && status!==({charged:"charged",used:"in_drone",discharged:"discharged"}[key])).map(key=><button type="button" key={key} className={action===key?"selected":""} disabled={["damaged","retired"].includes(status)} onClick={()=>onAction(key)}>{batteryLabels[key]}</button>)}
+    {more.length > 0 && <button type="button" aria-expanded={showMore} className="text-button battery-more-link" onClick={()=>setShowMore(value=>!value)}>{showMore?"Skryť":"Viac"}</button>}
     {showMore&&<div className="battery-action-more-list">{more.map(([key,label])=><button type="button" key={key} className={action===key?"selected":""} onClick={()=>onAction(key)}>{label}</button>)}</div>}
   </div>;
 }
@@ -1217,7 +1497,82 @@ function BatteryTimeline({items, revision, end, openBattery, canEdit, onDelete})
   </section>;
 }
 
-function Batteries({staff, initialCode}) {
+function equipmentActionPermission(action) {
+  if (action === "assigned") return "equipment.loans.assign";
+  if (action === "returned") return "equipment.loans.unassign";
+  return "equipment.service." + action;
+}
+
+const loanStatus = {pending: "Čaká na prevzatie", accepted: "Zapožičané", returned: "Vrátené", cancelled: "Zrušené", assigned: "Pridelené"};
+
+function EquipmentLoanPanel({asset, refresh}) {
+  const user = useContext(PermissionContext);
+  const can = useRight();
+  const [rows, setRows] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [error, setError] = useState("");
+  const [create, setCreate] = useState(false);
+  const mayCreate = can("equipment.loans." + asset.kind);
+  const mayRead = ["read", "own", "accept", "return", "cancel"].some(key => can("equipment.loans." + key));
+
+  async function load() {
+    if (mayRead) setRows(await api("equipment/assets/" + asset.code + "/loans"));
+  }
+  useEffect(() => {
+    Promise.all([load(), mayCreate ? api("equipment/loan-members").then(setMembers) : null])
+      .catch(problem => setError(problem.message));
+  }, [asset.code, mayCreate, mayRead]);
+
+  async function decide(id, action) {
+    await api("equipment/assets/" + asset.code + "/loans/" + id, "PUT", {action});
+    await Promise.all([load(), refresh()]);
+  }
+
+  if (!mayRead && !mayCreate) return null;
+  return <section className="section-space">
+    <h3>Zápožičky</h3>
+    {error && <p className="error" role="alert">{error}</p>}
+    {mayCreate && !asset.loan_status && !asset.assigned_member_name && asset.status !== "retired" &&
+      <button type="button" onClick={() => setCreate(!create)}>Založiť zápožičku</button>}
+    {create && <Form label="Založiť zápožičku" submit={async data => {
+      await api("equipment/assets/" + asset.code + "/loans", "POST", {
+        member_id: Number(data.member_id), due_at: data.due_at ? trainingISO(data.due_at) : null,
+      });
+      setCreate(false);await Promise.all([load(), refresh()]);
+    }}>
+      <label>Príjemca<select name="member_id" required defaultValue=""><option value="">Vyber člena</option>
+        {members.map(member => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
+      <label>Termín vrátenia<input name="due_at" type="datetime-local" /></label>
+    </Form>}
+    <ul className="records">{rows.map(row => <li key={row.id}>
+      <div className="grow"><strong>{loanStatus[row.status]}{row.member_name ? " · " + row.member_name : ""}</strong>
+        {row.due_at && <span className="meta">Vrátiť do {date(row.due_at)}</span>}</div>
+      <div className="actions">
+        {row.status === "pending" && row.member_id === user.id && can("equipment.loans.accept") &&
+          <Action className="primary" run={() => decide(row.id, "accept")}>Potvrdiť prevzatie</Action>}
+        {row.status === "pending" && can("equipment.loans.cancel") &&
+          <Action run={() => decide(row.id, "cancel")}>Zrušiť zápožičku</Action>}
+        {row.status === "accepted" && can("equipment.loans.return") &&
+          <Action run={() => decide(row.id, "return")}>Zapísať vrátenie</Action>}
+      </div>
+    </li>)}</ul>
+  </section>;
+}
+
+function EquipmentLabelEditor({item, battery, refresh}) {
+  const [open, setOpen] = useState(false);
+  if (!open) return <button type="button" className="text-button" onClick={() => setOpen(true)}>Upraviť označenie</button>;
+  return <Form label="Uložiť označenie" submit={async data => {
+    await api((battery ? "batteries/" : "equipment/assets/") + item.code, "PUT", data);
+    await refresh();setOpen(false);
+  }}><label>Označenie<input name="label" maxLength={120} defaultValue={item.label} required /></label></Form>;
+}
+
+function Batteries({initialCode}) {
+  const can = useRight();
+  const history = can("equipment.assets.history");
+  const canDelete = can("equipment.battery.delete");
+  const canAssign = can("equipment.loans.assign");
   const currentDay = today();
   const [items, setItems] = useState([]);
   const [assets, setAssets] = useState([]);
@@ -1238,21 +1593,21 @@ function Batteries({staff, initialCode}) {
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   async function load() {
-    const [batteries,devices,members]=await Promise.all([api("batteries"),api("equipment/assets"),staff?api("members"):Promise.resolve([])]);
-    setItems(batteries);setAssets(devices);setAssignmentMembers(members.filter(member=>member.active&&member.registered));
+    const [batteries,devices,members]=await Promise.all([can("equipment.assets.read") ? api("batteries") : [],can("equipment.assets.read") ? api("equipment/assets") : [],canAssign?api("equipment/loan-members"):Promise.resolve([])]);
+    setItems(batteries);setAssets(devices);setAssignmentMembers(members);
     setRevision(value => value + 1);
   }
   useEffect(() => {load().catch(error => setError(error.message));}, []);
   useEffect(() => {
     let current = true;
     setEvents([]);
-    if (selected) api("batteries/" + encodeURIComponent(selected) + "/events")
+    if (selected && history) api("batteries/" + encodeURIComponent(selected) + "/events")
       .then(rows => {if (current) setEvents(rows);}).catch(error => {if (current) setError(error.message);});
     return () => {current = false;};
   }, [selected]);
   const battery = items.find(item => item.code === selected);
   const asset = assets.find(item=>item.code===selectedAsset);
-  useEffect(()=>{let active=true;if(selectedAsset)api("equipment/assets/"+encodeURIComponent(selectedAsset)+"/events").then(rows=>{if(active)setAssetEvents(rows);}).catch(error=>{if(active)setError(error.message);});return()=>{active=false;};},[selectedAsset,revision]);
+  useEffect(()=>{let active=true;if(selectedAsset&&history)api("equipment/assets/"+encodeURIComponent(selectedAsset)+"/events").then(rows=>{if(active)setAssetEvents(rows);}).catch(error=>{if(active)setError(error.message);});return()=>{active=false;};},[selectedAsset,revision]);
   function openBattery(code, initialAction = null) {setSelected(code); setAction(initialAction);}
   async function deleteEvent(event) {
     if (!window.confirm("Odstrániť tento záznam z histórie batérie?")) return;
@@ -1264,7 +1619,7 @@ function Batteries({staff, initialCode}) {
     <PageToolbar><div className="page-toolbar-row">
       <div className="segmented" role="group" aria-label="Zobrazenie batérií">
         <button type="button" aria-pressed={view === "cards"} onClick={()=>setView("cards")}>Karty</button>
-        <button type="button" aria-pressed={view === "timeline"} onClick={()=>{if (view !== "timeline") setEnd(currentDay);setView("timeline");}}>Časová os</button>
+        {history && <button type="button" aria-pressed={view === "timeline"} onClick={()=>{if (view !== "timeline") setEnd(currentDay);setView("timeline");}}>Časová os</button>}
       </div>
       <label className="toolbar-select equipment-kind-filter">Zariadenie<select value={kindFilter} onChange={event=>setKindFilter(event.target.value)}>
         <option value="all">Všetky typy</option><option value="battery">Batérie</option><option value="charger">Nabíjačky</option><option value="drone">Drony</option><option value="controller">Ovládače</option>
@@ -1277,10 +1632,10 @@ function Batteries({staff, initialCode}) {
           setEnd(next > currentDay ? currentDay : next);
         }}><ChevronRight size={18} /></button>
       </div>}
-      {staff && <button className="primary page-primary" onClick={() => {setNewKind("battery");setNewCode("");setCreate(true);}}><Plus size={18} />Pridať zariadenie</button>}
+      {can("equipment.assets.create") && <button className="primary page-primary" onClick={() => {setNewKind("battery");setNewCode("");setCreate(true);}}><Plus size={18} />Pridať zariadenie</button>}
     </div></PageToolbar>
     {error && <p className="error" role="alert">{error}</p>}
-    {view === "timeline" && (kindFilter==="all"||kindFilter==="battery") && items.length > 0 && <BatteryTimeline items={items} revision={revision} end={end} openBattery={openBattery} canEdit={staff} onDelete={deleteEvent} />}
+    {view === "timeline" && (kindFilter==="all"||kindFilter==="battery") && items.length > 0 && <BatteryTimeline items={items} revision={revision} end={end} openBattery={openBattery} canEdit={canDelete} onDelete={deleteEvent} />}
     {view === "timeline" && kindFilter!=="all"&&kindFilter!=="battery"&&<EquipmentTimeline assets={assets.filter(item=>item.kind===kindFilter)} onOpen={setSelectedAsset} end={end} setEnd={setEnd} currentDay={currentDay} />}
     {view === "cards" && <div className="equipment-grid">{(kindFilter==="all"||kindFilter==="battery"?items:[]).map(b =>
       <article className={"card battery-state-card state-"+(b.status||"unknown")} key={b.code}>
@@ -1290,15 +1645,16 @@ function Batteries({staff, initialCode}) {
         </div>
         <div className="battery-card-details">
           <span className="battery-card-label muted">{b.label}</span>
-          {!["stored", "damaged", "retired"].includes(b.status) && <button className="text-button" aria-haspopup="dialog" onClick={() => openBattery(b.code, "used")}>Zapísať použitie</button>}
+          {can("equipment.battery.used") && !["stored", "damaged", "retired"].includes(b.status) && <button className="text-button" aria-haspopup="dialog" onClick={() => openBattery(b.code, "used")}>Zapísať použitie</button>}
         </div>
       </article>)}{assets.filter(item=>kindFilter==="all"||item.kind===kindFilter).map(item=><button type="button" className={"card battery-state-card equipment-asset-card state-"+(item.status||"unknown")} key={item.code} onClick={()=>{setSelectedAsset(item.code);setAssetAction("");setShowMoreAssetActions(false);}}>
         <span className="battery-card-heading"><strong className="equipment-card-title">{item.kind==="drone"?<Drone size={16}/>:item.kind==="controller"?<Gamepad2 size={16}/>:item.kind==="charger"?<Zap size={16}/>:<Boxes size={16}/>} {item.code}</strong><span className="badge">{equipmentKindLabels[item.kind]}</span></span>
-        <span className="battery-card-details"><span className="battery-card-label muted">{item.assigned_member_name?"Pridelené: "+item.assigned_member_name:item.label}</span><span className={"badge equipment-status-badge state-"+(item.status||"unknown")}>{equipmentActionLabels[item.status]||"Bez záznamu"}</span></span>
+        <span className="battery-card-details"><span className="battery-card-label muted">{item.assigned_member_name ? "Pridelené: " + item.assigned_member_name : item.loan_member_name ? loanStatus[item.loan_status] + ": " + item.loan_member_name : item.label}</span><span className={"badge equipment-status-badge state-"+(item.status||"unknown")}>{equipmentActionLabels[item.status]||"Bez záznamu"}</span></span>
       </button>)}</div>}
     {view === "cards" && items.length===0&&assets.filter(item=>kindFilter==="all"||item.kind===kindFilter).length===0 && <Empty icon={Battery}>Pre tento filter zatiaľ nie je zaevidované žiadne zariadenie.</Empty>}
     {selected && <Modal title={battery ? battery.code : "Batéria"} close={() => {setSelected(null); setAction(null);}}>
       {battery ? <>
+        {can("equipment.assets.edit") && <EquipmentLabelEditor item={battery} battery refresh={load} />}
         <p className="muted">{battery.label}</p><p><span className={"badge battery-state-badge state-"+(battery.status||"unknown")}>{batteryStateLabels[battery.status] || "Neznámy stav"}</span></p>
         <p className="meta">{battery.status_at ? "Aktuálny stav od " + date(battery.status_at) : "Batéria zatiaľ nemá zaznamenaný aktuálny stav."}</p>
         <p className="meta">{battery.charges} evidovaných nabití</p>
@@ -1307,26 +1663,28 @@ function Batteries({staff, initialCode}) {
           await api("batteries/" + battery.code + "/events", "POST", {action, note: data.note});
           setEvents(await api("batteries/" + battery.code + "/events")); setAction(null); await load();
         }}><label>{action === "note" ? "Poznámka" : "Poznámka (voliteľná)"}<input name="note" maxLength="1000" required={action === "note"} placeholder={action === "used" ? "Pri akom úkone sa použila?" : ""} /></label></Form>}
-        <h3 className="section-space">História</h3><ul className="timeline">{events.map(event => <li key={event.id}>
+        {history && <><h3 className="section-space">História</h3><ul className="timeline">{events.map(event => <li key={event.id}>
           <strong>{batteryLabels[event.action]}</strong><span className="meta">{date(event.created_at)} · {event.name}</span>
           {event.note && <p className="body small">{event.note}</p>}
-          {staff && <button type="button" className="danger battery-delete-event" onClick={async()=>{await deleteEvent(event);}}>Odstrániť záznam</button>}
-        </li>)}</ul>
+          {canDelete && <button type="button" className="danger battery-delete-event" onClick={async()=>{await deleteEvent(event);}}>Odstrániť záznam</button>}
+        </li>)}</ul></>}
       </> : <p>Batéria sa načítava alebo sa nenašla.</p>}
     </Modal>}
     {selectedAsset&&<Modal title={asset?.code||selectedAsset} close={()=>{setSelectedAsset(null);setAssetAction("");}}>{asset&&<>
+      {can("equipment.assets.edit") && <EquipmentLabelEditor item={asset} refresh={load} />}
       <p>{asset.label}</p><p><span className="badge">{equipmentKindLabels[asset.kind]} · {equipmentActionLabels[asset.status]||"Bez záznamu"}</span></p>
       {asset.assigned_member_name&&<p className="member-assignment-current"><Boxes size={16}/>Pridelené používateľovi <strong>{asset.assigned_member_name}</strong></p>}
-      {staff&&<>
-        <div className="equipment-actions" aria-label="Rýchle úkony">{primaryEquipmentActions[asset.kind].map(key=><button key={key} type="button" className={assetAction===key?"primary":""} aria-pressed={assetAction===key} onClick={()=>setAssetAction(assetAction===key?"":key)}>{equipmentActionLabels[key]}</button>)}</div>
+      {equipmentActions[asset.kind].some(key => can(equipmentActionPermission(key)))&&<>
+        <div className="equipment-actions" aria-label="Rýchle úkony">{primaryEquipmentActions[asset.kind].filter(key => can(equipmentActionPermission(key))).map(key=><button key={key} type="button" className={assetAction===key?"primary":""} aria-pressed={assetAction===key} onClick={()=>setAssetAction(assetAction===key?"":key)}>{equipmentActionLabels[key]}</button>)}</div>
         <button type="button" className="battery-more-link text-button" aria-expanded={showMoreAssetActions} onClick={()=>{setShowMoreAssetActions(value=>!value);setAssetAction("");}}>Viac</button>
-        {showMoreAssetActions&&<label className="equipment-more-select">Ďalšie úkony<select value={assetAction} onChange={event=>setAssetAction(event.target.value)}><option value="">Vyber úkon</option>{equipmentActions[asset.kind].filter(key=>!primaryEquipmentActions[asset.kind].includes(key)).map(key=><option key={key} value={key}>{equipmentActionLabels[key]}</option>)}</select></label>}
+        {showMoreAssetActions&&<label className="equipment-more-select">Ďalšie úkony<select value={assetAction} onChange={event=>setAssetAction(event.target.value)}><option value="">Vyber úkon</option>{equipmentActions[asset.kind].filter(key=>!primaryEquipmentActions[asset.kind].includes(key) && can(equipmentActionPermission(key))).map(key=><option key={key} value={key}>{equipmentActionLabels[key]}</option>)}</select></label>}
         {assetAction&&<Form key={asset.code+":"+assetAction} label={assetAction==="assigned"?"Priradiť vybavenie":"Zaznamenať úkon"} submit={async data=>{await api("equipment/assets/"+encodeURIComponent(asset.code)+"/events","POST",{action:assetAction,member_id:assetAction==="assigned"?Number(data.member_id):null,note:data.note});setAssetAction("");await load();}}>
           {assetAction==="assigned"&&<label>Prideliť používateľovi<select name="member_id" defaultValue="" required><option value="" disabled>Vyber člena</option>{assignmentMembers.map(member=><option key={member.id} value={member.id}>{member.name}</option>)}</select></label>}
           <label>Poznámka<input name="note" maxLength="1000" placeholder="Nepovinná poznámka"/></label>
         </Form>}
       </>}
-      <h3 className="section-space">História</h3><ul className="timeline">{assetEvents.map(event=><li key={event.id}><strong>{equipmentActionLabels[event.action]}{event.assigned_member_name?" · "+event.assigned_member_name:""}</strong><span className="meta">{date(event.created_at)} · {event.name}</span>{event.note&&<p className="body small">{event.note}</p>}</li>)}</ul>
+      <EquipmentLoanPanel key={asset.code} asset={asset} refresh={load} />
+      {history && <><h3 className="section-space">História</h3><ul className="timeline">{assetEvents.map(event=><li key={event.id}><strong>{equipmentActionLabels[event.action]}{event.assigned_member_name?" · "+event.assigned_member_name:""}</strong><span className="meta">{date(event.created_at)} · {event.name}</span>{event.note&&<p className="body small">{event.note}</p>}</li>)}</ul></>}
     </>}</Modal>}
     {create && <Modal title="Pridať zariadenie" close={() => setCreate(false)}><label>Typ zariadenia<select value={newKind} onChange={event=>setNewKind(event.target.value)}><option value="battery">Batéria</option><option value="charger">Nabíjačka</option><option value="drone">Dron</option><option value="controller">Ovládač</option></select></label><Form label="Pridať zariadenie" submit={async data => {
       const record={code:data.code.toUpperCase(),label:data.label};
@@ -1370,12 +1728,17 @@ function EquipmentTimeline({assets,onOpen,end,setEnd,currentDay}) {
 }
 
 function PlayerDevelopmentPage() {
+  const can = useRight();
+  const user = useContext(PermissionContext);
   const [members, setMembers] = useState([]);
   const [selected, setSelected] = useState(null);
   const [development, setDevelopment] = useState(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
-  async function loadMembers() {setMembers((await api("members")).filter(member => member.roles?.includes("player")));}
+  async function loadMembers() {
+    if (can("development.skills.read")) setMembers(await api("development/players"));
+    else if (can("development.skills.own")) setMembers([user]);
+  }
   async function open(member) {setSelected(member); setDevelopment(await api("members/" + member.id + "/development"));}
   useEffect(() => {loadMembers().catch(e => setError(e.message));}, []);
   return <>
@@ -1386,12 +1749,12 @@ function PlayerDevelopmentPage() {
     </li>)}</ul></div>
     {selected && <Modal title={selected.name} close={() => {setSelected(null); setDevelopment(null);}}>
       {!development ? <p className="muted">Načítava sa…</p> : <>
-        <section className="development-section"><h3>Súkromná poznámka trénerov</h3><Form label="Uložiť poznámku" submit={async ({note}) => {await api("members/" + selected.id + "/development/note", "PUT", {note}); setDevelopment({...development, note});}}><label>Poznámka<textarea name="note" rows="4" maxLength="4000" defaultValue={development.note} /></label></Form></section>
+        {(can("development.skills.private_write") || development.note) && <section className="development-section"><h3>Súkromná poznámka trénerov</h3>{can("development.skills.private_write") ? <Form label="Uložiť poznámku" submit={async ({note}) => {await api("members/" + selected.id + "/development/note", "PUT", {note}); setDevelopment({...development, note});}}><label>Poznámka<textarea name="note" rows="4" maxLength="4000" defaultValue={development.note} /></label></Form> : <p>{development.note}</p>}</section>}
         <section className="development-section section-space"><h3>Zručnosti</h3>{development.skills.length === 0 && <p className="muted">Zručnosti zatiaľ nie sú ohodnotené.</p>}
-          {development.skills.map(skill => <div className="skill-row" key={skill.skill}><strong>{skill.skill}</strong><span className="skill-level">{[1,2,3,4].map(level => <button type="button" aria-label={skill.skill + " " + level} className={level <= skill.level ? "filled" : ""} key={level} onClick={async () => {await api("members/" + selected.id + "/development/skills", "PUT", {...skill, level}); setDevelopment(await api("members/" + selected.id + "/development"));}}>●</button>)}</span></div>)}
-          <Form reset label="Pridať zručnosť" submit={async values => {await api("members/" + selected.id + "/development/skills", "PUT", {...values, level: Number(values.level)}); setDevelopment(await api("members/" + selected.id + "/development"));}}>
+          {development.skills.map(skill => <div className="skill-row" key={skill.skill}><strong>{skill.skill}</strong><span className="skill-level">{[1,2,3,4].map(level => <button disabled={!can("development.skills.write")} type="button" aria-label={skill.skill + " " + level} className={level <= skill.level ? "filled" : ""} key={level} onClick={async () => {await api("members/" + selected.id + "/development/skills", "PUT", {...skill, level}); setDevelopment(await api("members/" + selected.id + "/development"));}}>●</button>)}</span></div>)}
+          {can("development.skills.write") && <Form reset label="Pridať zručnosť" submit={async values => {await api("members/" + selected.id + "/development/skills", "PUT", {...values, level: Number(values.level)}); setDevelopment(await api("members/" + selected.id + "/development"));}}>
             <label>Zručnosť<input name="skill" maxLength="120" required /></label><label>Úroveň<select name="level" defaultValue="1">{["Na začiatku", "Základy", "Rozvíja sa", "Samostatný", "Istý"].map((label, i) => <option key={i} value={i}>{label}</option>)}</select></label><label>Poznámka<input name="note" maxLength="1000" /></label>
-          </Form>
+          </Form>}
         </section>
         <details className="section-space"><summary>Tréningový feedback ({development.feedback.length})</summary><ul className="records">{development.feedback.map(row => <li key={row.training_id}><strong>{row.title}</strong><span className="meta">{date(row.starts_at)}</span>{row.went_well && <p>Podarilo sa: {row.went_well}</p>}{row.difficult && <p>Náročné: {row.difficult}</p>}{row.next_focus && <p>Nabudúce: {row.next_focus}</p>}</li>)}</ul></details>
       </>}
@@ -1521,25 +1884,38 @@ function LineupDisplay({players,roster,editable=false,onChange}) {
 }
 
 function TeamSheet({trainings}) {
+  const can = useRight();
   const events = trainings.filter(event => !event.cancelled && (event.kind === "match" || event.kind === "training")).sort((a,b) => new Date(b.starts_at)-new Date(a.starts_at));
-  const [eventId, setEventId] = useState("general");
+  const [eventId, setEventId] = useState(() => can("team.lineup.club_read") ? "general" : "");
   const [roster, setRoster] = useState([]);
   const [players, setPlayers] = useState([]);
   const [source, setSource] = useState("general");
   const [error, setError] = useState("");
+  const [nomination, setNomination] = useState(null);
   useEffect(() => {
     if (!eventId) return;
     let active = true;
-    api(eventId === "general" ? "lineup/general" : "trainings/" + eventId + "/lineup").then(data => {if (active) {setRoster(data.roster); setPlayers(normalizeLineup(data.players)); setSource(data.source);}}).catch(e => {if (active) setError(e.message);});
+    api(eventId === "general" ? "lineup/general" : "trainings/" + eventId + "/lineup").then(data => {if (active) {setRoster(data.roster); setPlayers(normalizeLineup(data.players)); setSource(data.source); setNomination(data);}}).catch(e => {if (active) setError(e.message);});
     return () => {active = false;};
   }, [eventId]);
   const event = events.find(item => String(item.id) === eventId);
   return <>
-    <PageToolbar><div className="page-toolbar-row"><label className="toolbar-select">Zostava<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="general">Základná zostava tímu</option>{events.map(item => <option key={item.id} value={item.id}>{date(item.starts_at)} · {item.title}</option>)}</select></label></div></PageToolbar>
+    <PageToolbar><div className="page-toolbar-row"><label className="toolbar-select">Zostava<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="">Vyber zostavu</option>{can("team.lineup.club_read") && <option value="general">Základná zostava tímu</option>}{can("team.lineup.event_read") && events.map(item => <option key={item.id} value={item.id}>{date(item.starts_at)} · {item.title}</option>)}</select></label></div></PageToolbar>
     {error && <p className="error" role="alert">{error}</p>}
     {eventId === "general" && <div className="notice">Základná zostava priebežne vyjadruje, s kým tréner počíta a na akej pozícii.</div>}
     {event && source === "general" && <div className="notice">Pre túto udalosť zatiaľ nie je uložená samostatná zostava; zobrazuje sa základná zostava tímu.</div>}
     {(event || eventId === "general") && <><div className="section-heading"><h2>{event?.title || "Základná zostava tímu"}</h2>{event && <span className="meta">{date(event.starts_at)}</span>}</div>
+      {event && upcoming(event) && nomination?.nominated && can("team.lineup.respond") && <div className="actions">
+        {[true, false].map(accepted => <Action key={String(accepted)} pressed={nomination.my_response === accepted}
+          run={async () => {
+            await api("trainings/" + event.id + "/lineup/response", "PUT", {accepted});
+            setNomination(row => ({...row, my_response: accepted}));
+          }}>{accepted ? "Potvrdiť nomináciu" : "Odmietnuť nomináciu"}</Action>)}
+      </div>}
+      {event && nomination?.responses?.length > 0 && <details>
+        <summary>Odpovede na nomináciu</summary><ul>{nomination.responses.map((row, index) =>
+          <li key={index}>{row.name} · {row.accepted ? "Potvrdil" : "Odmietol"}</li>)}</ul>
+      </details>}
       {players.length ? <LineupDisplay players={players} roster={roster} /> : <Empty icon={Users}>{eventId === "general" ? "Základná zostava ešte nie je pripravená." : "Tréner zatiaľ nepripravil zostavu na túto udalosť."}</Empty>}
     </>}
     {!event && eventId !== "general" && events.length === 0 && <Empty icon={Users}>Zatiaľ nie sú naplánované tréningy ani zápasy.</Empty>}
@@ -1547,12 +1923,14 @@ function TeamSheet({trainings}) {
 }
 
 function LineupPlanner({trainings}) {
+  const can = useRight();
   const events = trainings.filter(event => event.kind === "match" || event.kind === "training").sort((a,b) => new Date(b.starts_at)-new Date(a.starts_at));
-  const [eventId, setEventId] = useState("general");
+  const [eventId, setEventId] = useState(() => can("team.lineup.club_read") ? "general" : "");
   const [roster, setRoster] = useState([]);
   const [players, setPlayers] = useState([]);
   const [source, setSource] = useState("general");
   const [error, setError] = useState("");
+  const [published, setPublished] = useState(false);
   function chooseEventMode() {
     if (eventId !== "general") return;
     const next = events.find(event => new Date(event.starts_at) >= new Date()) || events[0];
@@ -1561,34 +1939,49 @@ function LineupPlanner({trainings}) {
   useEffect(() => {
     if (!eventId) return;
     let active = true;
-    api(eventId === "general" ? "lineup/general" : "trainings/" + eventId + "/lineup").then(data => {if (active) {setRoster(data.roster); setPlayers(normalizeLineup(data.players)); setSource(data.source);}}).catch(e => {if (active) setError(e.message);});
+    api(eventId === "general" ? "lineup/general" : "trainings/" + eventId + "/lineup").then(data => {if (active) {setRoster(data.roster); setPlayers(normalizeLineup(data.players)); setSource(data.source);setPublished(data.published);}}).catch(e => {if (active) setError(e.message);});
     return () => {active = false;};
   }, [eventId]);
+  const editable = can(eventId === "general" ? "team.lineup.club_edit" : "team.lineup.event_edit");
   const event = events.find(item=>String(item.id)===eventId);
   return <>
     <PageToolbar><div className="page-toolbar-row">
       <div className="segmented lineup-mode-switch">
-        <button type="button" className={eventId === "general" ? "selected" : ""} aria-pressed={eventId === "general"} onClick={() => {setEventId("general");setError("");}}>Základná zostava tímu</button>
-        <button type="button" className={eventId !== "general" ? "selected" : ""} aria-pressed={eventId !== "general"} onClick={chooseEventMode}>Zostava na udalosť</button>
+        <button type="button" disabled={!can("team.lineup.club_read")} className={eventId === "general" ? "selected" : ""} aria-pressed={eventId === "general"} onClick={() => {setEventId("general");setError("");}}>Základná zostava tímu</button>
+        <button type="button" disabled={!can("team.lineup.event_read")} className={eventId !== "general" ? "selected" : ""} aria-pressed={eventId !== "general"} onClick={chooseEventMode}>Zostava na udalosť</button>
       </div>
       {eventId !== "general" && <label className="toolbar-select">Udalosť<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="">Vyber tréning alebo zápas</option>{events.map(event => <option key={event.id} value={event.id}>{date(event.starts_at)} · {event.title}</option>)}</select></label>}
-      {eventId && <div className="page-primary"><Action className="primary" run={async () => {
+      {eventId && editable && <div className="page-primary"><Action className="primary" run={async () => {
         await api(eventId === "general" ? "lineup/general" : "trainings/" + eventId + "/lineup", "PUT", {players});
         setSource(eventId === "general" ? "general" : "event");
+        setPublished(false);
       }}>Uložiť zostavu</Action></div>}
+      {event && source === "event" && can("team.lineup.publish") && <Action run={async () => {
+        const result = await api("trainings/" + event.id + "/lineup/publication", "PUT", {published: !published});
+        setPublished(result.published);
+      }}>{published ? "Skryť nomináciu" : "Zverejniť nomináciu"}</Action>}
     </div></PageToolbar>
     {error && <p className="error" role="alert">{error}</p>}
     {eventId !== "general" && source === "general" && <div className="notice">Upravuješ zostavu na konkrétnu udalosť. Začínaš zo základnej zostavy; zmeny sa uložia iba pre túto udalosť.</div>}
     {eventId && <>
       <div className="lineup-context"><strong>{event?.title || "Základná zostava tímu"}</strong>{event&&<span className="meta">{date(event.starts_at)}</span>}</div>
-      <LineupDisplay players={players} roster={roster} editable onChange={setPlayers}/>
+      <LineupDisplay players={players} roster={roster} editable={editable} onChange={setPlayers}/>
     </>}
   </>;
 }
 
-function TeamWorkspace({trainings,staff}) {
+function TeamWorkspace() {
+  const can = useRight();
+  const staff = can("team.lineup.club_edit") || can("team.lineup.event_edit") || can("team.lineup.publish");
+  const [trainings, setTrainings] = useState([]);
+  const [error, setError] = useState("");
+  const mayViewEvents = can("team.lineup.event_read");
+  useEffect(() => {
+    if (mayViewEvents) api("lineup/events").then(setTrainings).catch(problem => setError(problem.message));
+  }, [mayViewEvents]);
   const [section,setSection]=useState("overview");
   return <>
+    {error && <p className="error" role="alert">{error}</p>}
     {staff&&<div className="team-workspace-tabs segmented" role="tablist" aria-label="Prehľad tímu a zostavy">
       <button type="button" role="tab" aria-selected={section==="overview"} onClick={()=>setSection("overview")}>Prehľad tímov</button>
       <button type="button" role="tab" aria-selected={section==="lineups"} onClick={()=>setSection("lineups")}>Zostavy</button>
@@ -1597,23 +1990,45 @@ function TeamWorkspace({trainings,staff}) {
   </>;
 }
 
-function Documents({staff}) {
+function Documents() {
+  const can = useRight();
   const [items, setItems] = useState([]);
   const [create, setCreate] = useState(false);
   const [file, setFile] = useState(null);
   const [error, setError] = useState("");
-  async function load() {setItems(await api("documents"));}
+  const [acknowledgements, setAcknowledgements] = useState(null);
+  async function load() {if (can("documents.files.list")) setItems(await api("documents"));}
   useEffect(() => {load().catch(error => setError(error.message));}, []);
   return <>
-    {staff && <PageToolbar><div className="page-toolbar-row"><button className="primary page-primary" onClick={() => {setFile(null); setCreate(true);}}><Plus size={18} />Dokument</button></div></PageToolbar>}
+    {can("documents.files.upload") && <PageToolbar><div className="page-toolbar-row"><button className="primary page-primary" onClick={() => {setFile(null); setCreate(true);}}><Plus size={18} />Dokument</button></div></PageToolbar>}
     {error && <p className="error" role="alert">{error}</p>}
     <div className="card flush"><ul className="people-list">{items.map(item => <li key={item.id}><FileText /><div className="grow"><strong>{item.title}</strong><span className="meta">PDF · {date(item.created_at)}</span></div>
-      <a className="icon-button" href={new URL("api/documents/" + item.id + "/download", base)} aria-label={"Stiahnuť " + item.title}><Download size={19} /></a>
-      {staff && <Action className="icon-button danger" run={async () => {
+      {can("documents.files.download") && <a className="icon-button" href={new URL("api/documents/" + item.id + "/download", base)} aria-label={"Stiahnuť " + item.title}><Download size={19} /></a>}
+      <div className="actions">
+        {item.requires_acknowledgement && can("documents.files.acknowledge") && (item.acknowledged
+          ? <span className="badge positive">Potvrdené</span>
+          : <Action run={async () => {await api("documents/" + item.id + "/acknowledgement", "POST");await load();}}>Potvrdiť oboznámenie</Action>)}
+        {can("documents.files.ack_config") && <Action run={async () => {
+          await api("documents/" + item.id + "/acknowledgement-settings", "PUT", {required: !item.requires_acknowledgement});
+          await load();
+        }}>{item.requires_acknowledgement ? "Vypnúť potvrdenia" : "Vyžiadať potvrdenie"}</Action>}
+        {can("documents.files.ack_list") && <Action run={async () => {
+          const rows = await api("documents/" + item.id + "/acknowledgements");
+          setAcknowledgements({title: item.title, rows});
+        }}>Zobraziť potvrdenia</Action>}
+      </div>
+      {can("documents.files.delete") && <Action className="icon-button danger" run={async () => {
         if (!window.confirm(localizeText("Odstrániť dokument „", activeLanguage) + item.title + "“?")) return;
         await api("documents/" + item.id, "DELETE"); await load();
       }}><X size={18} /><span className="sr-only">Odstrániť {item.title}</span></Action>}
     </li>)}</ul>{items.length === 0 && <Empty icon={FileText}>Klubové dokumenty sa zobrazia tu.</Empty>}</div>
+    {acknowledgements && <Modal title={acknowledgements.title} close={() => setAcknowledgements(null)}>
+      <h3>Potvrdenia oboznámenia</h3>
+      {acknowledgements.rows.length === 0 && <p>Zatiaľ nikto nepotvrdil oboznámenie.</p>}
+      <ul className="records">{acknowledgements.rows.map(row => <li key={row.id}>
+        <strong className="grow">{row.name}</strong><span>{date(row.created_at)}</span>
+      </li>)}</ul>
+    </Modal>}
     {create && <Modal title="Pridať dokument" close={() => setCreate(false)}><Form label="Nahrať dokument" submit={async data => {
       if (!file || file.size > 5 * 1024 * 1024) throw new Error("Vyber PDF s veľkosťou najviac 5 MB.");
       const title = [...new TextEncoder().encode(data.title)].map(byte => byte.toString(16).padStart(2, "0")).join("");
@@ -1639,6 +2054,7 @@ function InstallPanel({installation, install}) {
 }
 
 function MemberQr({member,close}) {
+  const can = useRight();
   const own=member.self;
   const path=own ? "me/card" : "members/"+member.id+"/card";
   const [card,setCard]=useState(null),[error,setError]=useState("");
@@ -1650,7 +2066,7 @@ function MemberQr({member,close}) {
       <img src={new URL("api/"+path+".svg?v="+version,base).href} alt={"Členský QR kód: "+card.name} />
       <p>Ukáž tento kód trénerovi na zápis dochádzky.</p>
       {navigator.clipboard && <Action run={()=>navigator.clipboard.writeText(card.payload)}>Kopírovať členský kód</Action>}
-      {!own && <div className="section-space"><Action className="danger" run={async()=>{
+      {!own && can("members.card.reset") && <div className="section-space"><Action className="danger" run={async()=>{
         if(!window.confirm(localizeText("Obnoviť členský QR? Starý kód okamžite prestane platiť. Člen si nový zobrazí vo svojej appke.", activeLanguage))) return;
         setCard(await api(path+"/reset","POST"));setVersion(value=>value+1);
       }}>Obnoviť QR kód</Action></div>}
@@ -1659,7 +2075,13 @@ function MemberQr({member,close}) {
 }
 
 function ClubScanner({user,initialEvent,refresh}) {
-  const staff=user.role!=="member";
+  const can = useRight();
+  const staff = can("scanner.codes.events");
+  const mayRecord = can("attendance.records.scan");
+  const [loanMembers, setLoanMembers] = useState([]);
+  useEffect(() => {
+    if (can("equipment.loans.assign")) api("equipment/loan-members").then(setLoanMembers).catch(() => {});
+  }, [user.permissions]);
   const [running,setRunning]=useState(true),[busy,setBusy]=useState(false);
   const [manual,setManual]=useState("");
   const [error,setError]=useState("");
@@ -1696,7 +2118,7 @@ function ClubScanner({user,initialEvent,refresh}) {
     if(locked.current)return;
     locked.current=true;setRunning(false);setBusy(true);setResult(null);setError("");setSaved("");
     try{
-      const response=await api("scan","POST",{value:raw,event_id:staff&&selectedEvent?.can_record?eventId:null});
+      const response=await api("scan","POST",{value:raw,event_id:mayRecord&&selectedEvent?.can_record?eventId:null});
       if(!mounted.current)return;
       if(response.type==="member"){
         if(response.recorded){
@@ -1738,12 +2160,12 @@ function ClubScanner({user,initialEvent,refresh}) {
       <p>Vyber udalosť pre zápis dochádzky alebo vytvor novú udalosť.</p>
       <label>Deň udalosti<input type="date" lang="sk-SK" value={day} onChange={event=>{setEventId(null);setDay(event.target.value);}} /></label>
       {eventsLoading&&<p className="muted">Načítavajú sa udalosti…</p>}
-      {!eventsLoading&&events.filter(event=>event.can_record).map(event=><button className="card scan-event-option" key={event.id} onClick={async()=>{
+      {!eventsLoading&&events.filter(event=>mayRecord&&event.can_record).map(event=><button className="card scan-event-option" key={event.id} onClick={async()=>{
         try{const response=await api("scan","POST",{value:pendingMember.payload,event_id:event.id});setPendingMember(null);if(response.recorded){const prefix=response.already_present?"Dochádzka už bola zapísaná: ":"Zapísaná dochádzka: ";setToast(localizeText(prefix,activeLanguage)+response.name+" · "+response.event_title);await refresh();}}
         catch(e){setError(e.message);setPendingMember(null);}
       }}>{date(event.starts_at)} · {event.title}</button>)}
       {!eventsLoading&&!events.some(event=>event.can_record)&&<p className="muted">Na tento deň nie je dostupná udalosť na zápis dochádzky.</p>}
-      <button className="primary section-space" onClick={()=>setNewPrivateEvent(true)}><Plus size={18}/>Vytvoriť novú udalosť</button>
+      {can("scanner.codes.create") && mayRecord && <button className="primary section-space" onClick={()=>setNewPrivateEvent(true)}><Plus size={18}/>Vytvoriť novú udalosť</button>}
       {newPrivateEvent&&<Form label="Vytvoriť udalosť a zapísať prítomnosť" submit={async data=>{
         const starts_at=trainingISO(data.starts_at),ends_at=data.ends_at?trainingISO(data.ends_at):null;
         if(ends_at&&ends_at<=starts_at)throw new Error("Koniec musí nasledovať po začiatku.");
@@ -1756,7 +2178,7 @@ function ClubScanner({user,initialEvent,refresh}) {
     </Modal>}
     {result?.type==="charger"&&<section className="card scan-result">
       <Battery size={26}/><h2>Nabíjačka {result.code}</h2>
-      {saved?<p className="success" role="status">{saved}</p>:<Form label={localizeText("Zaznamenať nabitie",activeLanguage)+" ("+selectedBatteries.length+")"} submit={async()=>{
+      {saved?<p className="success" role="status">{saved}</p>:can("equipment.battery.batch")&&<Form label={localizeText("Zaznamenať nabitie",activeLanguage)+" ("+selectedBatteries.length+")"} submit={async()=>{
         const response=await api("battery-charges","POST",{charger_code:result.code,codes:selectedBatteries,request_id:batchRequestId});
         setSaved(localizeText("Nabitie zapísané pre ",activeLanguage)+response.count+" "+localizeText("batérií.",activeLanguage));await refresh();
       }}>
@@ -1769,19 +2191,23 @@ function ClubScanner({user,initialEvent,refresh}) {
         {selectedBatteries.length===0&&<p className="error">Vyber aspoň jednu batériu.</p>}
         <button className="primary" disabled={selectedBatteries.length===0}>Zaznamenať nabitie</button>
       </Form>}
+      {result.asset && <EquipmentLoanPanel key={result.code} asset={result.asset}
+        refresh={async () => {setResult(await api("scan","POST",{value:result.code}));await refresh();}}/>}
       <button className="section-space" onClick={()=>{setResult(null);setSaved("");locked.current=false;setRunning(true);}}>Skenovať ďalší kód</button>
     </section>}
     {result?.type==="equipment"&&<section className="card scan-result">
       <Drone size={26}/><h2>{result.code}</h2>
-      {!result.exists?<><p>Zariadenie ešte nie je evidované.</p>{staff?<Form label="Pridať zariadenie" submit={async data=>{
+      {!result.exists?<><p>Zariadenie ešte nie je evidované.</p>{can("equipment.assets.create")?<Form label="Pridať zariadenie" submit={async data=>{
         await api("equipment/assets","POST",{code:result.code,kind:result.kind,label:data.label});const updated=await api("scan","POST",{value:result.code});setResult(updated);setAction(result.kind==="drone"?"inspection":"assigned");await refresh();
       }}><label>Typ<input value={equipmentKindLabels[result.kind]} readOnly /></label><label>Označenie<input name="label" defaultValue={result.code} maxLength="120" required/></label></Form>:<p>Požiadaj trénera o zaevidovanie.</p>}</>:<>
         <p>{result.label}</p>{result.status&&<p><span className="badge">{equipmentActionLabels[result.status]}</span></p>}{result.status_at&&<p className="meta">Zaznamenané {date(result.status_at)}</p>}
-        {!saved&&<Form label="Zaznamenať úkon" submit={async data=>{await api("equipment/assets/"+encodeURIComponent(result.code)+"/events","POST",{action,note:data.note});const updated=await api("scan","POST",{value:result.code});setResult(updated);setSaved("Záznam bol uložený.");await refresh();}}>
-          <label>Úkon<select value={action} onChange={event=>setAction(event.target.value)}>{equipmentActions[result.kind].map(key=><option key={key} value={key}>{equipmentActionLabels[key]}</option>)}</select></label>
+        {!saved&&equipmentActions[result.kind].some(key => can(equipmentActionPermission(key)))&&<Form label="Zaznamenať úkon" submit={async data=>{await api("equipment/assets/"+encodeURIComponent(result.code)+"/events","POST",{action,note:data.note,member_id:action==="assigned"?Number(data.member_id):null});const updated=await api("scan","POST",{value:result.code});setResult(updated);setSaved("Záznam bol uložený.");await refresh();}}>
+          <label>Úkon<select value={can(equipmentActionPermission(action)) ? action : ""} required onChange={event=>setAction(event.target.value)}><option value="" disabled>Vyber úkon</option>{equipmentActions[result.kind].filter(key => can(equipmentActionPermission(key))).map(key=><option key={key} value={key}>{equipmentActionLabels[key]}</option>)}</select></label>
+          {action === "assigned" && can("equipment.loans.assign") && <label>Člen<select name="member_id" required defaultValue=""><option value="">Vyber člena</option>{loanMembers.map(member => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>}
           <label>Poznámka<input name="note" maxLength="1000" placeholder="Nepovinná poznámka"/></label>
         </Form>}{saved&&<p className="success" role="status">{saved}</p>}
       </>}
+      {result.exists && <EquipmentLoanPanel key={result.code} asset={result} refresh={async () => {setResult(await api("scan","POST",{value:result.code}));await refresh();}}/>}
       <button className="section-space" onClick={()=>{setResult(null);setSaved("");locked.current=false;setRunning(true);}}>Skenovať ďalší kód</button>
     </section>}
     {result?.type==="battery"&&<section className="card scan-result">
@@ -1794,7 +2220,8 @@ function ClubScanner({user,initialEvent,refresh}) {
         <p>{result.label}</p><p><span className={"badge battery-state-badge state-"+(result.status||"unknown")}>{batteryStateLabels[result.status]||"Neznámy stav"}</span></p>
         {result.status_at&&<p className="meta">Stav od {date(result.status_at)}</p>}
         {result.status==="damaged"&&<p className="notice">Túto batériu nepoužívaj.</p>}
-        {!saved&&<Form label="Uložiť záznam" submit={async data=>{
+        {!saved&&Object.keys(batteryLabels).some(key => can("equipment.battery." + key))&&<Form label="Uložiť záznam" submit={async data=>{
+          if (!can("equipment.battery." + action)) throw new Error("Vyber úkon.");
           setBusy(true);try{await api("batteries/"+result.code+"/events","POST",{action,note:data.note,request_id:requestId});
             const updated=await api("scan","POST",{value:result.code});setSaved("Záznam bol uložený.");setResult(updated);await refresh();
           }finally{setBusy(false);}
@@ -1864,18 +2291,19 @@ function PushSettings({user,reloadUser}) {
 }
 
 function RoleApplications({user}) {
+  const can = useRight();
   const [catalog,setCatalog]=useState([]),[requests,setRequests]=useState([]),[confirmRole,setConfirmRole]=useState(null),[saved,setSaved]=useState(""),[error,setError]=useState("");
-  useEffect(()=>{Promise.all([api("role-catalog"),api("me/role-requests")]).then(([c,r])=>{setCatalog(c);setRequests(r);}).catch(e=>setError(e.message));},[]);
+  useEffect(()=>{Promise.all([api("role-catalog"),can("profile.requests.own") ? api("me/role-requests") : []]).then(([c,r])=>{setCatalog(c);setRequests(r);}).catch(e=>setError(e.message));},[]);
   const names=Object.fromEntries((user.roles||[]).map(key=>[key,true]));
   const pending=new Set(requests.filter(x=>x.status==="pending").map(x=>x.role_key));
-  async function submit(role){await api("me/role-requests","POST",{roles:[role.key]});setConfirmRole(null);setSaved("Žiadosť bola odoslaná vedeniu klubu.");setRequests(await api("me/role-requests"));}
+  async function submit(role){await api("me/role-requests","POST",{roles:[role.key]});setConfirmRole(null);setSaved("Žiadosť bola odoslaná vedeniu klubu.");if (can("profile.requests.own")) setRequests(await api("me/role-requests"));}
   return <section className="card role-application-panel"><h2>Ďalšie klubové roly</h2>
     {error&&<p className="error" role="alert">{error}</p>}{saved&&<p className="success" role="status">{saved}</p>}
     {catalog.filter(role=>role.available).map(role=>{const owned=names[role.key],waiting=pending.has(role.key);return <details className="role-application-option" key={role.key}>
       <summary><strong>{role.name}</strong>{(owned||waiting)&&<span className="badge">{owned?"Už pridelená":"Čaká na schválenie"}</span>}</summary>
       <p>{role.description}</p>
       <div className="role-capabilities">{(role.capabilities||[]).map(feature=><span className="role-capability" key={feature.name}><span>{feature.name}</span><span className={"badge "+(feature.available?"positive":"planned-role")}>{feature.available?"Dostupné":"Zatiaľ nedostupné"}</span></span>)}</div>
-      <Action className="primary section-space" disabled={owned||waiting} run={()=>setConfirmRole(role)}>{owned?"Už pridelená":waiting?"Čaká na schválenie":"Požiadať o rolu"}</Action>
+      {can("profile.requests.create") && <Action className="primary section-space" disabled={owned||waiting} run={()=>setConfirmRole(role)}>{owned?"Už pridelená":waiting?"Čaká na schválenie":"Požiadať o rolu"}</Action>}
     </details>})}
     {requests.filter(row=>row.status!=="pending").length>0&&<details className="section-space"><summary>Predchádzajúce žiadosti</summary><ul className="records">{requests.filter(row=>row.status!=="pending").map(row=><li key={row.id}><strong>{row.name}</strong><span className="badge">{row.status==="approved"?"Schválená":"Zamietnutá"}</span></li>)}</ul></details>}
     {confirmRole&&<Modal title="Odoslať žiadosť o rolu?" close={()=>setConfirmRole(null)}><p>Žiadosť o rolu „{confirmRole.name}“ bude poslaná vedeniu klubu na posúdenie.</p><div className="actions"><Action className="primary" run={()=>submit(confirmRole)}>Potvrdiť a odoslať</Action><button onClick={()=>setConfirmRole(null)}>Zrušiť</button></div></Modal>}
@@ -1887,11 +2315,11 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
   const [edit, setEdit] = useState(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
-  useEffect(() => {api("me/attendance").then(setAttendance).catch(error => setError(error.message));}, []);
+  useEffect(() => {if (hasRight(user,"attendance.records.own")) api("me/attendance").then(setAttendance).catch(error => setError(error.message));}, []);
   const attended = attendance.filter(row => row.attended).length;
   return <>
     <PageToolbar><div className="page-toolbar-row">
-      {(user.roles||[]).includes("player") && <button onClick={openCard}><QrCode size={18} />Môj členský QR kód</button>}
+      {hasRight(user,"profile.card.own") && <button onClick={openCard}><QrCode size={18} />Môj členský QR kód</button>}
       <div className="actions page-primary">
         {user.role !== "superadmin" && <button onClick={() => setEdit("password")}>Zmeniť heslo</button>}
         <button className="primary" onClick={() => setEdit("profile")}><Pencil size={16} />Upraviť profil</button>
@@ -1920,7 +2348,7 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
       {attendance.length ? <><p className="big-number">{attended}<span> / {attendance.length}</span></p><p className="muted">navštívených udalostí so zaznamenanou dochádzkou</p>
         <ul className="records">{attendance.map(row => <li key={row.id}><div className="grow"><strong>{row.title}</strong><span className="meta">{date(row.starts_at)}</span></div><span className="badge">{row.attended ? "Prítomný" : "Neprítomný"}</span></li>)}</ul></> : <p className="muted">Tréner zatiaľ nezapísal dochádzku.</p>}
     </section>}
-    {user.role!=="superadmin"&&<RoleApplications user={user}/>}
+    {user.role!=="superadmin" && (hasRight(user, "profile.requests.own") || hasRight(user, "profile.requests.create")) && <RoleApplications user={user}/>}
     {user.role!=="superadmin" && <PushSettings user={user} reloadUser={reloadUser} />}
     <section className="card install-settings"><h2>Nastavenia inštalácie</h2>
       <Form key={String(user.pwa_show_card) + ":" + user.pwa_show_popup} label="Uložiť nastavenia" submit={async data => {
@@ -1991,24 +2419,27 @@ const dashboardLinkInfo = {
   member_qr: [QrCode, "Môj členský QR kód"],
 };
 function Home({user, trainings, announcements, conversations, refresh, navigate, openTraining, openScanner, openCard, plan, roleRequestCount, unreadNotices}) {
-  const staff = user.role !== "member";
-  const canRespond = user.roles?.includes("player");
+  const can = useRight();
+  const staff = can("calendar.rsvp.summary");
+  const canRespond = can("calendar.rsvp.respond") || can("calendar.rsvp.reconfirm");
   const has = page => user.menu_access?.includes(page);
   const next = trainings.filter(upcoming);
   const unread = conversations.reduce((sum, row) => sum + row.unread, 0);
   const attendanceWaiting = trainings.find(t => !t.cancelled && past(t) && t.counts?.attendance_pending > 0);
-  const revised = canRespond && next.find(t => t.schedule_revision > 0 && !t.change_response);
-  const unanswered = canRespond ? next.filter(t => !t.response || (t.schedule_revision > 0 && !t.change_response)) : [];
+  const revised = next.find(t => mayRespond(user,t) && t.schedule_revision > 0 && !t.change_response);
+  const unanswered = canRespond ? next.filter(t => mayRespond(user,t) && (!t.response || (t.schedule_revision > 0 && !t.change_response))) : [];
   const notice = announcements.find(item => item.pinned) || announcements[0];
   const unreadNotice = announcements.find(item => !item.is_read);
   const availableWidgets = [
-    ...(has("calendar") ? ["event", "schedule"] : []), ...(canRespond && has("calendar") ? ["rsvp", "attendance"] : []),
-    ...(staff && has("attendance") ? ["followup", "team_attendance", "rsvp_summary"] : []),
-    ...(has("announcements") ? ["announcements"] : []),
-    ...(has("messages") && user.role !== "superadmin" ? ["messages"] : []),
+    ...(can("calendar.events.read") ? ["event", "schedule"] : []),
+    ...(canRespond ? ["rsvp"] : []), ...(can("attendance.records.own") ? ["attendance"] : []),
+    ...(can("attendance.records.read") ? ["followup", "team_attendance"] : []),
+    ...(can("calendar.rsvp.summary") ? ["rsvp_summary"] : []),
+    ...(can("announcements.notices.read") ? ["announcements"] : []),
+    ...(can("messages.chat.read") ? ["messages"] : []),
     ...(user.menu_access?.includes("members") && user.roles?.some(role => ["club_leader", "deputy_leader"].includes(role)) ? ["role_requests"] : []),
-    ...(has("equipment") ? ["battery_status", "battery_activity"] : []),
-    ...(staff && has("members") ? ["member_invites"] : []),
+    ...(can("equipment.assets.read") ? ["battery_status"] : []), ...(can("equipment.assets.history") ? ["battery_activity"] : []),
+    ...(can("members.accounts.read") && can("members.accounts.invite") ? ["member_invites"] : []),
     ...(user.menu_access?.some(key => key !== "home") ? ["quick_links"] : []),
   ];
   const defaults = staff
@@ -2022,7 +2453,7 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
   const columns = [1,2,3,4].includes(saved.columns) ? saved.columns : 2;
   const homeColor = theme.startsWith("#") ? theme : ({blue:"#41b6e6",sky:"#7fc8ed",mint:"#83cbb4",coral:"#e8a28c"}[theme] || "#41b6e6");
   const defaultLinks = ["calendar",...(has("messages")? ["messages"]:[]),...(has("announcements")?["announcements"]:[]),...(canRespond?["member_qr"]:[]),...(has("scanner")?["scanner"]:[])];
-  const availableLinks = Object.keys(dashboardLinkInfo).filter(key => key === "member_qr" ? canRespond : key === "scanner" ? has("scanner") : key === "messages" ? has("messages")&&user.role!=="superadmin" : key === "team" ? has("team")&&user.role!=="superadmin" : has(key));
+  const availableLinks = Object.keys(dashboardLinkInfo).filter(key => key === "member_qr" ? can("profile.card.own") : has(key));
   const quickLinks = (Array.isArray(saved.quick_links) ? saved.quick_links : defaultLinks).filter(key => availableLinks.includes(key));
   const [editOpen, setEditOpen] = useState(false), [draftWidgets, setDraftWidgets] = useState(widgets), [draftLinks, setDraftLinks] = useState(quickLinks), [draftTheme, setDraftTheme] = useState(theme), [draftColumns, setDraftColumns] = useState(columns);
   const [dashboardData, setDashboardData] = useState({attendance:[],batteries:[],batteryActivity:[],members:[],teamAttendance:null});
@@ -2075,8 +2506,8 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
     if (key === "event") {
       const event = next[0];
       return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><CalendarDays size={18}/><h3>Najbližšia udalosť</h3></div>
-        {event ? <TrainingCard training={event} staff={staff} canRespond={canRespond} refresh={refresh} open={() => openTraining(event.id)} prominent /> : <p className="muted">Zatiaľ nie je naplánovaná žiadna udalosť.</p>}
-        <div className="dashboard-widget-actions">{makeAction("Otvoriť kalendár",()=>navigate("calendar"))}{staff&&has("calendar")&&makeAction("Naplánovať udalosť",plan,Plus)}</div>
+        {event ? <TrainingCard training={event} staff={staff} canRespond={mayRespond(user, event)} refresh={refresh} open={() => openTraining(event.id)} prominent /> : <p className="muted">Zatiaľ nie je naplánovaná žiadna udalosť.</p>}
+        <div className="dashboard-widget-actions">{makeAction("Otvoriť kalendár",()=>navigate("calendar"))}{maySchedule(user)&&makeAction("Naplánovať udalosť",plan,Plus)}</div>
       </article>;
     }
     if (key === "schedule") return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><CalendarDays size={18}/><h3>Nadchádzajúci program</h3></div>
@@ -2228,10 +2659,9 @@ function App() {
   // Keep the banner hidden until the server confirms it is enabled.
   const [trialBannerEnabled,setTrialBannerEnabled]=useState(false);
   const [roleRequestCount,setRoleRequestCount]=useState(0);
-  const staff = user?.role === "coach" || user?.role === "superadmin";
   const superadmin = user?.role === "superadmin";
-  const visibleNavigation = navigation.filter(([key]) => user?.menu_access?.includes(key) && (key !== "team" || user?.role !== "superadmin") && (key !== "messages" || !superadmin));
-  const allowedPages = [...visibleNavigation.map(([key]) => key), ...(user?.menu_access?.includes("scanner") ? ["scanner"] : []), "profile"];
+  const visibleNavigation = navigation.filter(([key]) => hasRight(user, key + ".open"));
+  const allowedPages = [...visibleNavigation.map(([key]) => key), ...(hasRight(user,"scanner.open") ? ["scanner"] : []), "profile"];
   const currentPage = allowedPages.includes(page) ? page : "home";
   const title = currentPage === "profile" ? "Profil a nastavenia" : currentPage === "scanner" ? "Skenovať" : navigation.find(([key]) => key === currentPage)?.[1];
   useEffect(() => {
@@ -2298,14 +2728,13 @@ function App() {
     try {
       const refreshed=await api("me");
       if(session.current!==owner)return;
-      if(JSON.stringify([owner.role,owner.roles,owner.menu_access,owner.avatar_version,owner.dashboard_preferences])!==JSON.stringify([refreshed.role,refreshed.roles,refreshed.menu_access,refreshed.avatar_version,refreshed.dashboard_preferences])){
+      if(JSON.stringify([owner.role,owner.roles,owner.menu_access,owner.permissions,owner.avatar_version,owner.dashboard_preferences])!==JSON.stringify([refreshed.role,refreshed.roles,refreshed.menu_access,refreshed.permissions,refreshed.avatar_version,refreshed.dashboard_preferences])){
         owner=refreshed;session.current=refreshed;setUser(refreshed);
       }
-      const access=new Set(owner.menu_access||[]);
-      const canReviewRoles=owner.menu_access?.includes("members")&&(owner.role==="superadmin"||owner.roles?.includes("club_leader")||owner.roles?.includes("deputy_leader"));
+      const canReviewRoles=hasRight(owner,"members.requests.read");
       const [trainings, announcements, conversations, places,roleRequests,siteSettings] = await Promise.all([
-        access.has("calendar")?api("trainings"):Promise.resolve([]),access.has("announcements")?api("announcements"):Promise.resolve([]),
-        access.has("messages")&&owner.role!=="superadmin"?api("conversations"):Promise.resolve([]),access.has("calendar")?api("places"):Promise.resolve([]),
+        hasRight(owner,"calendar.events.read")?api("trainings"):Promise.resolve([]),hasRight(owner,"announcements.notices.read")?api("announcements"):Promise.resolve([]),
+        hasRight(owner,"messages.chat.read")?api("conversations"):Promise.resolve([]),hasRight(owner,"calendar.places.read")?api("places"):Promise.resolve([]),
         canReviewRoles?api("role-requests"):Promise.resolve([]),api("public/settings"),
       ]);
       if (session.current === owner) {setRoleRequestCount(roleRequests.length);setTrialBannerEnabled(siteSettings.trial_banner_enabled);setSnapshot({owner, data: {trainings, announcements, conversations, places}}); setError(""); setLoading(false);}
@@ -2377,15 +2806,16 @@ function App() {
       <Icon size={20} /><span>{label}</span>{key === "messages" && unread > 0 && <span className="counter">{unread}</span>}{key==="members"&&roleRequestCount>0&&<span className="counter" aria-label={roleRequestCount+" čakajúcich žiadostí o roly"}>{roleRequestCount}</span>}
     </button>)}</nav><div className="menu-footer"><button className="person-link" aria-label="Môj profil" onClick={() => navigate("profile")}><Avatar name={user?.name || "Používateľ"} id={user?.id} version={user?.avatar_version} /><span className="grow"><strong>{user?.name}</strong><span className="meta">Profil a nastavenia</span></span><Settings2 size={18} /></button>
       <Action className="logout-button" run={logout}><LogOut size={18} />Odhlásiť sa</Action></div></>;
-  return <div className={user ? "app" : "signed-out"}>
+  return <PermissionContext.Provider value={user}><div className={user ? "app" : "signed-out"}>
     <header className="topbar">
       {user && <button className="icon-button hamburger" aria-label="Otvoriť menu" aria-expanded={menu} onClick={openMenu}><Menu /></button>}
       <a className={user && currentPage !== "home" ? "brand desktop-brand" : "brand"} href="#page=home" onClick={event => {event.preventDefault(); if (user) navigate("home");}}>
         <span className="brand-symbol" aria-hidden="true"><Drone size={24} /></span><span><strong>Drone Soccer Hub</strong><small>LF TUKE</small></span>
       </a>
       {user && <h1 id="page-title" className={"topbar-title" + (currentPage === "home" ? " home-title" : "")}>{title}</h1>}
-      {user && <button className="icon-button scan-shortcut" aria-label="Skenovať kód" onClick={()=>openScanner()}><ScanLine size={22} /></button>}
-      {(user?.roles||[]).includes("player") && <button className="icon-button" aria-label="Môj členský QR kód" onClick={()=>setCardMember({self:true})}><QrCode size={22} /></button>}
+      {user?.preview && <Action className="preview-return" run={async () => {await api("role-preview", "DELETE");location.reload();}}><ShieldCheck size={16}/><span>Späť na Superadmina</span></Action>}
+      {hasRight(user, "scanner.open") && <button className="icon-button scan-shortcut" aria-label="Skenovať kód" onClick={()=>openScanner()}><ScanLine size={22} /></button>}
+      {hasRight(user, "profile.card.own") && <button className="icon-button" aria-label="Môj členský QR kód" onClick={()=>setCardMember({self:true})}><QrCode size={22} /></button>}
       {user && <button className="icon-button notification-button" aria-label={"Oznámenia" + (unread + unreadNotices ? " (" + (unread + unreadNotices) + ")" : "")} onClick={() => setNotifications(true)}><Bell size={22} />{unread + unreadNotices > 0 && <i />}</button>}
     </header>
     {user && <aside className="sidebar">{menuContent}</aside>}
@@ -2395,6 +2825,7 @@ function App() {
     <ToolbarTarget.Provider value={toolbarTarget}>
     <main ref={contentRef} tabIndex={user ? 0 : undefined} aria-labelledby={user ? "page-title" : undefined}
       className={user ? "content " + currentPage + "-page" : "content"}>
+    {user?.preview && <p className="notice">Náhľad roly · {clubRoleLabel(user.roles)}</p>}
     {trialBannerEnabled&&<aside className="development-banner" aria-label="Aplikácia vo vývoji">
         <Construction size={22} aria-hidden="true" />
         <div><strong>Aplikácia je v skúšobnej prevádzke</strong><p>Nie všetky funkcie sú zatiaľ dostupné. Funkcie aj vzhľad aplikácie priebežne dopĺňame a upravujeme.</p></div>
@@ -2402,7 +2833,7 @@ function App() {
       {error && <div className="error-banner" role="alert">{error}<Action run={refresh}>Skúsiť znova</Action></div>}
       {user === undefined ? <Empty>Načítava sa…</Empty> : !user ? <Login onLogin={loadUser} /> : <>
         {loading ? <Empty>Načítava sa…</Empty> : <>
-          {currentPage === "home" && <>
+          {currentPage === "home" && hasRight(user,"home.open") && <>
             {!installation.installed && user.pwa_show_card !== false && !installHidden && <div className="install-promotion">
               <InstallPanel installation={installation} install={install} />
               <button className="icon-button" aria-label="Skryť kartu teraz" onClick={() => setInstallHidden(true)}><X size={18} /></button>
@@ -2411,19 +2842,20 @@ function App() {
             <Home user={user} {...data} refresh={refresh} navigate={navigate} openTraining={setTrainingId}
               openScanner={openScanner} openCard={() => setCardMember({self:true})} plan={() => setCreateTraining(true)} roleRequestCount={roleRequestCount} unreadNotices={unreadNotices} />
           </>}
-          {currentPage === "calendar" && <Calendar trainings={data.trainings} staff={staff} canRespond={user.roles?.includes("player")}
+          {currentPage === "calendar" && <Calendar trainings={data.trainings}
             places={data.places} refresh={refresh} openTraining={setTrainingId} />}
           {currentPage === "scanner" && <ClubScanner key={user.id+":"+(scanEvent?.id || "general")+":"+scanSession} user={user} initialEvent={scanEvent} refresh={refresh} />}
-          {currentPage === "attendance" && staff && <AttendanceOverview openScanner={user.menu_access?.includes("scanner") ? openScanner : undefined} />}
+          {currentPage === "attendance" && hasRight(user,"attendance.records.read") && <AttendanceOverview openScanner={hasRight(user,"scanner.open") && hasRight(user,"attendance.records.scan") ? openScanner : undefined} />}
+          {currentPage === "attendance" && !hasRight(user,"attendance.records.read") && hasRight(user,"attendance.records.own") && <OwnAttendance />}
           {currentPage === "messages" && <Messages key={user.id + ":" + contact + ":" + route} user={user} conversations={data.conversations} refresh={refresh} initialContact={contact} />}
-          {currentPage === "announcements" && <Bulletin items={data.announcements} staff={staff} refresh={refresh} />}
-          {currentPage === "members" && <Members key="members" user={user} userId={user.id} staff={staff} superadmin={superadmin} onTrialBanner={setTrialBannerEnabled} onMessage={messageMember} onCard={setCardMember} />}
-          {currentPage === "team" && user.role !== "superadmin" && <TeamWorkspace trainings={data.trainings} staff={staff} />}
-          {currentPage === "development" && staff && <PlayerDevelopmentPage />}
-          {currentPage === "drills" && staff && <DrillLibrary />}
-          {currentPage === "equipment" && <Batteries key={user.id + ":" + activeBattery} staff={staff} initialCode={activeBattery} />}
-          {currentPage === "documents" && <Documents staff={staff} />}
-          {currentPage === "profile" && <Profile user={user} reloadUser={loadUser} installation={installation} install={install} saveInstallPreferences={saveInstallPreferences} openCard={()=>setCardMember({self:true})} languagePreference={languagePreference} onLanguageChange={changeLanguagePreference} />}
+          {currentPage === "announcements" && <Bulletin items={data.announcements} refresh={refresh} />}
+          {currentPage === "members" && <Members key="members" user={user} userId={user.id} superadmin={superadmin} onTrialBanner={setTrialBannerEnabled} onMessage={messageMember} onCard={setCardMember} />}
+          {currentPage === "team" && <TeamWorkspace />}
+          {currentPage === "development" && (hasRight(user,"development.skills.read") || hasRight(user,"development.skills.own")) && <PlayerDevelopmentPage />}
+          {currentPage === "drills" && hasRight(user,"drills.library.read") && <DrillLibrary />}
+          {currentPage === "equipment" && <Batteries key={user.id + ":" + activeBattery + ":" + user.permissions.join(",")} initialCode={activeBattery} />}
+          {currentPage === "documents" && <Documents />}
+          {currentPage === "profile" && hasRight(user,"profile.open") && <Profile user={user} reloadUser={loadUser} installation={installation} install={install} saveInstallPreferences={saveInstallPreferences} openCard={()=>setCardMember({self:true})} languagePreference={languagePreference} onLanguageChange={changeLanguagePreference} />}
         </>}
       </>}
     </main>
@@ -2454,14 +2886,14 @@ function App() {
         <p>Ak túto možnosť prehliadač ponúka, potvrď inštaláciu DroneSoccer LF.</p></>}
     </Modal>}
     {user && cardMember && <MemberQr key={cardMember.self ? "self" : cardMember.id} member={cardMember} close={()=>setCardMember(null)} />}
-    {user && training && <TrainingDetail key={training.id} training={training} staff={staff} canRespond={user.roles?.includes("player")}
+    {user && training && <TrainingDetail key={training.id} training={training} canRespond={mayRespond(user,training)}
       places={data.places} refresh={refresh} openScanner={openScanner} close={() => setTrainingId(null)} />}
-    {user && createTraining && <Modal title="Nová udalosť" close={() => setCreateTraining(false)}><TrainingForm places={data.places} done={async () => {setCreateTraining(false); await refresh();}} /></Modal>}
+    {maySchedule(user) && createTraining && <Modal title="Nová udalosť" close={() => setCreateTraining(false)}><TrainingForm places={data.places} done={async () => {setCreateTraining(false); await refresh();}} /></Modal>}
     {user && notifications && <Modal title="Oznámenia" close={() => setNotifications(false)}>
-      {!superadmin && <button className="card quick-link" onClick={() => navigate("messages")}><MessageCircle /><span className="grow"><strong>Správy</strong><span className="meta">{unread ? unread + " neprečítaných" : "Všetko máš prečítané"}</span></span><ChevronRight /></button>}
+      {hasRight(user, "messages.chat.read") && <button className="card quick-link" onClick={() => navigate("messages")}><MessageCircle /><span className="grow"><strong>Správy</strong><span className="meta">{unread ? unread + " neprečítaných" : "Všetko máš prečítané"}</span></span><ChevronRight /></button>}
       {data.announcements.filter(item => !item.is_read).map(item => <button className="card quick-link" key={item.id} onClick={() => navigate("announcements")}><Megaphone /><span className="grow"><strong>{item.title}</strong><span className="meta">{date(item.created_at)}</span></span><ChevronRight /></button>)}
     </Modal>}
-  </div>;
+  </div></PermissionContext.Provider>;
 }
 
 createRoot(document.getElementById("root")).render(<App />);
