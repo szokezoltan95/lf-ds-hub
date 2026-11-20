@@ -373,13 +373,13 @@ nav button .counter {margin-left: auto;}
 .battery-action-more-list {grid-column:1/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:10px;background:#f3f8fb;border-radius:12px;}
 .battery-action-more-list button {min-height:42px;}
 .battery-overview {margin-bottom:16px; padding:12px;}
-.battery-overview-table {width:100%; table-layout:fixed; border-collapse:separate; border-spacing:0; font-size:12px;}
+.battery-overview-table {position:relative; isolation:isolate; width:100%; table-layout:fixed; border-collapse:separate; border-spacing:0; font-size:12px;}
 .battery-overview-table th, .battery-overview-table td {padding:2px 1px; text-align:center; border-bottom:1px solid var(--line);}
 .battery-overview-table th:first-child {width:116px; text-align:left; overflow-wrap:anywhere;}
 .battery-timeline-identity {display:flex;align-items:center;gap:4px;}
 .battery-timeline-code {white-space:nowrap;font-size:12px;}
 .battery-overview-table tbody th .badge {display:inline-flex; white-space:normal; font-size:10px; line-height:1.2;}
-.battery-overview-table thead th {position:sticky; top:0; z-index:1; height:34px; background:var(--surface, white); font-size:11px;}
+.battery-overview-table thead th {position:sticky; top:0; z-index:10; height:34px; background-color:var(--surface, #fff); background-clip:border-box; box-shadow:0 1px var(--line); font-size:11px;}
 .battery-day-button {width:100%; min-width:0; min-height:44px; padding:2px; flex-direction:column; gap:2px; font-variant-numeric:tabular-nums; border-radius:8px;}
 .battery-day-button:focus-visible {outline-offset:-3px;}
 .battery-day-action-counts {display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:2px 4px;}
