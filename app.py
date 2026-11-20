@@ -555,14 +555,35 @@ def update_install_preferences(data: InstallPreferences, conn: DB, user: User):
     return data
 
 
+DashboardWidgetId = Literal["event", "schedule", "rsvp", "attendance", "followup", "announcements", "messages",
+                            "role_requests", "battery_status", "battery_activity", "team_attendance",
+                            "rsvp_summary", "member_invites", "quick_links"]
+DashboardLinkId = Literal["calendar", "attendance", "messages", "announcements", "members", "team",
+                          "development", "lineups", "drills", "equipment", "documents", "scanner", "member_qr"]
+
+
+class DashboardWidgetPreference(BaseModel):
+    id: DashboardWidgetId
+    display: Literal["both", "desktop", "mobile"] = "both"
+
+
 class DashboardPreferences(BaseModel):
-    widgets: list[Literal["event", "rsvp", "attendance", "followup", "announcements", "messages", "role_requests"]] = Field(max_length=7)
+    widgets: list[DashboardWidgetPreference | DashboardWidgetId] = Field(max_length=14)
+    quick_links: list[DashboardLinkId] = Field(default_factory=list, max_length=13)
     theme: Annotated[str, StringConstraints(pattern=r"^(blue|sky|mint|coral|#[0-9a-fA-F]{6})$")] = "blue"
 
 
 @api.put("/me/dashboard-preferences")
 def update_dashboard_preferences(data: DashboardPreferences, conn: DB, user: User):
-    preferences = {"widgets": list(dict.fromkeys(data.widgets)), "theme": data.theme}
+    widgets = []
+    seen = set()
+    for item in data.widgets:
+        value = item if isinstance(item, str) else item.model_dump()
+        key = value if isinstance(value, str) else value["id"]
+        if key not in seen:
+            widgets.append({"id": key, "display": "both"} if isinstance(value, str) else value)
+            seen.add(key)
+    preferences = {"widgets": widgets, "quick_links": list(dict.fromkeys(data.quick_links)), "theme": data.theme}
     conn.execute("UPDATE members SET dashboard_preferences=%s WHERE id=%s",
                  (Jsonb(preferences), user["id"]))
     return preferences

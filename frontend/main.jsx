@@ -1896,12 +1896,22 @@ const dashboardThemes = [
   ["blue", "Modrá"], ["sky", "Nebeská"], ["mint", "Mätová"], ["coral", "Koralová"],
 ];
 const dashboardWidgetInfo = {
-  event: [CalendarDays, "Najbližšia udalosť"], rsvp: [Check, "Moje potvrdenia"],
-  attendance: [Heart, "Moja dochádzka"], followup: [ClipboardCheck, "Dochádzka na doplnenie"],
-  announcements: [Megaphone, "Aktuálne oznámenie"], messages: [MessageCircle, "Neprečítané správy"],
-  role_requests: [Users, "Žiadosti o roly"],
+  event: [CalendarDays, "Najbližšia udalosť"], schedule: [CalendarDays, "Nadchádzajúci program"],
+  rsvp: [Check, "Moje potvrdenia"], attendance: [Heart, "Moja dochádzka"],
+  followup: [ClipboardCheck, "Dochádzka na doplnenie"], team_attendance: [ClipboardCheck, "Účasť tímu"],
+  rsvp_summary: [Users, "Potvrdenia účasti"], announcements: [Megaphone, "Aktuálne oznámenie"],
+  messages: [MessageCircle, "Neprečítané správy"], role_requests: [Users, "Žiadosti o roly"],
+  battery_status: [Battery, "Stav batérií"], battery_activity: [Battery, "Nedávne použitie batérií"],
+  member_invites: [Users, "Pozvánky a noví členovia"], quick_links: [ArrowUpRight, "Rýchly prístup"],
 };
-function Home({user, trainings, announcements, conversations, refresh, navigate, openTraining, openScanner, openCard, plan, roleRequestCount}) {
+const dashboardLinkInfo = {
+  calendar: [CalendarDays, "Kalendár"], attendance: [ClipboardCheck, "Dochádzka"], messages: [MessageCircle, "Správy"],
+  announcements: [Megaphone, "Oznamy"], members: [Users, "Členovia"], team: [Users, "Tímy"],
+  development: [Users, "Rozvoj hráčov"], lineups: [ClipboardCheck, "Zostavy"], drills: [BookOpen, "Knižnica cvičení"],
+  equipment: [Battery, "Vybavenie"], documents: [FileText, "Dokumenty"], scanner: [ScanLine, "Skenovať"],
+  member_qr: [QrCode, "Môj členský QR kód"],
+};
+function Home({user, trainings, announcements, conversations, refresh, navigate, openTraining, openScanner, openCard, plan, roleRequestCount, unreadNotices}) {
   const staff = user.role !== "member";
   const canRespond = user.roles?.includes("player");
   const has = page => user.menu_access?.includes(page);
@@ -1909,99 +1919,166 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
   const unread = conversations.reduce((sum, row) => sum + row.unread, 0);
   const attendanceWaiting = trainings.find(t => !t.cancelled && past(t) && t.counts?.attendance_pending > 0);
   const revised = canRespond && next.find(t => t.schedule_revision > 0 && !t.change_response);
-  const unanswered = canRespond && next.find(t => !t.response || (t.schedule_revision > 0 && !t.change_response));
+  const unanswered = canRespond ? next.filter(t => !t.response || (t.schedule_revision > 0 && !t.change_response)) : [];
   const notice = announcements.find(item => item.pinned) || announcements[0];
+  const unreadNotice = announcements.find(item => !item.is_read);
   const availableWidgets = [
-    ...(has("calendar") ? ["event"] : []), ...(canRespond && has("calendar") ? ["rsvp", "attendance"] : []),
-    ...(staff && has("attendance") ? ["followup"] : []), ...(has("announcements") ? ["announcements"] : []),
+    ...(has("calendar") ? ["event", "schedule"] : []), ...(canRespond && has("calendar") ? ["rsvp", "attendance"] : []),
+    ...(staff && has("attendance") ? ["followup", "team_attendance", "rsvp_summary"] : []),
+    ...(has("announcements") ? ["announcements"] : []),
     ...(has("messages") && user.role !== "superadmin" ? ["messages"] : []),
     ...(user.menu_access?.includes("members") && user.roles?.some(role => ["club_leader", "deputy_leader"].includes(role)) ? ["role_requests"] : []),
+    ...(has("equipment") ? ["battery_status", "battery_activity"] : []),
+    ...(staff && has("members") ? ["member_invites"] : []),
+    ...(user.menu_access?.some(key => key !== "home") ? ["quick_links"] : []),
   ];
-  const defaults = staff ? ["event", "followup", "announcements", "messages", "role_requests"] : ["event", "rsvp", "attendance", "announcements", "messages"];
+  const defaults = staff
+    ? [["event","both"],["followup","both"],["announcements","both"],["battery_status","both"],["quick_links","both"],["rsvp_summary","desktop"],["team_attendance","desktop"],["messages","desktop"],["battery_activity","desktop"],["member_invites","desktop"],["role_requests","desktop"]]
+    : [["event","both"],["rsvp","both"],["announcements","both"],["quick_links","both"],["battery_status","mobile"],["messages","desktop"],["attendance","desktop"]];
   const saved = user.dashboard_preferences || {};
-  const widgets = [...new Set((Array.isArray(saved.widgets) ? saved.widgets : defaults).filter(key => availableWidgets.includes(key)))];
+  const rawWidgets = Array.isArray(saved.widgets) ? saved.widgets : defaults.map(([id,display]) => ({id,display}));
+  const widgets = rawWidgets.map(item => typeof item === "string" ? {id:item,display:defaults.find(([id])=>id===item)?.[1]||"both"} : item)
+    .filter((item,index,list) => item && availableWidgets.includes(item.id) && list.findIndex(other => (typeof other === "string" ? other : other.id) === item.id) === index);
   const theme = saved.theme || "blue";
   const homeColor = theme.startsWith("#") ? theme : ({blue:"#41b6e6",sky:"#7fc8ed",mint:"#83cbb4",coral:"#e8a28c"}[theme] || "#41b6e6");
-  const [editOpen, setEditOpen] = useState(false), [draftWidgets, setDraftWidgets] = useState(widgets), [draftTheme, setDraftTheme] = useState(theme);
-  const [attendance, setAttendance] = useState([]), [attendanceLoaded, setAttendanceLoaded] = useState(false);
+  const defaultLinks = ["calendar",...(has("messages")? ["messages"]:[]),...(has("announcements")?["announcements"]:[]),...(canRespond?["member_qr"]:[]),...(has("scanner")?["scanner"]:[])];
+  const availableLinks = Object.keys(dashboardLinkInfo).filter(key => key === "member_qr" ? canRespond : key === "scanner" ? has("scanner") : key === "messages" ? has("messages")&&user.role!=="superadmin" : key === "team" ? has("team")&&user.role!=="superadmin" : has(key));
+  const quickLinks = (Array.isArray(saved.quick_links) ? saved.quick_links : defaultLinks).filter(key => availableLinks.includes(key));
+  const [editOpen, setEditOpen] = useState(false), [draftWidgets, setDraftWidgets] = useState(widgets), [draftLinks, setDraftLinks] = useState(quickLinks), [draftTheme, setDraftTheme] = useState(theme);
+  const [dashboardData, setDashboardData] = useState({attendance:[],batteries:[],batteryActivity:[],members:[],teamAttendance:null});
+  const [dataLoaded, setDataLoaded] = useState({});
   const [saveError, setSaveError] = useState(""), [saving, setSaving] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia("(min-width: 780px)").matches);
+  useEffect(() => {const query=window.matchMedia("(min-width: 780px)"),change=event=>setIsDesktop(event.matches);query.addEventListener("change",change);return()=>query.removeEventListener("change",change);},[]);
+  const visibleWidgetIds=widgets.filter(item=>item.display==="both"||(isDesktop?item.display==="desktop":item.display==="mobile")).map(item=>item.id);
   useEffect(() => {
-    if (!widgets.includes("attendance") || attendanceLoaded) return;
     let current = true;
-    api("me/attendance").then(rows => {if (current) {setAttendance(rows); setAttendanceLoaded(true);}}).catch(() => {if (current) setAttendanceLoaded(true);});
+    const tasks = [];
+    if (visibleWidgetIds.includes("attendance") && !dataLoaded.attendance) tasks.push(["attendance",()=>api("me/attendance")]);
+    if (visibleWidgetIds.includes("battery_status") && !dataLoaded.batteries) tasks.push(["batteries",()=>api("batteries")]);
+    if (visibleWidgetIds.includes("battery_activity") && !dataLoaded.batteryActivity) tasks.push(["batteryActivity",()=>api("batteries/timeline?end="+today())]);
+    if (visibleWidgetIds.includes("member_invites") && !dataLoaded.members) tasks.push(["members",()=>api("members")]);
+    if (visibleWidgetIds.includes("team_attendance") && !dataLoaded.teamAttendance) {
+      const end=today(), startDate=new Date(end+"T12:00:00Z");startDate.setUTCDate(startDate.getUTCDate()-29);
+      const start=startDate.toISOString().slice(0,10);
+      tasks.push(["teamAttendance",()=>api("attendance?date_from="+start+"&date_to="+end)]);
+    }
+    if (tasks.length) Promise.all(tasks.map(async ([key,load])=>[key,await load().catch(()=>null)])).then(results=>{
+      if(!current)return;
+      setDashboardData(previous=>({...previous,...Object.fromEntries(results.filter(([,value])=>value!==null))}));
+      setDataLoaded(previous=>({...previous,...Object.fromEntries(results.map(([key])=>[key,true]))}));
+    });
     return () => {current = false;};
-  }, [widgets.join(","), attendanceLoaded]);
-  function openEditor() {setDraftWidgets(widgets); setDraftTheme(theme); setSaveError(""); setEditOpen(true);}
+  }, [visibleWidgetIds.join(","), JSON.stringify(dataLoaded)]);
+  function openEditor() {setDraftWidgets(widgets); setDraftLinks(quickLinks); setDraftTheme(theme); setSaveError(""); setEditOpen(true);}
   async function saveDashboard() {
     setSaving(true); setSaveError("");
     try {
-      const preferences = await api("me/dashboard-preferences", "PUT", {widgets: draftWidgets, theme: draftTheme});
+      const preferences = await api("me/dashboard-preferences", "PUT", {widgets: draftWidgets, quick_links: draftLinks, theme: draftTheme});
       user.dashboard_preferences = preferences;
-      setEditOpen(false); setAttendanceLoaded(false);
+      setEditOpen(false);
     } catch (error) {setSaveError(error.message);}
     finally {setSaving(false);}
   }
-  const shortcuts = [
-    has("calendar") && [CalendarDays, "Kalendár", () => navigate("calendar")],
-    has("messages") && user.role !== "superadmin" && [MessageCircle, "Správy", () => navigate("messages"), unread],
-    has("announcements") && [Megaphone, "Oznamy", () => navigate("announcements")],
-    has("scanner") && [ScanLine, "Skenovať", openScanner],
-    canRespond && [QrCode, "Môj členský QR kód", openCard],
-  ].filter(Boolean);
+  const pageLinks={calendar:()=>navigate("calendar"),attendance:()=>navigate("attendance"),messages:()=>navigate("messages"),announcements:()=>navigate("announcements"),members:()=>navigate("members"),team:()=>navigate("team"),development:()=>navigate("development"),lineups:()=>navigate("lineups"),drills:()=>navigate("drills"),equipment:()=>navigate("equipment"),documents:()=>navigate("documents"),scanner:openScanner,member_qr:openCard};
+  const homeAlerts=[];
+  if(revised) homeAlerts.push({tone:"urgent",text:"Zmenila sa udalosť: "+revised.title,action:()=>openTraining(revised.id)});
+  else if(unanswered.length) homeAlerts.push({tone:"attention",text:"Čaká sa na tvoju odpoveď: "+unanswered[0].title,action:()=>openTraining(unanswered[0].id)});
+  if(attendanceWaiting) homeAlerts.push({tone:"attention",text:"Treba doplniť dochádzku: "+attendanceWaiting.title,action:()=>openTraining(attendanceWaiting.id)});
+  if(unreadNotice && unreadNotices) homeAlerts.push({tone:unreadNotice.pinned?"attention":"info",text:"Nový oznam: "+unreadNotice.title,action:()=>navigate("announcements")});
+  if(unread) homeAlerts.push({tone:"info",text:unread+" neprečítaných správ",action:()=>navigate("messages")});
+  if(roleRequestCount) homeAlerts.push({tone:"attention",text:roleRequestCount+" čakajúcich žiadostí o roly",action:()=>navigate("members")});
+  if(!homeAlerts.length && next[0]) homeAlerts.push({tone:"event",text:"Najbližšie: "+next[0].title+" · "+date(next[0].starts_at),action:()=>openTraining(next[0].id)});
+  if(!homeAlerts.length) homeAlerts.push({tone:"success",text:"Zatiaľ nemáš žiadne naliehavé upozornenia.",action:null});
+  const makeAction=(label,run,Icon=ArrowUpRight)=> <button className="dashboard-widget-action" onClick={run}>{label}<Icon size={15}/></button>;
   function renderWidget(key) {
     if (key === "event") {
       const event = next[0];
       return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><CalendarDays size={18}/><h3>Najbližšia udalosť</h3></div>
         {event ? <TrainingCard training={event} staff={staff} canRespond={canRespond} refresh={refresh} open={() => openTraining(event.id)} prominent /> : <p className="muted">Zatiaľ nie je naplánovaná žiadna udalosť.</p>}
+        <div className="dashboard-widget-actions">{makeAction("Otvoriť kalendár",()=>navigate("calendar"))}{staff&&has("calendar")&&makeAction("Naplánovať udalosť",plan,Plus)}</div>
       </article>;
     }
+    if (key === "schedule") return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><CalendarDays size={18}/><h3>Nadchádzajúci program</h3></div>
+      {next.length ? <div className="dashboard-mini-list">{next.slice(0,3).map(event=><button key={event.id} onClick={()=>openTraining(event.id)}><span className="dashboard-date-chip">{new Date(event.starts_at).toLocaleDateString(uiLocale(),{day:"numeric",month:"short",timeZone})}</span><span><strong>{event.title}</strong><small>{clock(event.starts_at)} · {event.location}</small></span><ChevronRight size={16}/></button>)}</div>:<p className="muted">Zatiaľ nie sú naplánované žiadne udalosti.</p>}
+      {makeAction("Otvoriť kalendár",()=>navigate("calendar"))}
+    </article>;
     if (key === "rsvp") return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><Check size={18}/><h3>Moje potvrdenia</h3></div>
-      {revised ? <button className="dashboard-inline-action" onClick={() => openTraining(revised.id)}><span className="dashboard-status-dot warning"/>Potvrď zmenu: {revised.title}<ChevronRight size={17}/></button>
-        : unanswered ? <button className="dashboard-inline-action" onClick={() => openTraining(unanswered.id)}><span className="dashboard-status-dot"/>Odpovedz na udalosť: {unanswered.title}<ChevronRight size={17}/></button>
-        : <p className="muted">Na všetky nadchádzajúce udalosti máš odpoveď.</p>}
-      <p className="dashboard-subtext">{next.length} nadchádzajúcich udalostí</p>
+      {unanswered.length ? <div className="dashboard-mini-list">{unanswered.slice(0,3).map(event=><button key={event.id} onClick={()=>openTraining(event.id)}><span className={"dashboard-status-dot "+(event.schedule_revision?"warning":"")}/><span><strong>{event.schedule_revision&&!event.change_response?"Potvrdiť zmenu":"Odpovedať"}</strong><small>{event.title} · {date(event.starts_at)}</small></span><ChevronRight size={16}/></button>)}</div>:<p className="muted">Na všetky nadchádzajúce udalosti máš odpoveď.</p>}
+      {makeAction("Otvoriť kalendár",()=>navigate("calendar"))}
     </article>;
     if (key === "attendance") {
-      const attended = attendance.filter(row => row.attended).length;
+      const attendance=dashboardData.attendance, attended = attendance.filter(row => row.attended).length, rate=attendance.length?Math.round(attended/attendance.length*100):0;
       return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><Heart size={18}/><h3>Moja dochádzka</h3></div>
-        {attendance.length ? <><p className="dashboard-number">{attended}<span> / {attendance.length}</span></p><p className="dashboard-subtext">prítomnosť na zaznamenaných udalostiach</p></>
-          : <p className="muted">{attendanceLoaded ? "Zatiaľ nie je zapísaná dochádzka." : "Načítavam dochádzku…"}</p>}
+        {attendance.length ? <><p className="dashboard-number">{rate}<span>%</span></p><p className="dashboard-subtext">{attended} prítomností z {attendance.length} zapísaných udalostí</p></>:<p className="muted">{dataLoaded.attendance?"Zatiaľ nie je zapísaná dochádzka.":"Načítavam dochádzku…"}</p>}
+        {makeAction("Zobraziť dochádzku",()=>navigate("profile"))}
       </article>;
     }
     if (key === "followup") return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><ClipboardCheck size={18}/><h3>Dochádzka na doplnenie</h3></div>
       {attendanceWaiting ? <button className="dashboard-inline-action" onClick={() => openTraining(attendanceWaiting.id)}><span className="dashboard-number small">{attendanceWaiting.counts.attendance_pending}</span><span>{attendanceWaiting.title}<small>{date(attendanceWaiting.starts_at)}</small></span><ChevronRight size={17}/></button> : <p className="muted">Všetka doterajšia dochádzka je zapísaná.</p>}
+      {makeAction("Otvoriť tabuľku dochádzky",()=>navigate("attendance"),ClipboardCheck)}
     </article>;
+    if (key === "team_attendance") {
+      const result=dashboardData.teamAttendance, present=(result?.attendance||[]).filter(row=>row.attended).length, recorded=(result?.attendance||[]).length, rate=recorded?Math.round(present/recorded*100):0;
+      return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><ClipboardCheck size={18}/><h3>Účasť tímu</h3></div>
+        {result ? <><p className="dashboard-number">{rate}<span>%</span></p><p className="dashboard-subtext">účasť v evidovaných záznamoch za posledných 30 dní</p><p className="dashboard-subtext">{present} prítomností z {recorded} zapísaných záznamov</p></>:<p className="muted">{dataLoaded.teamAttendance?"Za posledných 30 dní nie sú záznamy.":"Načítavam prehľad…"}</p>}
+        {makeAction("Otvoriť tabuľku dochádzky",()=>navigate("attendance"),ClipboardCheck)}</article>;
+    }
+    if (key === "rsvp_summary") {
+      const event=next[0], counts=event?.counts||{};
+      return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><Users size={18}/><h3>Potvrdenia účasti</h3></div>
+        {event ? <><strong>{event.title}</strong><div className="dashboard-counts"><span><i className="dot yes"/>{counts.yes||0} prídu</span><span><i className="dot pending"/>{counts.maybe||0} nevedia</span><span><i className="dot no"/>{counts.no||0} neprídu</span><span><i className="dot pending"/>{event.schedule_revision?(counts.change_pending||0): (counts.unanswered||0)} bez odpovede</span></div></>:<p className="muted">Nie je naplánovaná ďalšia udalosť.</p>}
+        {event&&makeAction("Otvoriť účastníkov",()=>openTraining(event.id),Users)}</article>;
+    }
     if (key === "announcements") return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><Megaphone size={18}/><h3>Aktuálne oznámenie</h3></div>
       {notice ? <button className="dashboard-notice" onClick={() => navigate("announcements")}><strong>{notice.title}</strong><span>{notice.body}</span><small>{notice.pinned ? "Pripnuté oznámenie" : "Otvoriť oznamy"} <ArrowUpRight size={14}/></small></button> : <p className="muted">Momentálne nie sú zverejnené žiadne oznamy.</p>}
     </article>;
     if (key === "messages") return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><MessageCircle size={18}/><h3>Správy</h3></div>
-      <button className="dashboard-inline-action" onClick={() => navigate("messages")}><span className="dashboard-number small">{unread}</span><span>{unread === 1 ? "neprečítaná správa" : "neprečítaných správ"}<small>{unread ? "Otvoriť doručenú poštu" : "Všetky správy máš prečítané"}</small></span><ChevronRight size={17}/></button>
+      <button className="dashboard-inline-action" onClick={() => navigate("messages")}><span className="dashboard-number small">{unread}</span><span>{unread === 1 ? "neprečítaná správa" : "neprečítaných správ"}<small>{unread ? "Otvoriť doručenú poštu" : "Všetky správy máš prečítané"}</small></span><ChevronRight size={17}/></button>{makeAction("Otvoriť správy",()=>navigate("messages"),MessageCircle)}
     </article>;
     if (key === "role_requests") return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><Users size={18}/><h3>Žiadosti o roly</h3></div>
       <button className="dashboard-inline-action" onClick={() => navigate("members")}><span className="dashboard-number small">{roleRequestCount}</span><span>{roleRequestCount === 1 ? "čakajúca žiadosť" : "čakajúcich žiadostí"}<small>Prejsť na členov</small></span><ChevronRight size={17}/></button>
+    </article>;
+    if (key === "battery_status") {
+      const batteries=dashboardData.batteries, counts={charged:0,discharged:0,damaged:0,stored:0,unknown:0};
+      batteries.forEach(item=>{const state=item.status||"unknown";counts[state]=(counts[state]||0)+1;});
+      return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><Battery size={18}/><h3>Stav batérií</h3></div>
+        {batteries.length ? <><p className="dashboard-number">{counts.charged}<span> / {batteries.length}</span></p><p className="dashboard-subtext">nabitých batérií</p><div className="dashboard-counts"><span><i className="battery-state-dot charged"/>{counts.discharged} vybitých</span><span><i className="battery-state-dot damaged"/>{counts.damaged} poškodených</span><span><i className="battery-state-dot stored"/>{counts.stored} uskladnených</span></div></>:<p className="muted">{dataLoaded.batteries?"Zatiaľ nie sú evidované batérie.":"Načítavam stav batérií…"}</p>}
+        {makeAction("Otvoriť vybavenie",()=>navigate("equipment"),Battery)}</article>;
+    }
+    if (key === "battery_activity") {
+      const events=dashboardData.batteryActivity.slice(0,3);
+      return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><Battery size={18}/><h3>Nedávne použitie batérií</h3></div>
+        {events.length?<div className="dashboard-mini-list">{events.map(item=><div className="dashboard-mini-row" key={item.id}><span className={"battery-state-dot action-"+item.action}/><span><strong>{item.code} · {batteryLabels[item.action]||item.action}</strong><small>{item.name} · {date(item.created_at)}</small></span></div>)}</div>:<p className="muted">{dataLoaded.batteryActivity?"Za posledných 7 dní nie sú záznamy.":"Načítavam záznamy…"}</p>}
+        {makeAction("Otvoriť vybavenie",()=>navigate("equipment"),Battery)}</article>;
+    }
+    if (key === "member_invites") {
+      const members=dashboardData.members, invited=members.filter(item=>item.active&&!item.registered).length, recent=members.filter(item=>item.active&&item.registered).slice(-3);
+      return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><Users size={18}/><h3>Pozvánky a noví členovia</h3></div>
+        {dataLoaded.members?<><p className="dashboard-number">{invited}</p><p className="dashboard-subtext">pozvánok ešte neaktivovalo účet</p>{recent.length>0&&<p className="dashboard-subtext">Aktívnych členov v evidencii: {members.filter(item=>item.active&&item.registered).length}</p>}</>:<p className="muted">Načítavam členov…</p>}
+        {makeAction("Otvoriť členov",()=>navigate("members"),Users)}</article>;
+    }
+    if (key === "quick_links") return <article className="dashboard-widget dashboard-quick-widget" key={key}><div className="dashboard-widget-title"><ArrowUpRight size={18}/><h3>Rýchly prístup</h3></div>
+      {quickLinks.length?<div className="dashboard-quick-links">{quickLinks.map(link=>{const [Icon,label]=dashboardLinkInfo[link];return <button key={link} onClick={pageLinks[link]}><Icon size={19}/><span>{label}</span></button>;})}</div>:<p className="muted">Pridaj odkazy v úprave hlavnej stránky.</p>}
     </article>;
     return null;
   }
   return <>
     <section className="home-welcome" style={{"--home-color": homeColor}}>
-      <div className="home-greeting">
-        <div><time dateTime={today()}>{new Date().toLocaleDateString(uiLocale(), {weekday: "long", day: "numeric", month: "long", timeZone})}</time>
-          <h2>Ahoj, {user.name.split(" ")[0]}!</h2>
-        </div>
-        <div className="home-header-actions"><button className="home-edit-button" aria-label="Upraviť úvodnú stránku" title="Upraviť úvodnú stránku" onClick={openEditor}><SlidersHorizontal size={19}/><span>Prispôsobiť</span></button>
-          {staff && has("calendar") && <button className="primary" onClick={plan}><Plus size={20} />Naplánovať udalosť</button>}</div>
-      </div>
-      {widgets.length ? <div className="dashboard-widgets">{widgets.map(renderWidget)}</div> : <div className="dashboard-no-widgets"><p>Úvodná stránka je pripravená podľa teba.</p><button className="text-button" onClick={openEditor}>Pridať widget <Plus size={16}/></button></div>}
+      <button className="home-edit-icon" aria-label="Upraviť úvodnú stránku" title="Upraviť úvodnú stránku" onClick={openEditor}><SlidersHorizontal size={18}/></button>
+      <section className="home-summary-widget" aria-label="Privítanie a dôležité informácie">
+        <div className="home-greeting"><time dateTime={today()}>{new Date().toLocaleDateString(uiLocale(), {weekday: "long", day: "numeric", month: "long", timeZone})}</time><h2>Ahoj, {user.name.split(" ")[0]}!</h2></div>
+        <div className="home-priority-alerts">{homeAlerts.slice(0,5).map((alert,index)=><button key={index} className={"home-priority-alert tone-"+alert.tone} onClick={alert.action||undefined} disabled={!alert.action}><span className="home-alert-mark" aria-hidden="true"/><span>{alert.text}</span>{alert.action&&<ChevronRight size={15}/>}</button>)}</div>
+      </section>
+      {widgets.length ? <div className="dashboard-widgets">{widgets.map(item=><div key={item.id} className={"dashboard-widget-slot scope-"+(item.display||"both")}>{renderWidget(item.id)}</div>)}</div> : <div className="dashboard-no-widgets"><p>Privítanie a upozornenia zostávajú zobrazené.</p></div>}
     </section>
-    {shortcuts.length > 0 && <section className="home-quick-access" style={{"--home-color": homeColor}}><h2>Rýchly prístup</h2><div className="home-shortcuts">{shortcuts.map(([Icon, label, run, count]) =>
-      <button key={label} onClick={() => run()}><span className="home-shortcut-icon"><Icon size={22} /></span><span>{label}</span>{count > 0 && <span className="counter">{count}</span>}<ChevronRight className="home-shortcut-arrow" size={17}/></button>
-    )}</div></section>}
     {editOpen && <Modal title="Prispôsobiť úvodnú stránku" close={() => setEditOpen(false)}><div className="dashboard-editor">
-      <p className="muted">Vyber údaje, ktoré chceš vidieť. Poradie môžeš meniť šípkami.</p>
-      <div className="dashboard-editor-widgets">{availableWidgets.map((key, index) => {const [Icon, label] = dashboardWidgetInfo[key], selected = draftWidgets.includes(key), position = draftWidgets.indexOf(key); return <div className="dashboard-editor-row" key={key}>
-        <label className="checkbox"><input type="checkbox" checked={selected} onChange={event => setDraftWidgets(items => event.target.checked ? [...items, key] : items.filter(item => item !== key))}/><Icon size={18}/><span>{label}</span></label>
-        {selected && <span className="dashboard-reorder"><button type="button" className="icon-button" aria-label={"Posunúť " + label + " vyššie"} disabled={position <= 0} onClick={() => setDraftWidgets(items => {const copy=[...items], i=copy.indexOf(key); [copy[i-1],copy[i]]=[copy[i],copy[i-1]]; return copy;})}><MoveUp size={17}/></button><button type="button" className="icon-button" aria-label={"Posunúť " + label + " nižšie"} disabled={position === draftWidgets.length-1} onClick={() => setDraftWidgets(items => {const copy=[...items], i=copy.indexOf(key); [copy[i+1],copy[i]]=[copy[i],copy[i+1]]; return copy;})}><MoveDown size={17}/></button></span>}
+      <p className="muted">Vyber widgety a urč, na ktorých displejoch sa zobrazia. Poradie je spoločné.</p>
+      <div className="dashboard-editor-widgets">{availableWidgets.map(key => {const [Icon,label]=dashboardWidgetInfo[key], position=draftWidgets.findIndex(item=>item.id===key), selected=position>=0, display=selected?draftWidgets[position].display:"both"; return <div className="dashboard-editor-row" key={key}>
+        <label className="checkbox"><input type="checkbox" checked={selected} onChange={event=>setDraftWidgets(items=>event.target.checked?[...items,{id:key,display:"both"}]:items.filter(item=>item.id!==key))}/><Icon size={18}/><span>{label}</span></label>
+        {selected&&<div className="dashboard-editor-controls"><select aria-label={label+" – zobrazenie"} value={display} onChange={event=>setDraftWidgets(items=>items.map(item=>item.id===key?{...item,display:event.target.value}:item))}><option value="both">Všade</option><option value="desktop">Len desktop</option><option value="mobile">Len mobil</option></select><span className="dashboard-reorder"><button type="button" className="icon-button" aria-label={"Posunúť "+label+" vyššie"} disabled={position<=0} onClick={()=>setDraftWidgets(items=>{const copy=[...items],i=copy.findIndex(item=>item.id===key);[copy[i-1],copy[i]]=[copy[i],copy[i-1]];return copy;})}><MoveUp size={17}/></button><button type="button" className="icon-button" aria-label={"Posunúť "+label+" nižšie"} disabled={position===draftWidgets.length-1} onClick={()=>setDraftWidgets(items=>{const copy=[...items],i=copy.findIndex(item=>item.id===key);[copy[i+1],copy[i]]=[copy[i],copy[i+1]];return copy;})}><MoveDown size={17}/></button></span></div>}
       </div>;})}</div>
+      {draftWidgets.some(item=>item.id==="quick_links")&&<fieldset className="dashboard-link-picker"><legend>Odkazy v widgete Rýchly prístup</legend>{availableLinks.map(key=>{const [Icon,label]=dashboardLinkInfo[key];return <label className="checkbox" key={key}><input type="checkbox" checked={draftLinks.includes(key)} onChange={event=>setDraftLinks(items=>event.target.checked?[...items,key]:items.filter(item=>item!==key))}/><Icon size={17}/><span>{label}</span></label>;})}</fieldset>}
       <fieldset className="dashboard-theme-picker"><legend>Farebný tón panelu</legend><div className="dashboard-theme-options">{dashboardThemes.map(([key,label])=><label key={key}><input type="radio" name="dashboard-theme" checked={draftTheme===key} onChange={()=>setDraftTheme(key)}/><span className={"dashboard-theme-swatch theme-"+key}/>{label}</label>)}
         <label className="dashboard-custom-color"><input type="radio" name="dashboard-theme" checked={draftTheme.startsWith("#")} onChange={()=>setDraftTheme(draftTheme.startsWith("#")?draftTheme:"#a78bfa")}/><input type="color" aria-label="Vlastná farba" value={draftTheme.startsWith("#")?draftTheme:"#a78bfa"} onChange={event=>setDraftTheme(event.target.value)}/>Vlastná</label></div></fieldset>
       {saveError && <p className="error" role="alert">{saveError}</p>}<div className="actions"><button type="button" onClick={()=>setEditOpen(false)}>Zrušiť</button><button type="button" className="primary" disabled={saving} onClick={saveDashboard}>{saving?"Ukladá sa…":"Uložiť"}</button></div>
@@ -2239,7 +2316,7 @@ function App() {
               <Action className="text-button install-opt-out" run={stopInstallPromotions}>Už nezobrazovať</Action>
             </div>}
             <Home user={user} {...data} refresh={refresh} navigate={navigate} openTraining={setTrainingId}
-              openScanner={openScanner} openCard={() => setCardMember({self:true})} plan={() => setCreateTraining(true)} roleRequestCount={roleRequestCount} />
+              openScanner={openScanner} openCard={() => setCardMember({self:true})} plan={() => setCreateTraining(true)} roleRequestCount={roleRequestCount} unreadNotices={unreadNotices} />
           </>}
           {currentPage === "calendar" && <Calendar trainings={data.trainings} staff={staff} canRespond={user.roles?.includes("player")}
             places={data.places} refresh={refresh} openTraining={setTrainingId} />}
