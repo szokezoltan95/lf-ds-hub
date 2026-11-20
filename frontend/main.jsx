@@ -1,7 +1,7 @@
 import React, {useContext, useEffect, useRef, useState} from "react";
 import {createPortal} from "react-dom";
 import {createRoot} from "react-dom/client";
-import {Drone, Menu, X, House, CalendarDays, MessageCircle, Megaphone, Users, Battery, ShieldCheck, Construction, BookOpen, Timer,
+import {Drone, Menu, X, House, CalendarDays, MessageCircle, Megaphone, Users, Battery, Boxes, ShieldCheck, Construction, BookOpen, Timer,
   LogOut, Bell, Plus, ChevronLeft, ChevronRight, MapPin, Clock, Check, CircleHelp,
   Search, ScanLine, QrCode, ClipboardCheck, Pin, FileText, Download, ArrowUpRight, Settings2, Send, CheckCheck, Pencil, SmilePlus, SlidersHorizontal, Heart, MoveUp, MoveDown} from "lucide-react";
 import "@fontsource/dm-sans/latin-400.css";
@@ -584,6 +584,7 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
       <div className="card flush"><ul className="people-list">{found.map(member=><li key={member.id}><button className="person-link" onClick={()=>{setSelected(member);setLink("");}}>
         <Avatar name={member.name} id={member.id} version={member.avatar_version}/><span className="grow"><strong>{member.name}</strong><span className="meta">{[clubRoleLabel(member.roles), member.email].filter(Boolean).join(" · ")}</span>
         <span className="meta">{member.recorded_count>0?"Dochádzka "+member.attended_count+"/"+member.recorded_count:"Dochádzka zatiaľ bez záznamu"}</span></span>
+        {member.equipment?.length>0&&<span className="meta member-equipment-summary"><Boxes size={13}/>{member.equipment.map(item=>item.code).join(", ")}</span>}
         <span className={"badge "+(member.active?"positive":"")}>{status(member)}</span><ChevronRight size={18}/></button></li>)}
       </ul>{found.length===0&&<Empty icon={Users}>Žiadne zodpovedajúce účty.</Empty>}</div>
       {form&&<Modal title="Pozvať člena" close={()=>setForm(false)}>{link?<InviteLink link={link}/>:<Form label="Vytvoriť pozvánku" submit={async data=>{
@@ -605,6 +606,7 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
           <Action className="primary section-space" run={async()=>{if(!editRoles.length)throw new Error("Vyber aspoň jednu rolu.");const r=await api("members/"+selected.id+"/roles","PUT",{roles:editRoles});const updated={...selected,roles:r.roles,role:r.roles.some(k=>config.find(x=>x.key===k)?.admin_access)?"coach":"member"};setSelected(updated);await load();}}>Uložiť roly</Action>
           {selected.registered&&<Action className="danger section-space" run={async()=>{if(!window.confirm("Natrvalo odstrániť člena "+selected.name+"?"))return;await api("members/"+selected.id,"DELETE");setSelected(null);await load();}}>Natrvalo odstrániť člena</Action>}
         </section>}
+        {selected.equipment?.length>0&&<section className="section-space member-equipment"><h3>Pridelené vybavenie</h3><ul>{selected.equipment.map(item=><li key={item.code}><Boxes size={15}/><span><strong>{item.code}</strong><span className="meta">{equipmentKindLabels[item.kind]} · {item.label}</span></span></li>)}</ul></section>}
         {(selected.roles||[]).includes("player")&&<section className="section-space"><h3>Dochádzka</h3>{attendance.length?<ul className="records">{attendance.map((row,i)=><li key={i}><div className="grow"><strong>{row.title}</strong><span className="meta">{date(row.starts_at)}</span></div><span className={"badge "+(row.attended?"positive":"")}>{row.attended?"Prítomný":"Neprítomný"}</span></li>)}</ul>:<p className="muted">Zatiaľ bez záznamu.</p>}</section>}
         {(selected.roles||[]).includes("player")&&staff&&<section className="section-space development-section"><h3>Rozvoj hráča</h3>{development?<>
           <Form label="Uložiť trénerovu poznámku" submit={async({note})=>{await api("members/"+selected.id+"/development/note","PUT",{note});setDevelopment({...development,note});}}><label>Súkromná poznámka trénerov<textarea name="note" rows="3" maxLength="4000" defaultValue={development.note}/></label></Form>
@@ -1230,12 +1232,14 @@ function Batteries({staff, initialCode}) {
   const [newCode, setNewCode] = useState("");
   const [assetEvents, setAssetEvents] = useState([]);
   const [assetAction, setAssetAction] = useState("");
+  const [assignmentMembers, setAssignmentMembers] = useState([]);
+  const [showMoreAssetActions, setShowMoreAssetActions] = useState(false);
   const [action, setAction] = useState(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   async function load() {
-    const [batteries,devices]=await Promise.all([api("batteries"),api("equipment/assets")]);
-    setItems(batteries);setAssets(devices);
+    const [batteries,devices,members]=await Promise.all([api("batteries"),api("equipment/assets"),staff?api("members"):Promise.resolve([])]);
+    setItems(batteries);setAssets(devices);setAssignmentMembers(members.filter(member=>member.active&&member.registered));
     setRevision(value => value + 1);
   }
   useEffect(() => {load().catch(error => setError(error.message));}, []);
@@ -1288,9 +1292,9 @@ function Batteries({staff, initialCode}) {
           <span className="battery-card-label muted">{b.label}</span>
           {!["stored", "damaged", "retired"].includes(b.status) && <button className="text-button" aria-haspopup="dialog" onClick={() => openBattery(b.code, "used")}>Zapísať použitie</button>}
         </div>
-      </article>)}{assets.filter(item=>kindFilter==="all"||item.kind===kindFilter).map(item=><button type="button" className="card battery-state-card equipment-asset-card" key={item.code} onClick={()=>setSelectedAsset(item.code)}>
-        <span className="battery-card-heading"><strong>{item.code}</strong><span className="badge">{equipmentKindLabels[item.kind]}</span></span>
-        <span className="battery-card-details"><span className="battery-card-label muted">{item.label}</span><span className="badge">{equipmentActionLabels[item.status]||"Bez záznamu"}</span></span>
+      </article>)}{assets.filter(item=>kindFilter==="all"||item.kind===kindFilter).map(item=><button type="button" className={"card battery-state-card equipment-asset-card state-"+(item.status||"unknown")} key={item.code} onClick={()=>{setSelectedAsset(item.code);setAssetAction("");setShowMoreAssetActions(false);}}>
+        <span className="battery-card-heading"><strong className="equipment-card-title"><Boxes size={16}/>{item.code}</strong><span className="badge">{equipmentKindLabels[item.kind]}</span></span>
+        <span className="battery-card-details"><span className="battery-card-label muted">{item.assigned_member_name?"Pridelené: "+item.assigned_member_name:item.label}</span><span className={"badge equipment-status-badge state-"+(item.status||"unknown")}>{equipmentActionLabels[item.status]||"Bez záznamu"}</span></span>
       </button>)}</div>}
     {view === "cards" && items.length===0&&assets.filter(item=>kindFilter==="all"||item.kind===kindFilter).length===0 && <Empty icon={Battery}>Pre tento filter zatiaľ nie je zaevidované žiadne zariadenie.</Empty>}
     {selected && <Modal title={battery ? battery.code : "Batéria"} close={() => {setSelected(null); setAction(null);}}>
@@ -1312,9 +1316,17 @@ function Batteries({staff, initialCode}) {
     </Modal>}
     {selectedAsset&&<Modal title={asset?.code||selectedAsset} close={()=>{setSelectedAsset(null);setAssetAction("");}}>{asset&&<>
       <p>{asset.label}</p><p><span className="badge">{equipmentKindLabels[asset.kind]} · {equipmentActionLabels[asset.status]||"Bez záznamu"}</span></p>
-      {staff&&<><label>Úkon<select value={assetAction} onChange={event=>setAssetAction(event.target.value)}><option value="">Vyber úkon</option>{equipmentActions[asset.kind].map(key=><option key={key} value={key}>{equipmentActionLabels[key]}</option>)}</select></label>
-        {assetAction&&<Form label="Zaznamenať úkon" submit={async data=>{await api("equipment/assets/"+encodeURIComponent(asset.code)+"/events","POST",{action:assetAction,note:data.note});setAssetAction("");await load();}}><label>Poznámka<input name="note" maxLength="1000" placeholder="Nepovinná poznámka"/></label></Form>}</>}
-      <h3 className="section-space">História</h3><ul className="timeline">{assetEvents.map(event=><li key={event.id}><strong>{equipmentActionLabels[event.action]}</strong><span className="meta">{date(event.created_at)} · {event.name}</span>{event.note&&<p className="body small">{event.note}</p>}</li>)}</ul>
+      {asset.assigned_member_name&&<p className="member-assignment-current"><Boxes size={16}/>Pridelené používateľovi <strong>{asset.assigned_member_name}</strong></p>}
+      {staff&&<>
+        <div className="equipment-actions" aria-label="Rýchle úkony">{primaryEquipmentActions[asset.kind].map(key=><button key={key} type="button" className={assetAction===key?"primary":""} aria-pressed={assetAction===key} onClick={()=>setAssetAction(assetAction===key?"":key)}>{equipmentActionLabels[key]}</button>)}</div>
+        <button type="button" className="battery-more-link text-button" aria-expanded={showMoreAssetActions} onClick={()=>{setShowMoreAssetActions(value=>!value);setAssetAction("");}}>Viac</button>
+        {showMoreAssetActions&&<label className="equipment-more-select">Ďalšie úkony<select value={assetAction} onChange={event=>setAssetAction(event.target.value)}><option value="">Vyber úkon</option>{equipmentActions[asset.kind].filter(key=>!primaryEquipmentActions[asset.kind].includes(key)).map(key=><option key={key} value={key}>{equipmentActionLabels[key]}</option>)}</select></label>}
+        {assetAction&&<Form key={asset.code+":"+assetAction} label={assetAction==="assigned"?"Priradiť vybavenie":"Zaznamenať úkon"} submit={async data=>{await api("equipment/assets/"+encodeURIComponent(asset.code)+"/events","POST",{action:assetAction,member_id:assetAction==="assigned"?Number(data.member_id):null,note:data.note});setAssetAction("");await load();}}>
+          {assetAction==="assigned"&&<label>Prideliť používateľovi<select name="member_id" defaultValue="" required><option value="" disabled>Vyber člena</option>{assignmentMembers.map(member=><option key={member.id} value={member.id}>{member.name}</option>)}</select></label>}
+          <label>Poznámka<input name="note" maxLength="1000" placeholder="Nepovinná poznámka"/></label>
+        </Form>}
+      </>}
+      <h3 className="section-space">História</h3><ul className="timeline">{assetEvents.map(event=><li key={event.id}><strong>{equipmentActionLabels[event.action]}{event.assigned_member_name?" · "+event.assigned_member_name:""}</strong><span className="meta">{date(event.created_at)} · {event.name}</span>{event.note&&<p className="body small">{event.note}</p>}</li>)}</ul>
     </>}</Modal>}
     {create && <Modal title="Pridať zariadenie" close={() => setCreate(false)}><label>Typ zariadenia<select value={newKind} onChange={event=>setNewKind(event.target.value)}><option value="battery">Batéria</option><option value="charger">Nabíjačka</option><option value="drone">Dron</option><option value="controller">Ovládač</option></select></label><Form label="Pridať zariadenie" submit={async data => {
       const record={code:data.code.toUpperCase(),label:data.label};
@@ -1345,6 +1357,7 @@ function DrillLibrary() {
 const equipmentKindLabels={controller:"Ovládač",drone:"Dron",charger:"Nabíjačka"};
 const equipmentActionLabels={assigned:"Pridelené",returned:"Vrátené",inspection:"Predletová kontrola",training:"Použitie na tréningu",fault:"Porucha",repair:"Oprava",maintenance:"Údržba",propeller_replacement:"Výmena vrtúľ",motor_replacement:"Výmena motorov",battery_check:"Kontrola batérie",retired:"Vyradené",note:"Poznámka"};
 const equipmentActions={drone:["assigned","returned","inspection","training","fault","repair","maintenance","propeller_replacement","motor_replacement","retired","note"],controller:["assigned","returned","inspection","training","fault","repair","maintenance","battery_check","retired","note"],charger:["assigned","returned","inspection","fault","repair","maintenance","retired","note"]};
+const primaryEquipmentActions={drone:["assigned","returned","inspection"],controller:["assigned","returned","inspection"],charger:["assigned","returned","inspection"]};
 
 function EquipmentTimeline({assets,onOpen,end,setEnd,currentDay}) {
   const [events,setEvents]=useState([]);
@@ -1954,7 +1967,7 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
 const navigation = [
   ["home", "Domov", House], ["calendar", "Kalendár", CalendarDays], ["attendance", "Dochádzka", ClipboardCheck],
   ["messages", "Správy", MessageCircle], ["announcements", "Oznamy", Megaphone],
-  ["members", "Členovia", Users], ["team", "Tímy a zostavy", Users], ["development", "Rozvoj hráčov", Users], ["drills", "Knižnica cvičení", BookOpen], ["equipment", "Vybavenie", Battery],
+  ["members", "Členovia", Users], ["team", "Tímy a zostavy", Users], ["development", "Rozvoj hráčov", Users], ["drills", "Knižnica cvičení", BookOpen], ["equipment", "Vybavenie", Boxes],
   ["documents", "Dokumenty", FileText],
 ];
 
@@ -1974,7 +1987,7 @@ const dashboardLinkInfo = {
   calendar: [CalendarDays, "Kalendár"], attendance: [ClipboardCheck, "Dochádzka"], messages: [MessageCircle, "Správy"],
   announcements: [Megaphone, "Oznamy"], members: [Users, "Členovia"], team: [Users, "Tímy a zostavy"],
   development: [Users, "Rozvoj hráčov"], lineups: [ClipboardCheck, "Tímy a zostavy"], drills: [BookOpen, "Knižnica cvičení"],
-  equipment: [Battery, "Vybavenie"], documents: [FileText, "Dokumenty"], scanner: [ScanLine, "Skenovať"],
+  equipment: [Boxes, "Vybavenie"], documents: [FileText, "Dokumenty"], scanner: [ScanLine, "Skenovať"],
   member_qr: [QrCode, "Môj členský QR kód"],
 };
 function Home({user, trainings, announcements, conversations, refresh, navigate, openTraining, openScanner, openCard, plan, roleRequestCount, unreadNotices}) {

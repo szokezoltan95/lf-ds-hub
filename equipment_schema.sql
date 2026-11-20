@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS equipment_events (
     note text NOT NULL DEFAULT '',
     created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE equipment_events ADD COLUMN IF NOT EXISTS member_id bigint REFERENCES members(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS equipment_events_code_idx ON equipment_events(code,id DESC);
 CREATE INDEX IF NOT EXISTS equipment_events_created_at_idx ON equipment_events(created_at);
 

@@ -683,7 +683,11 @@ def members(conn: DB, _user: User):
         """SELECT m.id, m.email, m.name, m.role, m.club_roles AS roles, m.avatar_version, m.active,
         m.password_hash IS NOT NULL AS registered,
         (SELECT count(*) FROM participation WHERE member_id=m.id AND attended=true) AS attended_count,
-        (SELECT count(*) FROM participation WHERE member_id=m.id AND attended IS NOT NULL) AS recorded_count
+        (SELECT count(*) FROM participation WHERE member_id=m.id AND attended IS NOT NULL) AS recorded_count,
+        COALESCE((SELECT json_agg(json_build_object('code',a.code,'kind',a.kind,'label',a.label) ORDER BY a.code)
+          FROM equipment_assets a JOIN LATERAL (
+            SELECT action,member_id FROM equipment_events WHERE code=a.code ORDER BY id DESC LIMIT 1
+          ) latest ON latest.action='assigned' AND latest.member_id=m.id), '[]'::json) AS equipment
         FROM members m WHERE role IN ('member', 'coach') ORDER BY name, id"""
     ).fetchall()
 
@@ -2167,16 +2171,19 @@ class EquipmentAssetInput(BaseModel):
 class EquipmentEventInput(BaseModel):
     action: Literal["assigned", "returned", "inspection", "training", "fault", "repair", "maintenance",
                     "propeller_replacement", "motor_replacement", "battery_check", "retired", "note"]
+    member_id: int | None = Field(None, gt=0)
     note: Note = ""
 
 
 @api.get("/equipment/assets")
 def equipment_assets(conn: DB, _user: User):
     return conn.execute(
-        """SELECT a.code,a.kind,a.label,a.created_at,e.action AS status,e.created_at AS status_at
+        """SELECT a.code,a.kind,a.label,a.created_at,e.action AS status,e.created_at AS status_at,
+        CASE WHEN e.action='assigned' THEN e.member_id END AS assigned_member_id,
+        CASE WHEN e.action='assigned' THEN m.name END AS assigned_member_name
         FROM equipment_assets a LEFT JOIN LATERAL (
-            SELECT action,created_at FROM equipment_events WHERE code=a.code ORDER BY id DESC LIMIT 1
-        ) e ON true ORDER BY a.kind,a.code"""
+            SELECT action,created_at,member_id FROM equipment_events WHERE code=a.code ORDER BY id DESC LIMIT 1
+        ) e ON true LEFT JOIN members m ON m.id=e.member_id ORDER BY a.kind,a.code"""
     ).fetchall()
 
 
@@ -2195,8 +2202,11 @@ def equipment_asset_events(code: EquipmentCode, conn: DB, _user: User):
         raise HTTPException(404, "Zariadenie sa nenašlo.")
     return conn.execute(
         """SELECT e.id,e.code,e.action,e.note,e.created_at,
-        CASE WHEN m.role='superadmin' THEN 'Systém' ELSE COALESCE(m.name,'Odstránený účet') END AS name
-        FROM equipment_events e LEFT JOIN members m ON m.id=e.actor_id WHERE e.code=%s ORDER BY e.id DESC LIMIT 100""",
+        CASE WHEN actor.role='superadmin' THEN 'Systém' ELSE COALESCE(actor.name,'Odstránený účet') END AS name,
+        assigned.name AS assigned_member_name
+        FROM equipment_events e LEFT JOIN members actor ON actor.id=e.actor_id
+        LEFT JOIN members assigned ON assigned.id=e.member_id
+        WHERE e.code=%s ORDER BY e.id DESC LIMIT 100""",
         (code,),
     ).fetchall()
 
@@ -2210,12 +2220,19 @@ def add_equipment_event(code: EquipmentCode, data: EquipmentEventInput, conn: DB
         raise HTTPException(422, "Výmena vrtúľ alebo motorov sa eviduje iba pri dronoch.")
     if data.action == "battery_check" and asset["kind"] != "controller":
         raise HTTPException(422, "Kontrola batérie ovládača sa eviduje iba pri ovládačoch.")
+    if data.action == "assigned":
+        if data.member_id is None:
+            raise HTTPException(422, "Pri pridelení vyber člena.")
+        if not conn.execute("SELECT 1 FROM members WHERE id=%s AND role IN ('member','coach') AND active AND password_hash IS NOT NULL", (data.member_id,)).fetchone():
+            raise HTTPException(422, "Vybraný člen nemá aktívny účet.")
+    elif data.member_id is not None:
+        raise HTTPException(422, "Člen sa vyberá iba pri pridelení zariadenia.")
     if data.action != "note":
         last = conn.execute("SELECT action FROM equipment_events WHERE code=%s ORDER BY id DESC LIMIT 1", (code,)).fetchone()
         if last and last["action"] == "retired":
             raise HTTPException(409, "Zariadenie je vyradené.")
-    conn.execute("INSERT INTO equipment_events(code,actor_id,action,note) VALUES (%s,%s,%s,%s)",
-                  (code, user["id"], data.action, data.note))
+    conn.execute("INSERT INTO equipment_events(code,actor_id,action,member_id,note) VALUES (%s,%s,%s,%s,%s)",
+                  (code, user["id"], data.action, data.member_id, data.note))
     return {"ok": True}
 
 

@@ -347,6 +347,17 @@ nav button .counter {margin-left: auto;}
 .battery-state-card.state-stored {border-left-color:#287ca4;}
 .battery-state-card.state-storage_exit,.battery-state-card.state-unknown {border-left-color:#7c8791;}
 .battery-state-card.state-damaged,.battery-state-card.state-retired {border-left-color:#c23c43;}
+.battery-state-card.state-assigned,.battery-state-card.state-inspection {border-left-color:#287ca4;}
+.battery-state-card.state-returned {border-left-color:#21834a;}
+.battery-state-card.state-training {border-left-color:#6b68ad;}
+.battery-state-card.state-fault {border-left-color:#c23c43;}
+.battery-state-card.state-repair,.battery-state-card.state-maintenance {border-left-color:#d68a12;}
+.battery-state-card.state-propeller_replacement,.battery-state-card.state-motor_replacement,.battery-state-card.state-battery_check {border-left-color:#287ca4;}
+.equipment-status-badge.state-assigned,.equipment-status-badge.state-inspection,.equipment-status-badge.state-battery_check {background:#e5f2f8;color:#155d7d;}
+.equipment-status-badge.state-returned {background:#e5f4eb;color:#176338;}
+.equipment-status-badge.state-training,.equipment-status-badge.state-propeller_replacement,.equipment-status-badge.state-motor_replacement {background:#efedfa;color:#514c8c;}
+.equipment-status-badge.state-fault,.equipment-status-badge.state-retired {background:#fce9eb;color:#922b35;}
+.equipment-status-badge.state-repair,.equipment-status-badge.state-maintenance {background:#fff2d9;color:#81550a;}
 .battery-state-badge.state-charged {background:#e5f4eb;color:#176338;}
 .battery-state-badge.state-in_drone {background:#e5f2f8;color:#155d7d;}
 .battery-state-badge.state-discharged {background:#fff2d9;color:#81550a;}
@@ -378,7 +389,16 @@ nav button .counter {margin-left: auto;}
 .battery-event-color.action-used {background:#606c7c;}
 .equipment-event-mark {display:inline-block;width:9px;height:9px;flex:0 0 auto;border-radius:50%;background:#2784a8;}
 .battery-more-link {grid-column:1/-1;justify-self:start;min-height:28px;padding:2px 0;border:0;background:transparent;text-decoration:underline;text-underline-offset:2px;}
-.equipment-asset-card {display:flex;width:100%;flex-direction:column;gap:10px;text-align:left;color:var(--ink);}
+.equipment-asset-card {display:flex;width:100%;flex-direction:column;align-items:stretch;gap:10px;text-align:left;color:var(--ink);}
+.equipment-card-title {display:inline-flex;align-items:center;gap:7px;min-width:0;font-size:15px;font-weight:700;}
+.equipment-actions {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0 4px;}
+.equipment-actions > button {min-width:0;padding:8px 6px;font-size:12px;}
+.equipment-more-select {margin:8px 0;}
+.member-equipment-summary {display:inline-flex;align-items:center;gap:4px;color:var(--accent);}
+.member-equipment ul {display:grid;gap:8px;margin:8px 0 0;padding:0;list-style:none;}
+.member-equipment li {display:flex;align-items:center;gap:9px;padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);}
+.member-equipment li > span {display:grid;gap:2px;}
+.member-assignment-current {display:flex;align-items:center;gap:7px;padding:9px 10px;border-radius:9px;background:#e5f2f8;color:#155d7d;font-size:13px;}
 .equipment-kind-filter {max-width:220px;}
 .equipment-timeline {display:grid;gap:12px;}
 .equipment-timeline .period-control {justify-content:center;}
