@@ -27,7 +27,7 @@ Kalendár zobrazuje mesiac a udalosti vybraného obdobia. Na počítači sú uda
 | --- | --- |
 | Odpoveď na pozvánku | Otvoriť detail udalosti a zvoliť **Prídem**, **Neprídem** alebo **Ešte neviem**. K odpovedi možno pripojiť poznámku. |
 | Potvrdenie nového termínu alebo miesta | V detaile udalosti odpovedať na aktuálnu zmenu. Prvá odpoveď zostáva v evidencii a história zobrazuje pôvodné aj nové údaje. |
-| Návrh tréningu | V časti **Návrhy tréningov** zadať návrh s možnými termínmi. Hlasovať pri každom termíne podľa vlastnej dostupnosti. Po schválení jedného termínu sa tréning zobrazí v kalendári a účasť na ňom sa potvrdzuje samostatne. |
+| Návrh tréningu | V kalendári vybrať dátum a zvoliť **Navrhnúť tréning**. Návrh môže obsahovať viac možných termínov. Hlasovať pri každom termíne podľa vlastnej dostupnosti. Po schválení jedného termínu sa tréning zobrazí v kalendári a účasť na ňom sa potvrdzuje samostatne. |
 | Zaznamenanie prítomnosti | Zobraziť členský QR kód z hornej lišty alebo profilu osobe zapisujúcej dochádzku. Zápis prítomnosti možno overiť v prehľade vlastnej dochádzky. |
 
 Odpoveď **Prídem** vyjadruje plánovanú účasť. Prítomnosť sa eviduje samostatným zápisom po začiatku udalosti. Členský QR kód obsahuje náhodný klubový identifikátor. Po jeho obnove prestane starý kód platiť.
@@ -52,7 +52,7 @@ Po vypnutí kategórie push zostávajú obsah aj upozornenia dostupné v portál
 
 ## Vybavenie a skener
 
-V časti **Vybavenie** možno filtrovať zariadenia podľa typu a otvoriť ich karty. Karta zobrazuje aktuálny stav, detail obsahuje históriu a časová os zobrazuje úkony podľa dátumu. Podľa oprávnení sú dostupné aj údaje o držiteľovi zariadenia, vlastných zápožičkách alebo prideleniach.
+V časti **Vybavenie** možno filtrovať zariadenia podľa typu a otvoriť ich karty. Karta zobrazuje aktuálny stav, detail obsahuje históriu a časová os zobrazuje úkony všetkých alebo vybraných typov zariadení. Dátumy v hlavičke časovej osi majú formát `DD.MM`. Podľa oprávnení sú dostupné aj údaje o držiteľovi zariadenia, vlastných zápožičkách alebo prideleniach.
 
 | Predpona štítku | Zariadenie |
 | --- | --- |

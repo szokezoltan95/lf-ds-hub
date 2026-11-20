@@ -3,7 +3,7 @@ import {createPortal} from "react-dom";
 import {createRoot} from "react-dom/client";
 import {Drone, Gamepad2, Zap, Menu, X, House, CalendarDays, MessageCircle, Megaphone, Users, Battery, Boxes, ShieldCheck, Construction, BookOpen, Timer,
   LogOut, Bell, Plus, ChevronLeft, ChevronRight, MapPin, Clock, Check, CircleHelp,
-  Search, ScanLine, QrCode, ClipboardCheck, Pin, FileText, Download, ArrowUpRight, Settings2, Send, CheckCheck, Pencil, SmilePlus, SlidersHorizontal, Heart, MoveUp, MoveDown} from "lucide-react";
+  Search, ScanLine, QrCode, ClipboardCheck, Pin, FileText, Download, ArrowUpRight, Settings2, Send, CheckCheck, Pencil, SmilePlus, Heart, MoveUp, MoveDown} from "lucide-react";
 import "@fontsource/dm-sans/latin-400.css";
 import "@fontsource/dm-sans/latin-ext-400.css";
 import "@fontsource/dm-sans/latin-600.css";
@@ -118,7 +118,7 @@ function Login({onLogin}) {
       await api("login", "POST", data);
       await onLogin();
     }}>
-      <label>E-mail alebo prihlasovacie meno<input name="login" autoComplete="username" autoCapitalize="none" maxLength="254" required /></label>
+      <label>E-mail alebo prihlasovacie meno<input name="login" type="text" inputMode="email" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength="254" required /></label>
       <label>Heslo<input type="password" name="password" autoComplete="current-password" maxLength="128" required /></label>
     </Form>}
   </section>;
@@ -310,11 +310,15 @@ function PermissionsPanel({roles, catalog, members, update}) {
 const proposalStatus = {open: "Otvorené", closed: "Hlasovanie uzavreté", withdrawn: "Stiahnuté", rejected: "Zamietnuté", approved: "Schválené"};
 const proposalVotes = {yes: "Vyhovuje", no: "Nevyhovuje", maybe: "Možno"};
 
-function ProposalForm({proposal, done}) {
-  const [slots, setSlots] = useState(() => (proposal?.options || [{id: 0}]).map(option => ({
-    id: option.id, starts_at: option.starts_at ? clubLocal(option.starts_at) : "",
-    ends_at: option.ends_at ? clubLocal(option.ends_at) : "",
-  })));
+function ProposalForm({proposal, initialDay, done}) {
+  const [slots, setSlots] = useState(() => {
+    const initial = (proposal?.options || [{id: 0}]).map(option => ({
+      id: option.id, starts_at: option.starts_at ? clubLocal(option.starts_at) : "",
+      ends_at: option.ends_at ? clubLocal(option.ends_at) : "",
+    }));
+    return initial.map((slot, index) => !proposal && index === 0 && initialDay
+      ? {...slot, starts_at: initialDay + "T18:00", ends_at: initialDay + "T19:00"} : slot);
+  });
   const next = useRef(1000000);
   return <Form label={proposal ? "Uložiť návrh" : "Navrhnúť tréning"} submit={async data => {
     await api(proposal ? "training-proposals/" + proposal.id : "training-proposals", proposal ? "PUT" : "POST", {
@@ -343,7 +347,7 @@ function ProposalForm({proposal, done}) {
   </Form>;
 }
 
-function TrainingProposals({refresh, openTraining}) {
+function TrainingProposals({refresh, openTraining, selectedDay}) {
   const user = useContext(PermissionContext);
   const can = useRight();
   const [items, setItems] = useState([]);
@@ -356,11 +360,17 @@ function TrainingProposals({refresh, openTraining}) {
     await load();
     if (result.training_id) {await refresh();openTraining(result.training_id);}
   }
+  const visibleItems = selectedDay ? items.filter(proposal => proposal.options.some(option => dayKey(option.starts_at) === selectedDay)) : items;
   return <section className="training-proposals">
-    {can("calendar.proposals.create") && <button className="primary" onClick={() => setEditor({})}>Navrhnúť tréning</button>}
+    {selectedDay && can("calendar.proposals.create") && <button className="primary" onClick={() => setEditor({})}><Plus size={17}/>Navrhnúť tréning na {formatShortDate(selectedDay)}</button>}
+    {editor && <section className="card proposal-editor"><h2>{editor.id ? "Upraviť návrh" : "Nový návrh tréningu"}</h2>
+      <ProposalForm key={editor.id || selectedDay || "new"} proposal={editor.id ? editor : null} initialDay={selectedDay}
+        done={async () => {await load();setEditor(null);}} />
+      <button type="button" onClick={() => setEditor(null)}>Zrušiť návrh</button>
+    </section>}
     {error && <p className="error" role="alert">{error}</p>}
-    {items.length === 0 && <Empty>Zatiaľ nie sú žiadne návrhy tréningov.</Empty>}
-    {items.map(proposal => <article className="card" key={proposal.id}>
+    {visibleItems.length === 0 && <Empty>{selectedDay ? "Na tento dátum zatiaľ nie sú návrhy tréningov." : "Zatiaľ nie sú žiadne návrhy tréningov."}</Empty>}
+    {visibleItems.map(proposal => <article className="card" key={proposal.id}>
       <h2>{proposal.title}</h2><p>{proposal.location} · {proposalStatus[proposal.status]}</p>
       {proposal.author && <span className="meta">{proposal.author}</span>}
       {proposal.instructions && <p>{proposal.instructions}</p>}
@@ -387,9 +397,6 @@ function TrainingProposals({refresh, openTraining}) {
         {proposal.training_id && can("calendar.events.read") && <button onClick={() => openTraining(proposal.training_id)}>Otvoriť tréning</button>}
       </div>
     </article>)}
-    {editor && <Modal title={editor.id ? "Upraviť návrh" : "Návrh tréningu"} close={() => setEditor(null)}>
-      <ProposalForm proposal={editor.id ? editor : null} done={async () => {await load();setEditor(null);}} />
-    </Modal>}
   </section>;
 }
 
@@ -724,10 +731,8 @@ function TrainingDetail({training, canRespond, places, close, refresh}) {
 function Calendar({trainings, places, refresh, openTraining}) {
   const user = useContext(PermissionContext);
   const can = useRight();
-  const [section, setSection] = useState("");
   const proposals = can("calendar.proposals.read");
   const events = can("calendar.events.read");
-  const showProposals = proposals && (section === "proposals" || !events);
   const staff = can("calendar.rsvp.summary");
   const [month, setMonth] = useState(() => today().slice(0, 7));
   const [selectedDay, setSelectedDay] = useState(null);
@@ -742,14 +747,9 @@ function Calendar({trainings, places, refresh, openTraining}) {
   }
   const shown = trainings.filter(t => dayKey(t.starts_at).startsWith(month) && (!selectedDay || dayKey(t.starts_at) === selectedDay))
     .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
-  const sectionButtons = proposals && events && <div className="segmented">
-    <button aria-pressed={!showProposals} onClick={() => setSection("events")}>Udalosti</button>
-    <button aria-pressed={showProposals} onClick={() => setSection("proposals")}>Návrhy tréningov</button>
-  </div>;
-  if (showProposals) return <><PageToolbar>{sectionButtons}</PageToolbar><TrainingProposals refresh={refresh} openTraining={openTraining} /></>;
-  if (!events && !maySchedule(user)) return <Empty>Nemáš prístup k udalostiam.</Empty>;
+  if (!events && !proposals && !maySchedule(user)) return <Empty>Nemáš prístup k udalostiam.</Empty>;
   return <>
-    <PageToolbar>{sectionButtons}<div className="page-toolbar-row">
+    <PageToolbar><div className="page-toolbar-row">
       <div className="period-control">
         <button className="icon-button" aria-label="Predchádzajúci mesiac" onClick={() => moveMonth(-1)}><ChevronLeft size={18} /></button>
         <span aria-live="polite">{start.toLocaleDateString(uiLocale(), {month: "long", year: "numeric", timeZone: "UTC"})}</span>
@@ -778,10 +778,12 @@ function Calendar({trainings, places, refresh, openTraining}) {
           })}</div>
         <div className="calendar-legend">{Object.entries(kinds).map(([type, name]) => <span key={type}><span className={"event-marker " + type} />{name}</span>)}</div>
       </section>
-      <div className="event-list">{shown.length ? shown.map((t, i) => <React.Fragment key={t.id}>
+      <div className="event-list">{events && (shown.length ? shown.map((t, i) => <React.Fragment key={t.id}>
         {(i === 0 || dayKey(shown[i - 1].starts_at) !== dayKey(t.starts_at)) && <h2 className="day-heading">{new Date(t.starts_at).toLocaleDateString(uiLocale(), {weekday: "long", day: "numeric", month: "long", timeZone})}</h2>}
         <TrainingCard training={t} staff={staff} canRespond={mayRespond(user, t)} refresh={refresh} open={() => openTraining(t.id)} />
-      </React.Fragment>) : <Empty>V tomto období nie sú žiadne udalosti.</Empty>}</div>
+      </React.Fragment>) : <Empty>V tomto období nie sú žiadne udalosti.</Empty>)}
+        {proposals && <TrainingProposals refresh={refresh} openTraining={openTraining} selectedDay={selectedDay} />}
+      </div>
     </div>
     {create && <Modal title="Nová udalosť" close={() => setCreate(false)}><TrainingForm initialDay={selectedDay} places={places} done={async () => {setCreate(false); await refresh();}} /></Modal>}
   </>;
@@ -1420,12 +1422,15 @@ function shiftBatteryDay(day, offset) {
   return value.toISOString().slice(0, 10);
 }
 
-function BatteryTimeline({items, revision, end, openBattery, canEdit, onDelete}) {
+function EquipmentActivityTimeline({items, revision, end, openBattery, openAsset, canEdit, onDelete}) {
   const [result, setResult] = useState(null);
   const [selectedDay, setSelectedDay] = useState(null);
   const days = Array.from({length: 7}, (_, index) => shiftBatteryDay(end, index - 6));
   const current = result?.end === end && result.revision === revision ? result : null;
-  const dayFormat = new Intl.DateTimeFormat("en-GB", {day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC"});
+  const dayFormat = day => {
+    const value = new Date(day + "T00:00:00Z");
+    return String(value.getUTCDate()).padStart(2, "0") + "." + String(value.getUTCMonth() + 1).padStart(2, "0");
+  };
   const fullDayFormat = new Intl.DateTimeFormat(uiLocale(), {dateStyle: "full", timeZone: "UTC"});
   const timeFormat = new Intl.DateTimeFormat(uiLocale(), {timeStyle: "short", timeZone});
   const fullDay = day => fullDayFormat.format(new Date(day + "T00:00:00Z"));
@@ -1433,45 +1438,51 @@ function BatteryTimeline({items, revision, end, openBattery, canEdit, onDelete})
 
   useEffect(() => {
     let active = true;
-    api("batteries/timeline?" + new URLSearchParams({end})).then(events => {
+    Promise.all([
+      api("batteries/timeline?" + new URLSearchParams({end})),
+      ...items.filter(item => item.kind !== "battery").map(item => api("equipment/assets/" + encodeURIComponent(item.code) + "/events")),
+    ]).then(([batteryEvents, ...assetEvents]) => {
+      const events = [...batteryEvents.map(event => ({...event, kind: "battery"})), ...assetEvents.flat().map(event => ({...event, kind: "asset"}))];
       if (active) setResult({end, revision, events});
     }).catch(error => {
       if (active) setResult({end, revision, error: error.message});
     });
     return () => {active = false;};
-  }, [end, revision]);
+  }, [end, revision, items.map(item => item.code).join(",")]);
 
   const visibleCodes = new Set(items.map(item => item.code));
-  const byBattery = new Map();
+  const byItem = new Map();
   const actionTypes = new Set();
   for (const event of current?.events ?? []) {
     if (!visibleCodes.has(event.code)) continue;
     const day = clubLocal(event.created_at).slice(0, 10);
-    if (!byBattery.has(event.code)) byBattery.set(event.code, new Map());
-    const byDay = byBattery.get(event.code);
+    if (!byItem.has(event.code)) byItem.set(event.code, new Map());
+    const byDay = byItem.get(event.code);
     if (!byDay.has(day)) byDay.set(day, []);
     byDay.get(day).push(event);
     actionTypes.add(event.action);
   }
-  const detail = selectedDay && byBattery.get(selectedDay.code)?.get(selectedDay.day);
+  const detail = selectedDay && byItem.get(selectedDay.code)?.get(selectedDay.day);
+  const eventLabel = action => batteryLabels[action] || equipmentActionLabels[action] || action;
+  const itemLabel = item => item.kind === "battery" ? batteryStateLabels[item.status] || "Neznámy stav" : equipmentActionLabels[item.status] || "Bez záznamu";
 
-  return <section className="card battery-overview" aria-labelledby="battery-timeline-heading">
-    <h2 className="sr-only" id="battery-timeline-heading">Časová os batérií</h2>
+  return <section className="card battery-overview" aria-labelledby="equipment-timeline-heading">
+    <h2 className="sr-only" id="equipment-timeline-heading">Časová os zariadení</h2>
     {!current ? <p className="muted" role="status">Načítava sa…</p> :
       current.error ? <p className="error" role="alert">{current.error}</p> :
-      !byBattery.size ? <p className="muted">V tomto období nie sú žiadne záznamy pre zobrazené batérie.</p> : <>
-        <div className="battery-overview-scroll" role="region" aria-labelledby="battery-timeline-heading" tabIndex={0}>
-          <table className="battery-overview-table" aria-labelledby="battery-timeline-heading">
-            <thead><tr><th scope="col">Batéria</th>{days.map(day =>
-              <th key={day} scope="col"><time dateTime={day}>{dayFormat.format(new Date(day))}</time></th>)}</tr></thead>
-            <tbody>{items.filter(item => byBattery.has(item.code)).map(item =>
-              <tr key={item.code}><th scope="row"><div className="battery-timeline-identity"><span className="battery-timeline-code">{item.code}</span><span className={"badge battery-state-badge state-"+(item.status||"unknown")}>{batteryStateLabels[item.status] || "Neznámy stav"}</span></div></th>{days.map(day => {
-                const events = byBattery.get(item.code).get(day);
+      !byItem.size ? <p className="muted">V tomto období nie sú žiadne záznamy pre zobrazené zariadenia.</p> : <>
+        <div className="battery-overview-scroll" role="region" aria-labelledby="equipment-timeline-heading" tabIndex={0}>
+          <table className="battery-overview-table" aria-labelledby="equipment-timeline-heading">
+            <thead><tr><th scope="col">Zariadenie</th>{days.map(day =>
+              <th key={day} scope="col"><time dateTime={day}>{dayFormat(day)}</time></th>)}</tr></thead>
+            <tbody>{items.filter(item => byItem.has(item.code)).map(item =>
+              <tr key={item.code}><th scope="row"><div className="battery-timeline-identity"><span className="battery-timeline-code">{item.code}</span><span className={"badge "+(item.kind === "battery" ? "battery-state-badge" : "equipment-status-badge")+" state-"+(item.status||"unknown")}>{itemLabel(item)}</span></div></th>{days.map(day => {
+                const events = byItem.get(item.code).get(day);
                 if (!events) return <td key={day}><span className="muted" aria-hidden="true">–</span><span className="sr-only">Bez záznamu</span></td>;
                 const counts = events.reduce((totals,event)=>({...totals,[event.action]:(totals[event.action]||0)+1}),{});
                 const actions = Object.keys(counts);
                 return <td key={day}><button type="button" className="battery-day-button"
-                  aria-label={[item.code, fullDay(day), ...actions.map(action => counts[action]+" × "+text(batteryLabels[action]))].join(" · ")}
+                  aria-label={[item.code, fullDay(day), ...actions.map(action => counts[action]+" × "+text(eventLabel(action)))].join(" · ")}
                   onClick={() => setSelectedDay({code: item.code, day})}>
                   <span className="battery-day-action-counts">{actions.map(action => <span key={action}><i className={"battery-event-color action-" + action} />{counts[action]}</span>)}</span>
                 </button></td>;
@@ -1479,20 +1490,20 @@ function BatteryTimeline({items, revision, end, openBattery, canEdit, onDelete})
           </table>
         </div>
         <ul className="battery-overview-legend">
-          {Object.entries(batteryLabels).filter(([action]) => actionTypes.has(action)).map(([action, label]) =>
+          {[...Object.entries(batteryLabels), ...Object.entries(equipmentActionLabels)].filter(([action], index, rows) => actionTypes.has(action) && rows.findIndex(row => row[0] === action) === index).map(([action, label]) =>
             <li key={action}><i className={"battery-event-color action-" + action} aria-hidden="true" /><span>{label}</span></li>)}
         </ul>
       </>}
     {detail && <Modal title={selectedDay.code + " · " + fullDay(selectedDay.day)} close={() => setSelectedDay(null)}>
       <ul className="timeline battery-day-detail">
         {detail.map(event => <li key={event.id}>
-          <strong className="battery-event-title"><i className={"battery-event-color action-" + event.action} aria-hidden="true" />{batteryLabels[event.action]}</strong>
+          <strong className="battery-event-title"><i className={"battery-event-color action-" + event.action} aria-hidden="true" />{eventLabel(event.action)}</strong>
           <span className="meta">{timeFormat.format(new Date(event.created_at))} · {event.name}</span>
           {event.note && <p className="body small">{event.note}</p>}
-          {canEdit && <button type="button" className="danger battery-delete-event" onClick={async()=>{await onDelete(event); setSelectedDay(null);}}>Odstrániť záznam</button>}
+          {event.kind === "battery" && canEdit && <button type="button" className="danger battery-delete-event" onClick={async()=>{await onDelete(event); setSelectedDay(null);}}>Odstrániť záznam</button>}
         </li>)}
       </ul>
-      <button type="button" onClick={() => {openBattery(selectedDay.code); setSelectedDay(null);}}>Otvoriť detail batérie</button>
+      <button type="button" onClick={() => {if (detail[0]?.kind === "battery") openBattery(selectedDay.code); else openAsset(selectedDay.code); setSelectedDay(null);}}>Otvoriť detail zariadenia</button>
     </Modal>}
   </section>;
 }
@@ -1607,6 +1618,10 @@ function Batteries({initialCode}) {
   }, [selected]);
   const battery = items.find(item => item.code === selected);
   const asset = assets.find(item=>item.code===selectedAsset);
+  const timelineItems = [
+    ...((kindFilter === "all" || kindFilter === "battery") ? items.map(item => ({...item, kind: "battery"})) : []),
+    ...assets.filter(item => kindFilter === "all" || item.kind === kindFilter).map(item => ({...item, kind: item.kind})),
+  ];
   useEffect(()=>{let active=true;if(selectedAsset&&history)api("equipment/assets/"+encodeURIComponent(selectedAsset)+"/events").then(rows=>{if(active)setAssetEvents(rows);}).catch(error=>{if(active)setError(error.message);});return()=>{active=false;};},[selectedAsset,revision]);
   function openBattery(code, initialAction = null) {setSelected(code); setAction(initialAction);}
   async function deleteEvent(event) {
@@ -1617,14 +1632,14 @@ function Batteries({initialCode}) {
   }
   return <>
     <PageToolbar><div className="page-toolbar-row">
-      <div className="segmented" role="group" aria-label="Zobrazenie batérií">
+      <div className="segmented" role="group" aria-label="Zobrazenie vybavenia">
         <button type="button" aria-pressed={view === "cards"} onClick={()=>setView("cards")}>Karty</button>
         {history && <button type="button" aria-pressed={view === "timeline"} onClick={()=>{if (view !== "timeline") setEnd(currentDay);setView("timeline");}}>Časová os</button>}
       </div>
       <label className="toolbar-select equipment-kind-filter">Zariadenie<select value={kindFilter} onChange={event=>setKindFilter(event.target.value)}>
         <option value="all">Všetky typy</option><option value="battery">Batérie</option><option value="charger">Nabíjačky</option><option value="drone">Drony</option><option value="controller">Ovládače</option>
       </select></label>
-      {view === "timeline" && items.length > 0 && <div className="period-control">
+      {view === "timeline" && timelineItems.length > 0 && <div className="period-control">
         <button type="button" className="icon-button" aria-label="Predchádzajúcich 7 dní" onClick={() => setEnd(shiftBatteryDay(end, -7))}><ChevronLeft size={18} /></button>
         <span aria-live="polite">{formatShortDate(shiftBatteryDay(end, -6)) + " – " + formatShortDate(end)}</span>
         <button type="button" className="icon-button" aria-label="Nasledujúcich 7 dní" disabled={end >= currentDay} onClick={() => {
@@ -1635,8 +1650,8 @@ function Batteries({initialCode}) {
       {can("equipment.assets.create") && <button className="primary page-primary" onClick={() => {setNewKind("battery");setNewCode("");setCreate(true);}}><Plus size={18} />Pridať zariadenie</button>}
     </div></PageToolbar>
     {error && <p className="error" role="alert">{error}</p>}
-    {view === "timeline" && (kindFilter==="all"||kindFilter==="battery") && items.length > 0 && <BatteryTimeline items={items} revision={revision} end={end} openBattery={openBattery} canEdit={canDelete} onDelete={deleteEvent} />}
-    {view === "timeline" && kindFilter!=="all"&&kindFilter!=="battery"&&<EquipmentTimeline assets={assets.filter(item=>item.kind===kindFilter)} onOpen={setSelectedAsset} end={end} setEnd={setEnd} currentDay={currentDay} />}
+    {view === "timeline" && timelineItems.length > 0 && <EquipmentActivityTimeline items={timelineItems} revision={revision} end={end}
+      openBattery={openBattery} openAsset={code => {setSelectedAsset(code);setAssetAction("");}} canEdit={canDelete} onDelete={deleteEvent} />}
     {view === "cards" && <div className="equipment-grid">{(kindFilter==="all"||kindFilter==="battery"?items:[]).map(b =>
       <article className={"card battery-state-card state-"+(b.status||"unknown")} key={b.code}>
         <div className="battery-card-heading">
@@ -1716,16 +1731,6 @@ const equipmentKindLabels={controller:"Ovládač",drone:"Dron",charger:"Nabíja�
 const equipmentActionLabels={assigned:"Pridelené",returned:"Vrátené",inspection:"Predletová kontrola",training:"Použitie na tréningu",fault:"Porucha",repair:"Oprava",maintenance:"Údržba",propeller_replacement:"Výmena vrtúľ",motor_replacement:"Výmena motorov",battery_check:"Kontrola batérie",retired:"Vyradené",note:"Poznámka"};
 const equipmentActions={drone:["assigned","returned","inspection","training","fault","repair","maintenance","propeller_replacement","motor_replacement","retired","note"],controller:["assigned","returned","inspection","training","fault","repair","maintenance","battery_check","retired","note"],charger:["assigned","returned","inspection","fault","repair","maintenance","retired","note"]};
 const primaryEquipmentActions={drone:["assigned","returned","inspection"],controller:["assigned","returned","inspection"],charger:["assigned","returned","inspection"]};
-
-function EquipmentTimeline({assets,onOpen,end,setEnd,currentDay}) {
-  const [events,setEvents]=useState([]);
-  const [error,setError]=useState("");
-  useEffect(()=>{let active=true;Promise.all(assets.map(asset=>api("equipment/assets/"+encodeURIComponent(asset.code)+"/events"))).then(rows=>{if(active)setEvents(rows.flat().filter(event=>clubLocal(event.created_at).slice(0,10)>=shiftBatteryDay(end,-6)&&clubLocal(event.created_at).slice(0,10)<=end).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)));}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[assets.map(item=>item.code).join(","),end]);
-  const changeEnd=offset=>{const next=shiftBatteryDay(end,offset);setEnd(next>currentDay?currentDay:next);};
-  return <section className="card equipment-timeline"><div className="period-control"><button className="icon-button" aria-label="Predchádzajúcich 7 dní" onClick={()=>changeEnd(-7)}><ChevronLeft size={18}/></button><span>{formatShortDate(shiftBatteryDay(end,-6))} – {formatShortDate(end)}</span><button className="icon-button" aria-label="Nasledujúcich 7 dní" disabled={end>=currentDay} onClick={()=>changeEnd(7)}><ChevronRight size={18}/></button></div>
-    {error?<p className="error" role="alert">{error}</p>:events.length?<ul className="timeline">{events.map(event=><li key={event.id}><strong className="battery-event-title"><span className="equipment-event-mark" aria-hidden="true"/>{equipmentActionLabels[event.action]}</strong><span className="meta">{formatShortDate(event.created_at)} · {new Intl.DateTimeFormat(uiLocale(),{timeStyle:"short",timeZone}).format(new Date(event.created_at))} · {event.code} · {event.name}</span>{event.note&&<p className="body small">{event.note}</p>}<button type="button" className="text-button" onClick={()=>onOpen(event.code)}>Detail zariadenia</button></li>)}</ul>:<p className="muted">V tomto období nie sú záznamy pre zobrazené zariadenia.</p>}
-  </section>;
-}
 
 function PlayerDevelopmentPage() {
   const can = useRight();
@@ -2093,6 +2098,9 @@ function ClubScanner({user,initialEvent,refresh}) {
   const [saved,setSaved]=useState("");
   const [toast,setToast]=useState("");
   const [pendingMember,setPendingMember]=useState(null);
+Warning: truncated output (original token count: 15915)
+Total output lines: 700
+
   const [newPrivateEvent,setNewPrivateEvent]=useState(false);
   const [action,setAction]=useState("used");
   const [requestId,setRequestId]=useState(null);
@@ -2431,41 +2439,7 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
   const next = trainings.filter(upcoming);
   const unread = conversations.reduce((sum, row) => sum + row.unread, 0);
   const attendanceWaiting = trainings.find(t => !t.cancelled && past(t) && t.counts?.attendance_pending > 0);
-  const revised = next.find(t => mayRespond(user,t) && t.schedule_revision > 0 && !t.change_response);
-  const unanswered = canRespond ? next.filter(t => mayRespond(user,t) && (!t.response || (t.schedule_revision > 0 && !t.change_response))) : [];
-  const notice = announcements.find(item => item.pinned) || announcements[0];
-  const unreadNotice = announcements.find(item => !item.is_read);
-  const availableWidgets = [
-    ...(can("calendar.events.read") ? ["event", "schedule"] : []),
-    ...(canRespond ? ["rsvp"] : []), ...(can("attendance.records.own") ? ["attendance"] : []),
-    ...(can("attendance.records.read") ? ["followup", "team_attendance"] : []),
-    ...(can("calendar.rsvp.summary") ? ["rsvp_summary"] : []),
-    ...(can("announcements.notices.read") ? ["announcements"] : []),
-    ...(can("messages.chat.read") ? ["messages"] : []),
-    ...(user.menu_access?.includes("members") && user.roles?.some(role => ["club_leader", "deputy_leader"].includes(role)) ? ["role_requests"] : []),
-    ...(can("equipment.assets.read") ? ["battery_status"] : []), ...(can("equipment.assets.history") ? ["battery_activity"] : []),
-    ...(can("members.accounts.read") && can("members.accounts.invite") ? ["member_invites"] : []),
-    ...(user.menu_access?.some(key => key !== "home") ? ["quick_links"] : []),
-  ];
-  const defaults = staff
-    ? [["event","both"],["followup","both"],["announcements","both"],["battery_status","both"],["quick_links","both"],["rsvp_summary","desktop"],["team_attendance","desktop"],["messages","desktop"],["battery_activity","desktop"],["member_invites","desktop"],["role_requests","desktop"]]
-    : [["event","both"],["rsvp","both"],["announcements","both"],["quick_links","both"],["battery_status","mobile"],["messages","desktop"],["attendance","desktop"]];
-  const saved = user.dashboard_preferences || {};
-  const rawWidgets = Array.isArray(saved.widgets) ? saved.widgets : defaults.map(([id,display]) => ({id,display}));
-  const widgets = rawWidgets.map(item => typeof item === "string" ? {id:item,display:defaults.find(([id])=>id===item)?.[1]||"both"} : item)
-    .filter((item,index,list) => item && availableWidgets.includes(item.id) && list.findIndex(other => (typeof other === "string" ? other : other.id) === item.id) === index);
-  const theme = saved.theme || "blue";
-  const columns = [1,2,3,4].includes(saved.columns) ? saved.columns : 2;
-  const homeColor = theme.startsWith("#") ? theme : ({blue:"#41b6e6",sky:"#7fc8ed",mint:"#83cbb4",coral:"#e8a28c"}[theme] || "#41b6e6");
-  const defaultLinks = ["calendar",...(has("messages")? ["messages"]:[]),...(has("announcements")?["announcements"]:[]),...(canRespond?["member_qr"]:[]),...(has("scanner")?["scanner"]:[])];
-  const availableLinks = Object.keys(dashboardLinkInfo).filter(key => key === "member_qr" ? can("profile.card.own") : has(key));
-  const quickLinks = (Array.isArray(saved.quick_links) ? saved.quick_links : defaultLinks).filter(key => availableLinks.includes(key));
-  const [editOpen, setEditOpen] = useState(false), [draftWidgets, setDraftWidgets] = useState(widgets), [draftLinks, setDraftLinks] = useState(quickLinks), [draftTheme, setDraftTheme] = useState(theme), [draftColumns, setDraftColumns] = useState(columns);
-  const [dashboardData, setDashboardData] = useState({attendance:[],batteries:[],batteryActivity:[],members:[],teamAttendance:null});
-  const [dataLoaded, setDataLoaded] = useState({});
-  const [saveError, setSaveError] = useState(""), [saving, setSaving] = useState(false);
-  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia("(min-width: 780px)").matches);
-  useEffect(() => {const query=window.matchMedia("(min-width: 780px)"),change=event=>setIsDesktop(event.matches);query.addEventListener("change",change);return()=>query.removeEventListener("change",change);},[]);
+  const revised = next.find(t => mayRespond(user,t) && t.schedule_revision > 0 && !t.change_res…915 tokens truncated…,change);return()=>query.removeEventListener("change",change);},[]);
   const visibleWidgetIds=widgets.filter(item=>item.display==="both"||(isDesktop?item.display==="desktop":item.display==="mobile")).map(item=>item.id);
   useEffect(() => {
     let current = true;
@@ -2591,7 +2565,7 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
   }
   return <>
     <section className="home-welcome" style={{"--home-color": homeColor,"--dashboard-columns": columns}}>
-      <button className="home-edit-icon" aria-label="Upraviť úvodnú stránku" title="Upraviť úvodnú stránku" onClick={openEditor}><SlidersHorizontal size={18}/></button>
+      <button className="home-edit-icon" aria-label="Upraviť úvodnú stránku" title="Upraviť úvodnú stránku" onClick={openEditor}><Pencil size={18}/></button>
       <section className="home-summary-widget" aria-label="Privítanie a dôležité informácie">
         <div className="home-greeting"><time dateTime={today()}>{new Date().toLocaleDateString(uiLocale(), {weekday: "long", day: "numeric", month: "long", timeZone})}</time><h2>Ahoj, {user.name.split(" ")[0]}!</h2></div>
         <div className="home-priority-alerts">{homeAlerts.slice(0,5).map((alert,index)=><button key={index} className={"home-priority-alert tone-"+alert.tone} onClick={alert.action||undefined} disabled={!alert.action}><span className="home-alert-mark" aria-hidden="true"/><span>{alert.text}</span>{alert.action&&<ChevronRight size={15}/>}</button>)}</div>

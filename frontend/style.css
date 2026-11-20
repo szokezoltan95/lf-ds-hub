@@ -419,6 +419,11 @@ nav button .counter {margin-left: auto;}
 .battery-event-color.action-damaged {background:#c23c43;}
 .battery-event-color.action-retired {background:#493c49;}
 .battery-event-color.action-note {background:#8553a2;}
+.battery-event-color.action-assigned,.battery-event-color.action-inspection,.battery-event-color.action-battery_check {background:#287ca4;}
+.battery-event-color.action-returned {background:#21834a;}
+.battery-event-color.action-training,.battery-event-color.action-propeller_replacement,.battery-event-color.action-motor_replacement {background:#6b68ad;}
+.battery-event-color.action-fault {background:#c23c43;}
+.battery-event-color.action-repair,.battery-event-color.action-maintenance {background:#d68a12;}
 .battery-overview-legend {display:flex; flex-wrap:wrap; gap:5px 14px; margin:10px 0 0; padding:0; list-style:none; font-size:12px;}
 .battery-overview-legend li, .battery-event-title {display:flex; align-items:center; gap:6px;}
 .timeline li {border-left: 2px solid var(--line); padding: 0 0 20px 16px; margin-left: 5px; position: relative;}
