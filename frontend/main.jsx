@@ -750,7 +750,7 @@ function MessageInteractions({item, own, change}) {
   return <>
     {item.poll_options && <div className="message-poll">
       <strong>Anketa</strong>
-      <p>{item.body}</p>
+      <p className="poll-question">{item.body}</p>
       {item.poll_options.map((option, choice) => {
         const count = item.poll_results?.find(result => result.choice === choice)?.count || 0;
         return <Action key={choice} className="poll-option" pressed={vote === choice}
@@ -1837,7 +1837,7 @@ function App() {
   const visibleNavigation = navigation.filter(([key]) => user?.menu_access?.includes(key) && (key !== "team" || user?.role !== "superadmin") && (key !== "messages" || !superadmin));
   const allowedPages = [...visibleNavigation.map(([key]) => key), ...(user?.menu_access?.includes("scanner") ? ["scanner"] : []), "profile"];
   const currentPage = allowedPages.includes(page) ? page : "home";
-  const title = currentPage === "profile" ? "Môj profil a nastavenia" : currentPage === "scanner" ? "Skenovať" : visibleNavigation.find(([key]) => key === currentPage)?.[1];
+  const title = currentPage === "profile" ? "Profil a nastavenia" : currentPage === "scanner" ? "Skenovať" : visibleNavigation.find(([key]) => key === currentPage)?.[1];
   useEffect(() => {
     document.documentElement.lang = language;
     translatePage(document.body, language);
@@ -1982,9 +1982,10 @@ function App() {
   return <div className={user ? "app" : "signed-out"}>
     <header className="topbar">
       {user && <button className="icon-button hamburger" aria-label="Otvoriť menu" aria-expanded={menu} onClick={openMenu}><Menu /></button>}
-      <a className="brand" href="#page=home" onClick={event => {event.preventDefault(); if (user) navigate("home");}}>
+      <a className={user && currentPage !== "home" ? "brand desktop-brand" : "brand"} href="#page=home" onClick={event => {event.preventDefault(); if (user) navigate("home");}}>
         <span className="brand-symbol" aria-hidden="true"><Drone size={24} /></span><span><strong>Drone Soccer Hub</strong><small>LF TUKE</small></span>
       </a>
+      {user && currentPage !== "home" && <h1 className="mobile-section-title">{title}</h1>}
       {user && <button className="icon-button scan-shortcut" aria-label="Skenovať kód" onClick={()=>openScanner()}><ScanLine size={22} /></button>}
       {(user?.roles||[]).includes("player") && <button className="icon-button" aria-label="Môj členský QR kód" onClick={()=>setCardMember({self:true})}><QrCode size={22} /></button>}
       {user && <button className="icon-button notification-button" aria-label={"Oznámenia" + (unread + unreadNotices ? " (" + (unread + unreadNotices) + ")" : "")} onClick={() => setNotifications(true)}><Bell size={22} />{unread + unreadNotices > 0 && <i />}</button>}
@@ -1998,7 +1999,7 @@ function App() {
       </aside>}
       {error && <div className="error-banner" role="alert">{error}<Action run={refresh}>Skúsiť znova</Action></div>}
       {user === undefined ? <Empty>Načítava sa…</Empty> : !user ? <Login onLogin={loadUser} /> : <>
-        {currentPage !== "home" && <div className="page-heading"><div><h1>{title}</h1></div></div>}
+        {currentPage !== "home" && <h1 className="sr-only desktop-section-title">{title}</h1>}
         {loading ? <Empty>Načítava sa…</Empty> : <>
           {currentPage === "home" && <>
             {!installation.installed && user.pwa_show_card !== false && !installHidden && <div className="install-promotion">

@@ -48,7 +48,11 @@ svg {flex-shrink: 0;}
 .notification-button {margin-left: auto; position: relative;}
 .notification-button i {position: absolute; right: 8px; top: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--complement);}
 .content {max-width: 1160px; margin-inline: auto; padding: 23px 16px max(32px, env(safe-area-inset-bottom)); min-width: 0;}
-.page-heading {margin-bottom: 22px;}
+.topbar .desktop-brand, .desktop-section-title {display: none;}
+.mobile-section-title {
+  flex: 1; min-width: 0; margin: 0; font-size: 16px; letter-spacing: -.02em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .eyebrow {font-size: 10px; text-transform: uppercase; letter-spacing: .13em; color: var(--muted); font-weight: 700; margin-bottom: 6px;}
 .muted, .meta {color: var(--muted);}
 .meta {font-size: 12px; display: flex; align-items: center; gap: 5px;}
@@ -272,8 +276,8 @@ details p {font-size: 13px; margin-top: 12px;}
 .message-stream {flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 16px; background: #f3f7fa;}
 .message {align-self: flex-start; border: 1px solid var(--line); padding: 10px 13px; border-radius: 13px 13px 13px 3px; max-width: 90%; background: white;}
 .message.outgoing {align-self: flex-end; background: #dff2fc; border-color: #cce8f7; border-radius: 13px 13px 3px 13px;}
-.message p {margin: 0 0 5px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere;}
-.message > span {display: flex; justify-content: flex-end; align-items: center; gap: 5px; font-size: 9px; color: var(--muted);}
+.message > p, .poll-question {margin: 0 0 5px; font-size: 15px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere;}
+.message > span {display: flex; justify-content: flex-end; align-items: center; gap: 5px; font-size: 11px; color: var(--muted);}
 .composer {background: white; border-top: 1px solid var(--line); padding: 10px;}
 .composer form {margin: 0;}
 .composer fieldset {display: flex; flex-direction: row; align-items: end; gap: 8px;}
@@ -299,10 +303,13 @@ details p {font-size: 13px; margin-top: 12px;}
 }
 @media (min-width: 1100px) {
   .topbar {padding-inline: 24px;}
-  .hamburger {display: none;}
+  .hamburger, .mobile-section-title {display: none;}
+  .topbar .desktop-brand {display: flex;}
+  .desktop-section-title {display: block;}
   .sidebar {display: flex; flex-direction: column; position: fixed; top: 66px; bottom: 0; left: 0; width: 235px; background: white; border-right: 1px solid var(--line); overflow-y: auto;}
   .app > .content {margin-left: 235px; max-width: 1400px; padding: 32px 40px;}
   .sidebar nav {padding-top: 25px;}
+  .sidebar nav button.active {box-shadow: inset 3px 0 var(--accent);}
   .home-action {float: right;}
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -599,11 +606,13 @@ details p {font-size: 13px; margin-top: 12px;}
 .reaction-trigger {color:var(--muted);border-color:transparent;background:transparent;}
 .reaction-trigger:hover,.reaction-trigger[aria-expanded="true"] {background:var(--surface);border-color:var(--line);}
 .reaction-picker {display:flex;flex-basis:100%;flex-wrap:wrap;gap:3px;}
-.poll-add-option {min-height:30px;padding:2px 0;justify-self:start;}
+.poll-add-option {min-height:32px;padding:2px 0;justify-self:start;font-size:13px;gap:4px;}
+.poll-add-option svg {width:12px;height:12px;}
 .message-poll form {margin:0;}
 .message-poll {display:grid;gap:5px;min-width:min(200px,100%);}
 .message-poll > strong,.poll-total {font-size:11px;color:var(--muted);}
-.poll-option {width:100%;justify-content:space-between;text-align:left;padding:6px 9px;overflow-wrap:anywhere;}
+.poll-question {font-weight:600;}
+.poll-option {width:100%;justify-content:space-between;text-align:left;padding:6px 9px;font-size:14px;line-height:1.35;overflow-wrap:anywhere;}
 .poll-option span:last-child {flex-shrink:0;font-variant-numeric:tabular-nums;}
 .poll-editor-option {display:flex;align-items:end;gap:5px;}
 .poll-editor-option label {flex:1;}
