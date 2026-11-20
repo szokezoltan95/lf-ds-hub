@@ -376,3 +376,19 @@ CREATE TABLE IF NOT EXISTS club_lineup (
     updated_by bigint REFERENCES members(id) ON DELETE SET NULL,
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE members ADD COLUMN IF NOT EXISTS avatar bytea;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS avatar_version uuid;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS poll_options jsonb;
+CREATE TABLE IF NOT EXISTS message_reactions (
+    message_id bigint NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    member_id bigint NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    emoji text NOT NULL,
+    PRIMARY KEY (message_id, member_id, emoji)
+);
+CREATE TABLE IF NOT EXISTS message_poll_votes (
+    message_id bigint NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    member_id bigint NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    choice integer NOT NULL CHECK (choice >= 0),
+    PRIMARY KEY (message_id, member_id)
+);

@@ -11,11 +11,14 @@ import secrets
 from xml.etree import ElementTree as ET
 from contextlib import asynccontextmanager
 from datetime import date as CalendarDate, datetime, timedelta, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
+
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 import psycopg
 from psycopg.types.json import Jsonb
@@ -275,7 +278,7 @@ async def invalid_request(_request, _error):
 def identity(request: Request, conn: DB):
     token = request.cookies.get(COOKIE, "")
     member = conn.execute(
-        """SELECT m.id, m.name, m.email, m.role, m.club_roles, m.pwa_show_card, m.pwa_show_popup, m.push_messages, m.push_calendar, m.push_announcements FROM sessions s
+        """SELECT m.id, m.name, m.email, m.role, m.club_roles, m.pwa_show_card, m.pwa_show_popup, m.push_messages, m.push_calendar, m.push_announcements, m.avatar_version FROM sessions s
         JOIN members m ON m.id = s.member_id
         WHERE s.token_hash = %s AND s.expires_at > now() AND m.active""", (digest(token),)
     ).fetchone()
@@ -567,6 +570,44 @@ def update_profile(data: Profile, conn: DB, user: User):
     return {"ok": True}
 
 
+@api.put("/me/avatar")
+async def upload_avatar(request: Request, conn: DB, user: User):
+    content = bytearray()
+    async for chunk in request.stream():
+        if len(content) + len(chunk) > 5 * 1024 * 1024:
+            raise HTTPException(413, "Fotka môže mať najviac 5 MB.")
+        content.extend(chunk)
+    try:
+        with Image.open(BytesIO(content), formats=["JPEG", "PNG", "WEBP"]) as image:
+            if image.width * image.height > 24_000_000:
+                raise ValueError("Image is too large")
+            photo = ImageOps.fit(ImageOps.exif_transpose(image).convert("RGB"), (256, 256))
+            output = BytesIO()
+            photo.save(output, format="JPEG", quality=85)
+    except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError):
+        raise HTTPException(422, "Vyber platnú fotku vo formáte JPG, PNG alebo WebP.")
+    conn.execute("UPDATE members SET avatar=%s,avatar_version=%s WHERE id=%s",
+                 (output.getvalue(), uuid4(), user["id"]))
+    return {"ok": True}
+
+
+@api.delete("/me/avatar")
+def delete_avatar(conn: DB, user: User):
+    conn.execute("UPDATE members SET avatar=NULL,avatar_version=NULL WHERE id=%s", (user["id"],))
+    return {"ok": True}
+
+
+@api.get("/avatars/{member_id}")
+def avatar(member_id: int, conn: DB, user: User):
+    row = conn.execute(
+        "SELECT avatar FROM members WHERE id=%s AND (role<>'superadmin' OR id=%s)",
+        (member_id, user["id"]),
+    ).fetchone()
+    if not row or row["avatar"] is None:
+        return Response(status_code=204)
+    return Response(row["avatar"], media_type="image/jpeg")
+
+
 @api.put("/me/password")
 def change_password(data: ChangePassword, request: Request, conn: DB, user: User):
     if user["role"] == "superadmin":
@@ -601,7 +642,7 @@ def own_attendance(conn: DB, user: User):
 @api.get("/members")
 def members(conn: DB, _user: User):
     return conn.execute(
-        """SELECT m.id, m.email, m.name, m.role, m.club_roles AS roles, m.active,
+        """SELECT m.id, m.email, m.name, m.role, m.club_roles AS roles, m.avatar_version, m.active,
         m.password_hash IS NOT NULL AS registered,
         (SELECT count(*) FROM participation WHERE member_id=m.id AND attended=true) AS attended_count,
         (SELECT count(*) FROM participation WHERE member_id=m.id AND attended IS NOT NULL) AS recorded_count
@@ -913,7 +954,7 @@ def roster(training_id: int, conn: DB, _staff: Staff):
     if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
         raise HTTPException(404, "Udalosť sa nenašla.")
     return conn.execute(
-        """SELECT m.id, m.name, m.club_roles AS roles, p.response, p.note, p.attended FROM members m
+        """SELECT m.id, m.name, m.club_roles AS roles, m.avatar_version, p.response, p.note, p.attended FROM members m
         LEFT JOIN participation p ON p.member_id=m.id AND p.training_id=%s
         WHERE m.role IN ('member','coach')
         AND (('player'=ANY(m.club_roles) AND m.active AND m.password_hash IS NOT NULL)
@@ -1086,7 +1127,7 @@ def club_lineup_players(conn, saved):
 def get_general_lineup(conn: DB, _user: User):
     saved = conn.execute("SELECT players FROM club_lineup WHERE id=1").fetchone()
     roster = conn.execute(
-        """SELECT id,name,club_roles AS roles FROM members WHERE role IN ('member','coach') AND 'player'=ANY(club_roles) AND active AND password_hash IS NOT NULL
+        """SELECT id,name,avatar_version,club_roles AS roles FROM members WHERE role IN ('member','coach') AND 'player'=ANY(club_roles) AND active AND password_hash IS NOT NULL
         ORDER BY lower(name),id"""
     ).fetchall()
     return {"players": club_lineup_players(conn, saved), "source": "general", "roster": roster}
@@ -1110,7 +1151,7 @@ def get_training_lineup(training_id: int, conn: DB, _user: User):
     saved = conn.execute("SELECT players FROM training_lineups WHERE training_id=%s", (training_id,)).fetchone()
     general = conn.execute("SELECT players FROM club_lineup WHERE id=1").fetchone()
     roster = conn.execute(
-        """SELECT id,name,club_roles AS roles FROM members WHERE role IN ('member','coach') AND 'player'=ANY(club_roles) AND active AND password_hash IS NOT NULL
+        """SELECT id,name,avatar_version,club_roles AS roles FROM members WHERE role IN ('member','coach') AND 'player'=ANY(club_roles) AND active AND password_hash IS NOT NULL
         ORDER BY lower(name),id"""
     ).fetchall()
     return {"players": club_lineup_players(conn, saved if saved else general),
@@ -1354,11 +1395,15 @@ class Message(BaseModel):
     recipient_id: int | None = None
     group_id: int | None = None
     body: Body
+    poll_options: list[Short] | None = None
 
     @model_validator(mode="after")
     def validate_destination(self):
         if (self.recipient_id is None) == (self.group_id is None):
             raise ValueError("Vyber jedného adresáta alebo jednu skupinu.")
+        if self.poll_options is not None:
+            if len(self.poll_options) < 2 or len({option.casefold() for option in self.poll_options}) != len(self.poll_options):
+                raise ValueError("Anketa potrebuje aspoň dve rôzne možnosti.")
         return self
 
 
@@ -1567,12 +1612,12 @@ def accessible_group(conn, group_id, user, lock=False):
 def group_participants(conn, group):
     if group["system_key"]:
         return conn.execute(
-            """SELECT id, name, role, club_roles AS roles FROM members WHERE active AND password_hash IS NOT NULL
+            """SELECT id, name, role, avatar_version, club_roles AS roles FROM members WHERE active AND password_hash IS NOT NULL
             AND role IN ('member','coach') AND (%s OR 'coach'=ANY(club_roles)) ORDER BY name, id""",
             (group["system_key"] == "team",),
         ).fetchall()
     return conn.execute(
-        """SELECT m.id, m.name, m.role, m.club_roles AS roles FROM chat_group_members gm
+        """SELECT m.id, m.name, m.role, m.avatar_version, m.club_roles AS roles FROM chat_group_members gm
         JOIN members m ON m.id=gm.member_id WHERE gm.group_id=%s AND m.active
         AND m.password_hash IS NOT NULL AND m.role IN ('member', 'coach') ORDER BY m.name, m.id""",
         (group["id"],),
@@ -1604,7 +1649,7 @@ def conversations(conn: DB, user: ChatUser):
             SELECT DISTINCT ON (contact_id) contact_id, body, created_at, id
             FROM inbox ORDER BY contact_id, id DESC
         )
-        SELECT r.*, m.name, m.active, m.club_roles AS roles, 'private' AS type,
+        SELECT r.*, m.name, m.active, m.avatar_version, m.club_roles AS roles, 'private' AS type,
         (SELECT count(*) FROM messages WHERE sender_id=r.contact_id AND recipient_id=%s
          AND read_at IS NULL) AS unread
         FROM recent r JOIN members m ON m.id=r.contact_id
@@ -1639,7 +1684,7 @@ def conversations(conn: DB, user: ChatUser):
 @api.get("/contacts")
 def contacts(conn: DB, user: ChatUser):
     return conn.execute(
-        """SELECT id, name, role, club_roles AS roles FROM members WHERE active AND password_hash IS NOT NULL
+        """SELECT id, name, role, avatar_version, club_roles AS roles FROM members WHERE active AND password_hash IS NOT NULL
         AND role IN ('member', 'coach') AND id<>%s ORDER BY name, id""", (user["id"],),
     ).fetchall()
 
@@ -1690,6 +1735,87 @@ def update_group(group_id: int, data: ChatGroup, conn: DB, user: ChatUser):
     return {"ok": True}
 
 
+def enrich_messages(conn, user, rows):
+    if not rows:
+        return rows
+    by_id = {row["id"]: row for row in rows}
+    for row in rows:
+        row["reactions"] = []
+        row["poll_results"] = []
+    reactions = conn.execute(
+        """SELECT message_id, emoji, count(*) AS count, bool_or(member_id=%s) AS mine
+        FROM message_reactions WHERE message_id=ANY(%s) GROUP BY message_id,emoji ORDER BY emoji""",
+        (user["id"], list(by_id)),
+    ).fetchall()
+    votes = conn.execute(
+        """SELECT message_id, choice, count(*) AS count, bool_or(member_id=%s) AS mine
+        FROM message_poll_votes WHERE message_id=ANY(%s) GROUP BY message_id,choice ORDER BY choice""",
+        (user["id"], list(by_id)),
+    ).fetchall()
+    for reaction in reactions:
+        by_id[reaction.pop("message_id")]["reactions"].append(reaction)
+    for vote in votes:
+        by_id[vote.pop("message_id")]["poll_results"].append(vote)
+    return rows
+
+
+def interactive_message(conn, message_id, user):
+    row = conn.execute(
+        """SELECT p.id,p.sender_id,p.recipient_id,p.group_id,p.poll_options
+        FROM messages p JOIN members s ON s.id=p.sender_id
+        LEFT JOIN members r ON r.id=p.recipient_id
+        WHERE p.id=%s AND s.role IN ('member','coach')
+        AND (p.group_id IS NOT NULL OR (r.role IN ('member','coach') AND %s IN (p.sender_id,p.recipient_id)))
+        FOR KEY SHARE OF p""",
+        (message_id, user["id"]),
+    ).fetchone()
+    if not row:
+        raise HTTPException(404, "Správa sa nenašla.")
+    if row["group_id"] is not None:
+        accessible_group(conn, row["group_id"], user)
+    return row
+
+
+class MessageReaction(BaseModel):
+    emoji: Literal["👍", "❤️", "😂", "😮", "😢", "🎉"]
+    active: bool
+
+
+class PollVote(BaseModel):
+    choice: Annotated[int, Field(ge=0)] | None
+
+
+@api.put("/messages/{message_id}/reaction")
+def update_reaction(message_id: int, data: MessageReaction, conn: DB, user: ChatUser):
+    row = interactive_message(conn, message_id, user)
+    values = (message_id, user["id"], data.emoji)
+    if data.active:
+        conn.execute(
+            "INSERT INTO message_reactions (message_id,member_id,emoji) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+            values,
+        )
+    else:
+        conn.execute("DELETE FROM message_reactions WHERE message_id=%s AND member_id=%s AND emoji=%s", values)
+    return enrich_messages(conn, user, [row])[0]
+
+
+@api.put("/messages/{message_id}/vote")
+def vote_in_poll(message_id: int, data: PollVote, conn: DB, user: ChatUser):
+    row = interactive_message(conn, message_id, user)
+    if row["poll_options"] is None or (data.choice is not None and data.choice >= len(row["poll_options"])):
+        raise HTTPException(422, "Vyber platnú možnosť ankety.")
+    if data.choice is None:
+        conn.execute("DELETE FROM message_poll_votes WHERE message_id=%s AND member_id=%s",
+                     (message_id, user["id"]))
+    else:
+        conn.execute(
+            """INSERT INTO message_poll_votes (message_id,member_id,choice) VALUES (%s,%s,%s)
+            ON CONFLICT (message_id,member_id) DO UPDATE SET choice=excluded.choice""",
+            (message_id, user["id"], data.choice),
+        )
+    return enrich_messages(conn, user, [row])[0]
+
+
 @api.get("/messages")
 def messages(conn: DB, user: ChatUser, before: int | None = None,
              contact_id: int | None = None, group_id: int | None = None):
@@ -1697,14 +1823,15 @@ def messages(conn: DB, user: ChatUser, before: int | None = None,
         if contact_id is not None:
             raise HTTPException(422, "Vyber jednu konverzáciu.")
         accessible_group(conn, group_id, user)
-        return conn.execute(
-            """SELECT p.*, s.name AS sender, s.club_roles AS sender_roles
+        rows = conn.execute(
+            """SELECT p.*, s.name AS sender, s.avatar_version AS sender_avatar_version, s.club_roles AS sender_roles
             FROM messages p JOIN members s ON s.id=p.sender_id
             WHERE p.group_id=%s AND p.id<%s AND s.role IN ('member','coach') ORDER BY p.id DESC LIMIT 200""",
             (group_id, before or 9223372036854775807),
         ).fetchall()
-    return conn.execute(
-        """SELECT p.*, s.name AS sender, r.name AS recipient FROM messages p
+        return enrich_messages(conn, user, rows)
+    rows = conn.execute(
+        """SELECT p.*, s.name AS sender, s.avatar_version AS sender_avatar_version, r.name AS recipient FROM messages p
         JOIN members s ON s.id=p.sender_id JOIN members r ON r.id=p.recipient_id
         WHERE p.group_id IS NULL AND (sender_id=%s OR recipient_id=%s) AND p.id < %s
         AND s.role IN ('member', 'coach') AND r.role IN ('member', 'coach')
@@ -1712,15 +1839,17 @@ def messages(conn: DB, user: ChatUser, before: int | None = None,
         ORDER BY p.id DESC LIMIT 200""",
         (user["id"], user["id"], before or 9223372036854775807, contact_id, contact_id, contact_id),
     ).fetchall()
+    return enrich_messages(conn, user, rows)
 
 
 @api.post("/messages")
 def send_message(data: Message, conn: DB, user: ChatUser):
+    options = Jsonb(data.poll_options) if data.poll_options is not None else None
     if data.group_id is not None:
         accessible_group(conn, data.group_id, user, lock=True)
         message = conn.execute(
-            "INSERT INTO messages (sender_id, group_id, body) VALUES (%s,%s,%s) RETURNING id",
-            (user["id"], data.group_id, data.body),
+            "INSERT INTO messages (sender_id, group_id, body, poll_options) VALUES (%s,%s,%s,%s) RETURNING id",
+            (user["id"], data.group_id, data.body, options),
         ).fetchone()
     else:
         target = conn.execute(
@@ -1731,8 +1860,8 @@ def send_message(data: Message, conn: DB, user: ChatUser):
         if not target:
             raise HTTPException(404, "Adresát sa nenašiel.")
         message = conn.execute(
-            "INSERT INTO messages (sender_id, recipient_id, body) VALUES (%s,%s,%s) RETURNING id",
-            (user["id"], target["id"], data.body),
+            "INSERT INTO messages (sender_id, recipient_id, body, poll_options) VALUES (%s,%s,%s,%s) RETURNING id",
+            (user["id"], target["id"], data.body, options),
         ).fetchone()
     if data.group_id is not None:
         group=accessible_group(conn,data.group_id,user)

@@ -130,8 +130,16 @@ const today = () => dayKey(new Date());
 const clock = timestamp => new Date(timestamp).toLocaleTimeString(uiLocale(), {hour: "2-digit", minute: "2-digit", timeZone});
 const upcoming = training => !training.cancelled && !past(training);
 
-function Avatar({name}) {
-  return <span className="avatar" aria-hidden="true">{initials(name)}</span>;
+function avatarUrl(id, version) {
+  return new URL("api/avatars/" + id + "?v=" + version, base).href;
+}
+
+function Avatar({name, id, version}) {
+  const url = id && version ? avatarUrl(id, version) : "";
+  const [failed, setFailed] = useState("");
+  return <span className="avatar" aria-hidden="true">
+    {url && failed !== url ? <img key={url} src={url} alt="" loading="lazy" onError={() => setFailed(url)} /> : initials(name)}
+  </span>;
 }
 
 function Empty({icon: Icon = CalendarDays, children}) {
@@ -365,7 +373,7 @@ function TrainingDetail({training, staff, places, close, refresh, openScanner}) 
           {tab === "attendance" && past(training) && !training.cancelled &&
             <input type="checkbox" aria-label={"Vybrať " + row.name} checked={selected.includes(row.id)}
               onChange={event => setSelected(event.target.checked ? [...selected, row.id] : selected.filter(id => id !== row.id))} />}
-          <Avatar name={row.name} /><div className="grow"><strong>{row.name}</strong><span className="meta">{clubRoleLabel(row.roles)}</span>
+          <Avatar name={row.name} id={row.id} version={row.avatar_version} /><div className="grow"><strong>{row.name}</strong><span className="meta">{clubRoleLabel(row.roles)}</span>
             {tab === "rsvp"
               ? <span className="badge rsvp-response">{participantResponses[row.response] || "Bez odpovede"}</span>
               : <span className="meta">{labels[row.response] || "Bez odpovede"}</span>}
@@ -474,7 +482,7 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
       <div className="chips">{[["active","Aktívni"],["coaches","Tréneri"],["invited","Pozvaní"],["inactive","Neaktívni"],["all","Všetci"]].map(([value,text])=><button key={value} className={filter===value?"selected":""} onClick={()=>setFilter(value)}>{text}</button>)}</div>
       {error&&<p className="error" role="alert">{error}</p>}
       <div className="card flush"><ul className="people-list">{found.map(member=><li key={member.id}><button className="person-link" onClick={()=>{setSelected(member);setLink("");}}>
-        <Avatar name={member.name}/><span className="grow"><strong>{member.name}</strong><span className="meta">{[clubRoleLabel(member.roles), member.email].filter(Boolean).join(" · ")}</span>
+        <Avatar name={member.name} id={member.id} version={member.avatar_version}/><span className="grow"><strong>{member.name}</strong><span className="meta">{[clubRoleLabel(member.roles), member.email].filter(Boolean).join(" · ")}</span>
         <span className="meta">{member.recorded_count>0?"Dochádzka "+member.attended_count+"/"+member.recorded_count:"Dochádzka zatiaľ bez záznamu"}</span></span>
         <span className={"badge "+(member.active?"positive":"")}>{status(member)}</span><ChevronRight size={18}/></button></li>)}
       </ul>{found.length===0&&<Empty icon={Users}>Žiadne zodpovedajúce účty.</Empty>}</div>
@@ -484,7 +492,7 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
       }}><label>Meno<input name="name" maxLength="120" autoComplete="name" defaultValue={inviteTarget?.name||""} required/></label><label>E-mail<input name="email" type="email" maxLength="254" autoComplete="email" defaultValue={inviteTarget?.email||""} required/></label>
         {canAssignInviteRoles&&<fieldset className="role-checkboxes"><legend>Roly pri pozvánke</legend>{inviteRoleOptions.map(item=><label className="checkbox" key={item.key}><input type="checkbox" checked={inviteRoles.includes(item.key)} onChange={()=>toggle(setInviteRoles,inviteRoles,item.key)}/>{item.name}{!item.available&&<span className="badge">Funkcia zatiaľ nedostupná</span>}</label>)}</fieldset>}
       </Form>}</Modal>}
-      {selected&&<Modal title={selected.name} close={()=>setSelected(null)}><div className="profile-heading"><Avatar name={selected.name}/><div><span className="badge">{clubRoleLabel(selected.roles)}</span><p>{selected.email}</p></div></div>
+      {selected&&<Modal title={selected.name} close={()=>setSelected(null)}><div className="profile-heading"><Avatar name={selected.name} id={selected.id} version={selected.avatar_version}/><div><span className="badge">{clubRoleLabel(selected.roles)}</span><p>{selected.email}</p></div></div>
         {staff&&(selected.roles||[]).includes("player")&&selected.active&&<button className="section-space" onClick={()=>onCard(selected)}><QrCode size={17}/>Členský QR kód</button>}
         <div className="actions">{!superadmin&&selected.id!==userId&&selected.active&&selected.registered&&<button className="primary" onClick={()=>{onMessage(selected.id);setSelected(null);}}><MessageCircle size={17}/>Napísať správu</button>}
           {staff&&<>
@@ -715,9 +723,68 @@ function GroupEditor({contacts, group, user, close, done}) {
           <label className="recipient-check" key={person.id}>
             <input type="checkbox" checked={selected.includes(person.id)} onChange={event =>
               setSelected(event.target.checked ? [...selected, person.id] : selected.filter(id => id !== person.id))} />
-            <Avatar name={person.name} /><span className="grow"><strong>{person.name}</strong><span className="meta">{clubRoleLabel(person.roles)}</span></span>
+            <Avatar name={person.name} id={person.id} version={person.avatar_version} /><span className="grow"><strong>{person.name}</strong><span className="meta">{clubRoleLabel(person.roles)}</span></span>
           </label>)}
       </div>
+    </Form>
+  </Modal>;
+}
+
+const reactionEmoji = ["👍", "❤️", "😂", "😮", "😢", "🎉"];
+
+function MessageInteractions({item, change}) {
+  const [picker, setPicker] = useState(false);
+  const reactions = item.reactions || [];
+  const vote = item.poll_results?.find(result => result.mine)?.choice;
+  const total = item.poll_results?.reduce((sum, result) => sum + result.count, 0) || 0;
+  async function react(emoji) {
+    await change(item.id, "reaction", {emoji, active: !reactions.some(row => row.emoji === emoji && row.mine)});
+    setPicker(false);
+  }
+  return <>
+    {item.poll_options && <div className="message-poll">
+      <strong>Anketa</strong>
+      <p>{item.body}</p>
+      {item.poll_options.map((option, choice) => {
+        const count = item.poll_results?.find(result => result.choice === choice)?.count || 0;
+        return <Action key={choice} className="poll-option" pressed={vote === choice}
+          run={() => change(item.id, "vote", {choice: vote === choice ? null : choice})}>
+          <span>{option}</span><span>{total ? Math.round(count / total * 100) : 0}%</span>
+        </Action>;
+      })}
+      <small className="poll-total"><span>Počet hlasov</span> · {total}</small>
+    </div>}
+    <div className="message-reactions">
+      {(reactions.some(row => row.emoji === "👍") ? reactions : [{emoji:"👍", count:0, mine:false}, ...reactions]).map(({emoji, count, mine}) =>
+        <Action key={emoji} className="reaction-button" pressed={mine} run={() => react(emoji)}>
+          <span className="sr-only">Reakcia</span>{emoji}{count > 0 && <span>{count}</span>}
+        </Action>)}
+      <button type="button" className="reaction-button" aria-expanded={picker} aria-label="Ďalšie reakcie" onClick={() => setPicker(!picker)}><Plus size={14} /></button>
+      {picker && <div className="reaction-picker">
+        {reactionEmoji.map(emoji => <Action key={emoji} className="reaction-button" run={() => react(emoji)}>{emoji}</Action>)}
+      </div>}
+    </div>
+  </>;
+}
+
+function PollComposer({close, send}) {
+  const [options, setOptions] = useState(["", ""]);
+  return <Modal title="Nová anketa" close={close}>
+    <Form label="Odoslať anketu" submit={async ({question}) => {
+      const choices = options.map(option => option.trim());
+      if (choices.some(option => !option) || new Set(choices.map(option => option.toLowerCase())).size !== choices.length) {
+        throw new Error(localizeText("Anketa potrebuje rôzne vyplnené možnosti.", activeLanguage));
+      }
+      await send({body: question, poll_options: choices});
+      close();
+    }}>
+      <label>Otázka<input name="question" required maxLength={4000} /></label>
+      {options.map((option, index) => <div className="poll-editor-option" key={index}>
+        <label><span>Možnosť</span> {index + 1}<input value={option} required maxLength={120}
+          onChange={event => setOptions(options.map((value, i) => i === index ? event.target.value : value))} /></label>
+        {options.length > 2 && <button type="button" className="icon-button" aria-label="Odstrániť možnosť" onClick={() => setOptions(options.filter((_, i) => i !== index))}><X size={16} /></button>}
+      </div>)}
+      <button type="button" onClick={() => setOptions([...options, ""])}><Plus size={16} />Pridať možnosť</button>
     </Form>
   </Modal>;
 }
@@ -728,6 +795,7 @@ function Messages({user, conversations, refresh, initialContact}) {
   const [messages, setMessages] = useState([]);
   const [more, setMore] = useState(false);
   const [query, setQuery] = useState("");
+  const [pollOpen, setPollOpen] = useState(false);
   const [newMessage, setNewMessage] = useState(false);
   const [groupEditor, setGroupEditor] = useState(null);
   const [groupInfo, setGroupInfo] = useState(null);
@@ -768,7 +836,7 @@ function Messages({user, conversations, refresh, initialContact}) {
     if (selection.type + ":" + selection.id !== selectedKey) {
       setMessages([]); setMore(false); setError("");
     }
-    setSelected(selection); setNewMessage(false); setGroupInfo(null);
+    setSelected(selection); setNewMessage(false); setGroupInfo(null); setPollOpen(false);
   }
   useEffect(() => {
     let current = true;
@@ -785,6 +853,43 @@ function Messages({user, conversations, refresh, initialContact}) {
     }
     return () => {current = false;};
   }, [selectedKey, latest, user.id]);
+  useEffect(() => {
+    if (!selected) return;
+    let current = true;
+    const timer = setInterval(async () => {
+      if (document.hidden) return;
+      try {
+        const rows = await api(messagePath(selected));
+        if (!current) return;
+        const fresh = new Map(rows.map(row => [row.id, row]));
+        setMessages(previous => previous.map(row => fresh.get(row.id) || row));
+      } catch (error) {
+        if (current) setError(error.message);
+      }
+    }, 15000);
+    return () => {current = false; clearInterval(timer);};
+  }, [selectedKey]);
+
+  async function changeInteraction(id, kind, data) {
+    const key = selectedKey;
+    const result = await api("messages/" + id + "/" + kind, "PUT", data);
+    if (activeKey.current === key) {
+      setMessages(rows => rows.map(row => row.id === id ? {...row, ...result} : row));
+    }
+  }
+  async function send(data) {
+    const key = selectedKey;
+    const destination = selected.type === "group" ? {group_id: selected.id} : {recipient_id: selected.id};
+    await api("messages", "POST", {...destination, ...data});
+    const rows = await api(messagePath(selected));
+    if (activeKey.current === key) {
+      scrollPending.current = true;
+      setMessages(rows);
+      setMore(rows.length === 200);
+      await markRead(selected, rows);
+    }
+    await refresh();
+  }
   useEffect(() => {
     if (scroller.current && scrollPending.current) {
       scroller.current.scrollTop = scroller.current.scrollHeight;
@@ -803,7 +908,7 @@ function Messages({user, conversations, refresh, initialContact}) {
         const key = conversationKey(row);
         return <button className={"conversation-row " + (selectedKey === key ? "active" : "")} key={key}
           onClick={() => openConversation({type: group ? "group" : "private", id: group ? row.group_id : row.contact_id})}>
-          {group ? <span className="avatar group-avatar"><Users size={21} /></span> : <Avatar name={row.name} />}
+          {group ? <span className="avatar group-avatar"><Users size={21} /></span> : <Avatar name={row.name} id={row.contact_id ?? row.id} version={row.avatar_version} />}
           <span className="grow"><strong>{row.name}</strong>{!group && <span className="meta">{clubRoleLabel(row.roles)}</span>}<span className="preview">{row.body ? (group && row.sender ? row.sender + ": " : "") + row.body :
             row.system_key === "coaches" ? "Skupina trénerov" : group ? "Skupinová konverzácia" : "Začať konverzáciu"}</span></span>
           <span className="conversation-meta">{row.created_at && <small>{clock(row.created_at)}</small>}{row.unread > 0 && <span className="counter">{row.unread}</span>}</span>
@@ -815,7 +920,7 @@ function Messages({user, conversations, refresh, initialContact}) {
       {selected ? <>
         <div className="chat-head">
           <button className="icon-button chat-back" aria-label="Späť na konverzácie" onClick={() => setSelected(null)}><ChevronLeft /></button>
-          {selected.type === "group" ? <span className="avatar group-avatar"><Users size={19} /></span> : <Avatar name={activeConversation?.name || person?.name || "Kontakt"} />}
+          {selected.type === "group" ? <span className="avatar group-avatar"><Users size={19} /></span> : <Avatar name={activeConversation?.name || person?.name || "Kontakt"} id={selected.id} version={person ? person.avatar_version : activeConversation?.avatar_version} />}
           <span className="grow"><strong>{activeConversation?.name || person?.name || "Konverzácia"}</strong>
             {selected.type === "private" && <span className="meta">{clubRoleLabel(activeConversation?.roles || person?.roles)}</span>}
           </span>
@@ -831,18 +936,22 @@ function Messages({user, conversations, refresh, initialContact}) {
             if (activeKey.current === key) {setMessages([...messages, ...page]); setMore(page.length === 200);}
           }}>Staršie správy</Action>}
           {messages.length ? [...messages].reverse().map(item => <div className={"message " + (item.sender_id === user.id ? "outgoing" : "")} key={item.id}>
-            {selected.type === "group" && item.sender_id !== user.id && <strong className="message-author">{[item.sender, clubRoleLabel(item.sender_roles)].filter(Boolean).join(" · ")}</strong>}
-            <p>{item.body}</p><span>{date(item.created_at)}{selected.type === "private" && item.sender_id === user.id && item.read_at && <CheckCheck size={13} />}</span>
+            {selected.type === "group" && item.sender_id !== user.id && <div className="message-author">
+              <Avatar name={item.sender} id={item.sender_id} version={item.sender_avatar_version} />
+              <strong>{[item.sender, clubRoleLabel(item.sender_roles)].filter(Boolean).join(" · ")}</strong>
+            </div>}
+            {!item.poll_options && <p>{item.body}</p>}
+            <MessageInteractions item={item} change={changeInteraction} />
+            <span>{date(item.created_at)}{selected.type === "private" && item.sender_id === user.id && item.read_at && <CheckCheck size={13} />}</span>
           </div>) : <p className="muted small">Tu sa začína vaša konverzácia.</p>}
         </div>
-        {canSend ? <div className="composer"><Form key={selectedKey} label={<><Send size={18} /><span className="sr-only">Odoslať správu</span></>} reset submit={async data => {
-          const key = selectedKey;
-          const destination = selected.type === "group" ? {group_id: selected.id} : {recipient_id: selected.id};
-          await api("messages", "POST", {...destination, body: data.body});
-          const rows = await api(messagePath(selected));
-          if (activeKey.current === key) {scrollPending.current = true; setMessages(rows); await markRead(selected, rows);}
-          await refresh();
-        }}><label className="sr-only" htmlFor="message-body">Správa</label><textarea id="message-body" name="body" rows="1" maxLength="4000" placeholder="Napíš správu…" required /></Form></div> :
+        {canSend ? <div className="composer with-poll">
+          <button type="button" className="icon-button" aria-label="Vytvoriť anketu" title="Vytvoriť anketu" onClick={() => setPollOpen(true)}><ClipboardCheck size={20} /></button>
+          <Form key={selectedKey} label={<><Send size={18} /><span className="sr-only">Odoslať správu</span></>} reset submit={data => send({body: data.body})}>
+            <label className="sr-only" htmlFor="message-body">Správa</label><textarea id="message-body" name="body" rows="1" maxLength="4000" placeholder="Napíš správu…" required />
+          </Form>
+          {pollOpen && <PollComposer close={() => setPollOpen(false)} send={send} />}
+        </div> :
           <p className="notice">Do tejto konverzácie už nemožno posielať správy.</p>}
       </> : <Empty icon={MessageCircle}>Vyber konverzáciu alebo vytvor novú správu.</Empty>}
     </section>
@@ -850,13 +959,13 @@ function Messages({user, conversations, refresh, initialContact}) {
       <label className="search"><Search size={18} /><input type="search" aria-label="Hľadať adresáta" value={recipientQuery} placeholder="Hľadať člena alebo trénera…" onChange={event => setRecipientQuery(event.target.value)} /></label>
       {user.role === "coach" && <button className="button section-space" onClick={() => {setNewMessage(false); setGroupEditor({});}}><Users size={18} />Vytvoriť skupinu</button>}
       <ul className="people-list recipient-list">{contacts.filter(person => person.name.toLowerCase().includes(recipientQuery.toLowerCase())).map(person =>
-        <li key={person.id}><button className="person-link" onClick={() => openConversation({type: "private", id: person.id})}><Avatar name={person.name} /><span className="grow"><strong>{person.name}</strong><span className="meta">{clubRoleLabel(person.roles)}</span></span><ChevronRight size={18} /></button></li>)}</ul>
+        <li key={person.id}><button className="person-link" onClick={() => openConversation({type: "private", id: person.id})}><Avatar name={person.name} id={person.id} version={person.avatar_version} /><span className="grow"><strong>{person.name}</strong><span className="meta">{clubRoleLabel(person.roles)}</span></span><ChevronRight size={18} /></button></li>)}</ul>
       {contacts.length === 0 && <p className="muted section-space">Zatiaľ žiadne dostupné kontakty.</p>}
     </Modal>}
     {groupInfo && <Modal title={groupInfo.name} close={() => setGroupInfo(null)}>
       <p className="muted">{groupInfo.members.length} účastníkov</p>
       {groupInfo.system_key && <p className="small">Účastníci tejto skupiny sa určujú automaticky podľa rolí v klube.</p>}
-      <ul className="people-list">{groupInfo.members.map(person => <li key={person.id}><Avatar name={person.name} /><span className="grow"><strong>{person.name}</strong><span className="meta">{clubRoleLabel(person.roles)}</span></span></li>)}</ul>
+      <ul className="people-list">{groupInfo.members.map(person => <li key={person.id}><Avatar name={person.name} id={person.id} version={person.avatar_version} /><span className="grow"><strong>{person.name}</strong><span className="meta">{clubRoleLabel(person.roles)}</span></span></li>)}</ul>
       {groupInfo.can_manage && <button className="primary section-space" onClick={() => {setGroupEditor(groupInfo); setGroupInfo(null);}}><Pencil size={17} />Upraviť názov a účastníkov</button>}
     </Modal>}
     {groupEditor && <GroupEditor group={groupEditor.id ? groupEditor : null} contacts={contacts} user={user} close={() => setGroupEditor(null)}
@@ -1070,7 +1179,7 @@ function PlayerDevelopmentPage() {
     <div className="toolbar"><label className="search"><Search size={18} /><input aria-label="Hľadať hráča" placeholder="Hľadať hráča…" value={query} onChange={e => setQuery(e.target.value)} /></label></div>
     {error && <p className="error" role="alert">{error}</p>}
     <div className="card flush"><ul className="people-list">{members.filter(m => m.name.toLowerCase().includes(query.toLowerCase())).map(member => <li key={member.id}>
-      <button className="person-link" onClick={() => open(member)}><Avatar name={member.name} /><span className="grow"><strong>{member.name}</strong><span className="meta">{clubRoleLabel(member.roles)}</span>{!member.active && <span className="meta">Neaktívny</span>}</span><ChevronRight size={18} /></button>
+      <button className="person-link" onClick={() => open(member)}><Avatar name={member.name} id={member.id} version={member.avatar_version} /><span className="grow"><strong>{member.name}</strong><span className="meta">{clubRoleLabel(member.roles)}</span>{!member.active && <span className="meta">Neaktívny</span>}</span><ChevronRight size={18} /></button>
     </li>)}</ul></div>
     {selected && <Modal title={selected.name} close={() => {setSelected(null); setDevelopment(null);}}>
       {!development ? <p className="muted">Načítava sa…</p> : <>
@@ -1136,10 +1245,11 @@ function DroneArena({players, roster}) {
       <text x="275" y="300" className="arena-goal-label">BRÁNA A</text><text x="725" y="300" className="arena-goal-label">BRÁNA B</text>
       {plotted.map(({player,person,x,y})=><g className={"arena-player team-"+player.team} key={player.member_id}>
         <circle cx={x} cy={y} r="20"/><text x={x} y={y+5}>{initials(person?.name||"?")}</text>
+        {person?.avatar_version && <image className="arena-avatar" x={x-18} y={y-18} width="36" height="36" href={avatarUrl(person.id, person.avatar_version)} />}
       </g>)}
       {[...subsA.slice(0,3).map((p,i)=>({p,x:64,y:128+i*52})),...subsB.slice(0,3).map((p,i)=>({p,x:936,y:128+i*52}))].map(({p,x,y})=>{
         const person=roster.find(row=>row.id===p.member_id);
-        return <g className={"arena-player team-"+p.team+" arena-substitute"} key={p.member_id}><circle cx={x} cy={y} r="17"/><text x={x} y={y+5}>{initials(person?.name||"?")}</text></g>;
+        return <g className={"arena-player team-"+p.team+" arena-substitute"} key={p.member_id}><circle cx={x} cy={y} r="17"/><text x={x} y={y+5}>{initials(person?.name||"?")}</text>{person?.avatar_version && <image className="arena-avatar" x={x-15} y={y-15} width="30" height="30" href={avatarUrl(person.id, person.avatar_version)} />}</g>;
       })}
       {subsA.length>3&&<text x="64" y="310" className="arena-extra">+{subsA.length-3}</text>}{subsB.length>3&&<text x="936" y="310" className="arena-extra">+{subsB.length-3}</text>}
     </svg>
@@ -1191,7 +1301,7 @@ function LineupDisplay({players,roster,editable=false,onChange}) {
       </div>
       <div className="lineup-field-stack"><DroneArena players={players} roster={roster}/>
         <section className="card unassigned-card"><h3>Nezaradení hráči <span className="badge">{available.length}</span></h3>
-          {available.length?<ul className="unassigned-list">{available.map(member=><li key={member.id}><Avatar name={member.name}/><span>{member.name}</span></li>)}</ul>:<p className="muted small">Všetci členovia sú zaradení alebo sú náhradníkmi.</p>}
+          {available.length?<ul className="unassigned-list">{available.map(member=><li key={member.id}><Avatar name={member.name} id={member.id} version={member.avatar_version}/><span>{member.name}</span></li>)}</ul>:<p className="muted small">Všetci členovia sú zaradení alebo sú náhradníkmi.</p>}
         </section>
       </div>
     </div>
@@ -1201,7 +1311,7 @@ function LineupDisplay({players,roster,editable=false,onChange}) {
         const current=players.find(player=>player.member_id===member.id);
         const status=current?(current.substitute?"Náhradník · tím "+current.team:"Tím "+current.team+" · "+slotLabels[current.slot-1]):"Nezaradený";
         return <li key={member.id}><button className="person-link" onClick={()=>assigning.substitute?setSub(assigning.team,member):setSlot(assigning.team,assigning.slot,member)}>
-          <Avatar name={member.name}/><span className="grow"><strong>{member.name}</strong><span className="meta">{clubRoleLabel(member.roles)}</span><span className="meta">{status}</span></span><ChevronRight size={18}/></button></li>;
+          <Avatar name={member.name} id={member.id} version={member.avatar_version}/><span className="grow"><strong>{member.name}</strong><span className="meta">{clubRoleLabel(member.roles)}</span><span className="meta">{status}</span></span><ChevronRight size={18}/></button></li>;
       })}</ul>
     </Modal>}
   </>;
@@ -1548,9 +1658,17 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
   const attended = attendance.filter(row => row.attended).length;
   return <>
     {(user.roles||[]).includes("player") && <button className="card qr-profile-button" onClick={openCard}><QrCode size={25} /><span>Môj členský QR kód</span><ChevronRight /></button>}
-    <section className="card profile-card"><Avatar name={user.name} /><h2>{user.name}</h2><p className="muted">{user.email || "admin"}</p><span className="badge">{user.role === "superadmin" ? "Administrátor" : clubRoleLabel(user.roles)}</span>
+    <section className="card profile-card"><Avatar name={user.name} id={user.id} version={user.avatar_version} /><h2>{user.name}</h2><p className="muted">{user.email || "admin"}</p><span className="badge">{user.role === "superadmin" ? "Administrátor" : clubRoleLabel(user.roles)}</span>
       <div className="actions section-space"><button onClick={() => setEdit("profile")}><Pencil size={16} />Upraviť profil</button>
         {user.role !== "superadmin" && <button onClick={() => setEdit("password")}>Zmeniť heslo</button>}</div>
+      <div className="actions profile-photo-actions">
+        <button type="button" onClick={() => setEdit("avatar")}>{user.avatar_version ? "Zmeniť profilovú fotku" : "Nahrať profilovú fotku"}</button>
+        {user.avatar_version && <Action className="text-button danger" run={async () => {
+          await api("me/avatar", "DELETE");
+          await reloadUser();
+          setSaved("Profilová fotka bola odstránená.");
+        }}>Odstrániť fotku</Action>}
+      </div>
     </section>
     {saved && <p className="success" role="status">{saved}</p>}
     {error && <p className="error" role="alert">{error}</p>}
@@ -1579,7 +1697,20 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
       </Form>
     </section>
     <InstallPanel installation={installation} install={install} />
-    {edit && <Modal title={edit === "profile" ? "Upraviť profil" : "Zmeniť heslo"} close={() => setEdit(null)}>
+    {edit === "avatar" && <Modal title="Profilová fotka" close={() => setEdit(null)}>
+      <Form label="Nahrať fotku" submit={async ({photo}) => {
+        if (photo.size > 5 * 1024 * 1024) throw new Error(localizeText("Fotka môže mať najviac 5 MB.", activeLanguage));
+        const response = await fetch(new URL("api/me/avatar", base), {method:"PUT", body:photo});
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(localizeText(payload.detail || "Fotku sa nepodarilo nahrať.", activeLanguage));
+        }
+        await reloadUser();
+        setSaved("Profilová fotka bola uložená.");
+        setEdit(null);
+      }}><label>Vybrať fotku<input name="photo" type="file" accept="image/jpeg,image/png,image/webp" required /></label></Form>
+    </Modal>}
+    {edit && edit !== "avatar" && <Modal title={edit === "profile" ? "Upraviť profil" : "Zmeniť heslo"} close={() => setEdit(null)}>
       <Form label="Uložiť" submit={async data => {
         await api(edit === "profile" ? "me" : "me/password", "PUT", data);
         if (edit === "profile") await reloadUser();
@@ -1745,7 +1876,7 @@ function App() {
     try {
       const refreshed=await api("me");
       if(session.current!==owner)return;
-      if(JSON.stringify([owner.role,owner.roles,owner.menu_access])!==JSON.stringify([refreshed.role,refreshed.roles,refreshed.menu_access])){
+      if(JSON.stringify([owner.role,owner.roles,owner.menu_access,owner.avatar_version])!==JSON.stringify([refreshed.role,refreshed.roles,refreshed.menu_access,refreshed.avatar_version])){
         owner=refreshed;session.current=refreshed;setUser(refreshed);
       }
       const access=new Set(owner.menu_access||[]);
@@ -1820,7 +1951,7 @@ function App() {
   const menuContent = <><nav aria-label="Hlavná navigácia">{visibleNavigation.map(([key, label, Icon]) =>
     <button key={key} className={currentPage === key ? "active" : ""} aria-current={currentPage === key ? "page" : undefined} onClick={() => navigate(key)}>
       <Icon size={20} /><span>{label}</span>{key === "messages" && unread > 0 && <span className="counter">{unread}</span>}{key==="members"&&roleRequestCount>0&&<span className="counter" aria-label={roleRequestCount+" čakajúcich žiadostí o roly"}>{roleRequestCount}</span>}
-    </button>)}</nav><div className="menu-footer"><button className="person-link" aria-label="Môj profil" onClick={() => navigate("profile")}><Avatar name={user?.name || "Používateľ"} /><span className="grow"><strong>{user?.name}</strong><span className="meta">Profil a nastavenia</span></span><Settings2 size={18} /></button>
+    </button>)}</nav><div className="menu-footer"><button className="person-link" aria-label="Môj profil" onClick={() => navigate("profile")}><Avatar name={user?.name || "Používateľ"} id={user?.id} version={user?.avatar_version} /><span className="grow"><strong>{user?.name}</strong><span className="meta">Profil a nastavenia</span></span><Settings2 size={18} /></button>
       <Action className="logout-button" run={logout}><LogOut size={18} />Odhlásiť sa</Action></div></>;
   return <div className={user ? "app" : "signed-out"}>
     <header className="topbar">

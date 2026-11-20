@@ -586,3 +586,20 @@ details p {font-size: 13px; margin-top: 12px;}
   .lineup-picker { max-width:none; }
   .lineup-mode-switch > button { font-size:11px; padding:6px; }
 }
+
+.avatar img {width:100%;height:100%;border-radius:inherit;object-fit:cover;}
+.arena-avatar {clip-path:circle(50%);}
+.profile-photo-actions {justify-content:center;margin-top:10px;}
+.message-author {display:flex;align-items:center;gap:7px;}
+.message-author .avatar {width:26px;height:26px;font-size:9px;}
+.message-reactions {display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:5px;}
+.reaction-button {min-height:36px;padding:3px 8px;font-size:13px;gap:4px;}
+.reaction-picker {display:flex;flex-basis:100%;flex-wrap:wrap;gap:4px;}
+.message-poll {display:grid;gap:5px;min-width:min(200px,100%);}
+.message-poll > strong,.poll-total {font-size:11px;color:var(--muted);}
+.poll-option {width:100%;justify-content:space-between;text-align:left;padding:6px 9px;overflow-wrap:anywhere;}
+.poll-option span:last-child {flex-shrink:0;font-variant-numeric:tabular-nums;}
+.poll-editor-option {display:flex;align-items:end;gap:5px;}
+.poll-editor-option label {flex:1;}
+.composer.with-poll {display:flex;align-items:flex-start;gap:6px;}
+.composer.with-poll form {flex:1;min-width:0;}

@@ -357,3 +357,30 @@ Object.assign(ukrainianExtra, {
 });
 Object.assign(englishExtra, {"Karty":"Cards", "Časová os":"Timeline", "Zobrazenie batérií":"Battery view", "Odstrániť záznam":"Delete record", "Odstrániť tento záznam z histórie batérie?":"Delete this battery history record?"});
 Object.assign(ukrainianExtra, {"Karty":"Картки", "Časová os":"Часова шкала", "Zobrazenie batérií":"Вигляд акумуляторів", "Odstrániť záznam":"Видалити запис", "Odstrániť tento záznam z histórie batérie?":"Видалити цей запис з історії акумулятора?"});
+
+Object.assign(englishExtra, {
+  "Anketa": "Poll", "Nová anketa": "New poll", "Vytvoriť anketu": "Create poll", "Odoslať anketu": "Send poll",
+  "Otázka": "Question", "Možnosť": "Option", "Pridať možnosť": "Add option", "Odstrániť možnosť": "Remove option",
+  "Počet hlasov": "Total votes", "Reakcia": "Reaction", "Ďalšie reakcie": "More reactions",
+  "Anketa potrebuje rôzne vyplnené možnosti.": "Enter different options for the poll.",
+  "Vyber platnú možnosť ankety.": "Choose a valid poll option.", "Správa sa nenašla.": "Message not found.",
+  "Profilová fotka": "Profile photo", "Nahrať profilovú fotku": "Upload profile photo",
+  "Zmeniť profilovú fotku": "Change profile photo", "Odstrániť fotku": "Remove photo",
+  "Vybrať fotku": "Choose photo", "Nahrať fotku": "Upload photo", "Profilová fotka bola uložená.": "Profile photo saved.",
+  "Profilová fotka bola odstránená.": "Profile photo removed.", "Fotka môže mať najviac 5 MB.": "The photo must be 5 MB or smaller.",
+  "Vyber platnú fotku vo formáte JPG, PNG alebo WebP.": "Choose a valid JPG, PNG or WebP photo.",
+  "Fotku sa nepodarilo nahrať.": "Could not upload the photo."
+});
+Object.assign(ukrainianExtra, {
+  "Anketa": "Опитування", "Nová anketa": "Нове опитування", "Vytvoriť anketu": "Створити опитування", "Odoslať anketu": "Надіслати опитування",
+  "Otázka": "Запитання", "Možnosť": "Варіант", "Pridať možnosť": "Додати варіант", "Odstrániť možnosť": "Видалити варіант",
+  "Počet hlasov": "Усього голосів", "Reakcia": "Реакція", "Ďalšie reakcie": "Інші реакції",
+  "Anketa potrebuje rôzne vyplnené možnosti.": "Введіть різні варіанти відповідей.",
+  "Vyber platnú možnosť ankety.": "Виберіть дійсний варіант відповіді.", "Správa sa nenašla.": "Повідомлення не знайдено.",
+  "Profilová fotka": "Фото профілю", "Nahrať profilovú fotku": "Завантажити фото профілю",
+  "Zmeniť profilovú fotku": "Змінити фото профілю", "Odstrániť fotku": "Видалити фото",
+  "Vybrať fotku": "Вибрати фото", "Nahrať fotku": "Завантажити фото", "Profilová fotka bola uložená.": "Фото профілю збережено.",
+  "Profilová fotka bola odstránená.": "Фото профілю видалено.", "Fotka môže mať najviac 5 MB.": "Розмір фото має бути не більше 5 МБ.",
+  "Vyber platnú fotku vo formáte JPG, PNG alebo WebP.": "Виберіть дійсне фото у форматі JPG, PNG або WebP.",
+  "Fotku sa nepodarilo nahrať.": "Не вдалося завантажити фото."
+});
