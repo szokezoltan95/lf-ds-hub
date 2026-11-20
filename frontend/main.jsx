@@ -406,14 +406,16 @@ function Calendar({trainings, staff, places, refresh, openTraining}) {
   }
   const shown = view === "month" ? trainings.filter(t => dayKey(t.starts_at).startsWith(month) && (!selectedDay || dayKey(t.starts_at) === selectedDay)).sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)) : filtered;
   return <>
+    <div className="page-controls">
     <div className="toolbar">
       <div className="segmented"><button className={view === "list" ? "selected" : ""} onClick={() => setView("list")}>Zoznam</button>
         <button className={view === "month" ? "selected" : ""} onClick={() => setView("month")}>Mesiac</button></div>
       {staff && <button className="primary" onClick={() => setCreate(true)}><Plus size={18} />Naplánovať</button>}
     </div>
-    {view === "list" ? <div className="chips">{[["upcoming", "Nadchádzajúce"], ["past", "História"], ["all", "Všetky"]].map(([value, text]) =>
-      <button key={value} className={period === value ? "selected" : ""} onClick={() => setPeriod(value)}>{text}</button>)}</div> :
-      <section className="card calendar">
+    {view === "list" && <div className="chips">{[["upcoming", "Nadchádzajúce"], ["past", "História"], ["all", "Všetky"]].map(([value, text]) =>
+      <button key={value} className={period === value ? "selected" : ""} onClick={() => setPeriod(value)}>{text}</button>)}</div>}
+    </div>
+    {view === "month" && <section className="card calendar">
         <div className="month-heading"><button className="icon-button" aria-label="Predchádzajúci mesiac" onClick={() => moveMonth(-1)}><ChevronLeft /></button>
           <h2>{start.toLocaleDateString(uiLocale(), {month: "long", year: "numeric", timeZone: "UTC"})}</h2>
           <button className="icon-button" aria-label="Nasledujúci mesiac" onClick={() => moveMonth(1)}><ChevronRight /></button></div>
@@ -472,6 +474,7 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
   function toggle(setter,current,key){setter(current.includes(key)?current.filter(x=>x!==key):[...current,key]);}
   const navLabel={home:"Domov",calendar:"Kalendár",attendance:"Dochádzka",scanner:"Skenovať",messages:"Správy",announcements:"Oznamy",members:"Členovia",team:"Tímy",development:"Rozvoj hráčov",lineups:"Zostavy",drills:"Knižnica cvičení",equipment:"Vybavenie",documents:"Dokumenty"};
   return <>
+    <div className="page-controls">
     {superadmin&&<div className="tabs member-admin-tabs"><button className={section==="members"?"selected":""} onClick={()=>setSection("members")}>Členovia</button>
       <button className={section==="requests"?"selected":""} onClick={()=>setSection("requests")}>Žiadosti o roly {requests.length>0&&<span className="counter">{requests.length}</span>}</button>
       <button className={section==="roles"?"selected":""} onClick={()=>setSection("roles")}>Roly a prístupy</button></div>}
@@ -480,6 +483,9 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
       <div className="toolbar"><label className="search"><Search size={18}/><input type="search" aria-label="Hľadať člena" placeholder="Hľadať podľa mena…" value={query} onChange={e=>setQuery(e.target.value)}/></label>
         {canCreateInvites&&<button className="primary" onClick={()=>{setLink("");setInviteTarget(null);setInviteRoles(["player"]);setForm(true);}}><Plus size={18}/>Pozvať člena</button>}</div>
       <div className="chips">{[["active","Aktívni"],["coaches","Tréneri"],["invited","Pozvaní"],["inactive","Neaktívni"],["all","Všetci"]].map(([value,text])=><button key={value} className={filter===value?"selected":""} onClick={()=>setFilter(value)}>{text}</button>)}</div>
+    </>}
+    </div>
+    {section==="members"&&<>
       {error&&<p className="error" role="alert">{error}</p>}
       <div className="card flush"><ul className="people-list">{found.map(member=><li key={member.id}><button className="person-link" onClick={()=>{setSelected(member);setLink("");}}>
         <Avatar name={member.name} id={member.id} version={member.avatar_version}/><span className="grow"><strong>{member.name}</strong><span className="meta">{[clubRoleLabel(member.roles), member.email].filter(Boolean).join(" · ")}</span>
@@ -684,7 +690,7 @@ function Bulletin({items, staff, refresh}) {
     if(id) document.getElementById("notice-"+id)?.scrollIntoView?.({block:"center"});
   },[items]);
   return <>
-    {staff && <div className="toolbar end"><button className="primary" onClick={()=>setEditor({})}><Plus size={18} />Nový oznam</button></div>}
+    {staff && <div className="toolbar end page-controls"><button className="primary" onClick={()=>setEditor({})}><Plus size={18} />Nový oznam</button></div>}
     {items.length ? <div className="bulletin-list">{items.map(item=><article className="card" key={item.id} id={"notice-"+item.id}>
       <div className="row-between"><span className="meta">{date(item.created_at)}</span>{item.pinned && <span className="badge"><Pin size={13} />Pripnuté</span>}</div>
       <h2>{item.title}</h2><p className="body">{item.body}</p>
@@ -914,16 +920,21 @@ function Messages({user, conversations, refresh, initialContact}) {
   }
   useEffect(() => {
     if (scroller.current && scrollPending.current) {
-      scroller.current.scrollTop = scroller.current.scrollHeight;
+      const area = window.matchMedia("(min-width: 1100px)").matches
+        ? scroller.current.closest(".messages-page")
+        : scroller.current;
+      if (area) area.scrollTop = area.scrollHeight;
       scrollPending.current = false;
     }
   }, [messages]);
   return <div className={"chat card flush " + (selected ? "conversation-open" : "")}>
     <aside className="conversation-list">
+      <div className="chat-list-controls">
       <div className="chat-list-actions"><button className="primary" onClick={() => {setRecipientQuery(""); setNewMessage(true);}}><Plus size={17} />Nová správa</button>
         {user.role === "coach" && <button className="icon-button" aria-label="Nová skupina" onClick={() => setGroupEditor({})}><Users size={20} /></button>}
       </div>
       <label className="search"><Search size={18} /><input type="search" aria-label="Hľadať konverzáciu" placeholder="Hľadať konverzáciu…" value={query} onChange={event => setQuery(event.target.value)} /></label>
+      </div>
       {error && !selected && <p className="error chat-list-error" role="alert">{error}</p>}
       {rows.filter(row => row.name.toLowerCase().includes(query.toLowerCase())).map(row => {
         const group = row.type === "group";
@@ -941,7 +952,7 @@ function Messages({user, conversations, refresh, initialContact}) {
     <section className="conversation-pane">
       {selected ? <>
         <div className="chat-head">
-          <button className="icon-button chat-back" aria-label="Späť na konverzácie" onClick={() => {setSelected(null); setPollOpen(false);}}><ChevronLeft /></button>
+          <button className="icon-button chat-back" aria-label="Späť na konverzácie" onClick={() => {setSelected(null); setPollOpen(false); scroller.current?.closest(".messages-page")?.scrollTo({top: 0});}}><ChevronLeft /></button>
           {selected.type === "group" ? <span className="avatar group-avatar"><Users size={19} /></span> : <Avatar name={activeConversation?.name || person?.name || "Kontakt"} id={selected.id} version={person ? person.avatar_version : activeConversation?.avatar_version} />}
           <span className="grow"><strong>{activeConversation?.name || person?.name || "Konverzácia"}</strong>
             {selected.type === "private" && <span className="meta">{clubRoleLabel(activeConversation?.roles || person?.roles)}</span>}
@@ -1072,7 +1083,7 @@ function BatteryTimeline({items, revision, openBattery, canEdit, onDelete}) {
             <thead><tr><th scope="col">Batéria</th>{days.map(day =>
               <th key={day} scope="col"><time dateTime={day}>{dayFormat.format(new Date(day))}</time></th>)}</tr></thead>
             <tbody>{items.filter(item => byBattery.has(item.code)).map(item =>
-              <tr key={item.code}><th scope="row"><span className="battery-timeline-code">{item.code}</span><span className={"badge battery-state-badge state-"+(item.status||"unknown")}>{batteryStateLabels[item.status] || "Neznámy stav"}</span></th>{days.map(day => {
+              <tr key={item.code}><th scope="row"><div className="battery-timeline-identity"><span className="battery-timeline-code">{item.code}</span><span className={"badge battery-state-badge state-"+(item.status||"unknown")}>{batteryStateLabels[item.status] || "Neznámy stav"}</span></div></th>{days.map(day => {
                 const events = byBattery.get(item.code).get(day);
                 if (!events) return <td key={day}><span className="muted" aria-hidden="true">–</span><span className="sr-only">Bez záznamu</span></td>;
                 const actions = [...new Set(events.map(event => event.action))];
@@ -1136,7 +1147,7 @@ function Batteries({staff, initialCode, openScanner}) {
     await load();
   }
   return <>
-    <div className="battery-toolbar"><div className="battery-view-toggle" role="group" aria-label="Zobrazenie batérií">
+    <div className="battery-toolbar page-controls"><div className="battery-view-toggle" role="group" aria-label="Zobrazenie batérií">
       <button type="button" aria-pressed={view === "cards"} className={view === "cards" ? "selected" : ""} onClick={()=>setView("cards")}>Karty</button>
       <button type="button" aria-pressed={view === "timeline"} className={view === "timeline" ? "selected" : ""} onClick={()=>setView("timeline")}>Časová os</button>
     </div>{staff && <button className="primary" onClick={() => setCreate(true)}><Plus size={18} />Batéria</button>}</div>
@@ -1178,7 +1189,7 @@ function DrillLibrary() {
   async function load() {setItems(await api("drills"));}
   useEffect(() => {load().catch(e => setError(e.message));}, []);
   return <>
-    <div className="toolbar"><label className="search"><Search size={18} /><input aria-label="Hľadať cvičenie" placeholder="Hľadať cvičenie…" value={query} onChange={e => setQuery(e.target.value)} /></label></div>
+    <div className="toolbar page-controls"><label className="search"><Search size={18} /><input aria-label="Hľadať cvičenie" placeholder="Hľadať cvičenie…" value={query} onChange={e => setQuery(e.target.value)} /></label></div>
     {error && <p className="error" role="alert">{error}</p>}
     <div className="drill-grid">{items.filter(item => (item.title + " " + item.objective + " " + item.equipment).toLowerCase().includes(query.toLowerCase())).map(item => <article className="card drill-card" key={item.id}>
       <div className="toolbar"><BookOpen /><strong className="grow">{item.title}</strong><span className="badge">{item.duration_minutes} min</span></div>
@@ -1198,7 +1209,7 @@ function PlayerDevelopmentPage() {
   async function open(member) {setSelected(member); setDevelopment(await api("members/" + member.id + "/development"));}
   useEffect(() => {loadMembers().catch(e => setError(e.message));}, []);
   return <>
-    <div className="toolbar"><label className="search"><Search size={18} /><input aria-label="Hľadať hráča" placeholder="Hľadať hráča…" value={query} onChange={e => setQuery(e.target.value)} /></label></div>
+    <div className="toolbar page-controls"><label className="search"><Search size={18} /><input aria-label="Hľadať hráča" placeholder="Hľadať hráča…" value={query} onChange={e => setQuery(e.target.value)} /></label></div>
     {error && <p className="error" role="alert">{error}</p>}
     <div className="card flush"><ul className="people-list">{members.filter(m => m.name.toLowerCase().includes(query.toLowerCase())).map(member => <li key={member.id}>
       <button className="person-link" onClick={() => open(member)}><Avatar name={member.name} id={member.id} version={member.avatar_version} /><span className="grow"><strong>{member.name}</strong><span className="meta">{clubRoleLabel(member.roles)}</span>{!member.active && <span className="meta">Neaktívny</span>}</span><ChevronRight size={18} /></button>
@@ -1354,7 +1365,7 @@ function TeamSheet({trainings}) {
   }, [eventId]);
   const event = events.find(item => String(item.id) === eventId);
   return <>
-    <section className="card lineup-picker"><label>Zostava<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="general">Základná zostava tímu</option>{events.map(item => <option key={item.id} value={item.id}>{date(item.starts_at)} · {item.title}</option>)}</select></label></section>
+    <section className="card lineup-picker page-controls"><label>Zostava<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="general">Základná zostava tímu</option>{events.map(item => <option key={item.id} value={item.id}>{date(item.starts_at)} · {item.title}</option>)}</select></label></section>
     {error && <p className="error" role="alert">{error}</p>}
     {eventId === "general" && <div className="notice">Základná zostava priebežne vyjadruje, s kým tréner počíta a na akej pozícii.</div>}
     {event && source === "general" && <div className="notice">Pre túto udalosť zatiaľ nie je uložená samostatná zostava; zobrazuje sa základná zostava tímu.</div>}
@@ -1385,7 +1396,7 @@ function LineupPlanner({trainings}) {
   }, [eventId]);
   const event = events.find(item=>String(item.id)===eventId);
   return <>
-    <section className="card lineup-picker">
+    <section className="card lineup-picker page-controls">
       <h2>Akú zostavu upravuješ?</h2>
       <div className="segmented lineup-mode-switch">
         <button type="button" className={eventId === "general" ? "selected" : ""} aria-pressed={eventId === "general"} onClick={() => {setEventId("general");setError("");}}>Základná zostava tímu</button>
@@ -1412,7 +1423,7 @@ function Documents({staff}) {
   async function load() {setItems(await api("documents"));}
   useEffect(() => {load().catch(error => setError(error.message));}, []);
   return <>
-    {staff && <div className="toolbar end"><button className="primary" onClick={() => {setFile(null); setCreate(true);}}><Plus size={18} />Dokument</button></div>}
+    {staff && <div className="toolbar end page-controls"><button className="primary" onClick={() => {setFile(null); setCreate(true);}}><Plus size={18} />Dokument</button></div>}
     {error && <p className="error" role="alert">{error}</p>}
     <div className="card flush"><ul className="people-list">{items.map(item => <li key={item.id}><FileText /><div className="grow"><strong>{item.title}</strong><span className="meta">PDF · {date(item.created_at)}</span></div>
       <a className="icon-button" href={new URL("api/documents/" + item.id + "/download", base)} aria-label={"Stiahnuť " + item.title}><Download size={19} /></a>
@@ -1812,6 +1823,7 @@ function App() {
   const [installPopup, setInstallPopup] = useState(false);
   const loginPromotionShown = useRef(null);
   const [user, setUser] = useState(undefined);
+  const contentRef = useRef(null);
   const [page, setPage] = useState(() => hash().has("battery") ? "equipment" : hash().get("page") || "home");
   const [menu, setMenu] = useState(false);
   const [route, setRoute] = useState(location.hash);
@@ -1926,6 +1938,7 @@ function App() {
     if (menu) history.replaceState({}, "", target); else if (next !== page) history.pushState({}, "", target);
     setMenu(false); setNotifications(false); setTrainingId(null); setPage(next); setActiveBattery(null);
     if (next !== "messages") setContact(null);
+    contentRef.current?.scrollTo({top: 0});
     window.scrollTo({top: 0});
   }
   function openScanner(event=null) {setScanEvent(event);setScanSession(value=>value+1);setTrainingId(null);navigate("scanner");}
@@ -1941,6 +1954,7 @@ function App() {
     loginPromotionShown.current = null;
   }
   useEffect(() => {loadUser();}, []);
+  useEffect(() => {contentRef.current?.scrollTo({top: 0});}, [currentPage]);
   useEffect(() => {
     const onNavigation = () => {
       setRoute(location.hash);
@@ -1992,7 +2006,7 @@ function App() {
     </header>
     {user && <aside className="sidebar">{menuContent}</aside>}
     {user && menu && <Drawer close={closeMenu}>{menuContent}</Drawer>}
-    <main className={currentPage === "messages" && user ? "content messages-page" : "content"}>
+    <main ref={contentRef} className={user ? "content " + currentPage + "-page" : "content"}>
     {trialBannerEnabled&&<aside className="development-banner" aria-label="Aplikácia vo vývoji">
         <Construction size={22} aria-hidden="true" />
         <div><strong>Aplikácia je v skúšobnej prevádzke</strong><p>Nie všetky funkcie sú zatiaľ dostupné. Funkcie aj vzhľad aplikácie priebežne dopĺňame a upravujeme.</p></div>

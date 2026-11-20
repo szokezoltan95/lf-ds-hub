@@ -10,7 +10,7 @@
   --accent: #41b6e6;
   --complement: #f2b494;
   --surface: #fff;
-  --site-footer-height: calc(26px + env(safe-area-inset-bottom));
+  --site-footer-height: calc(14px + env(safe-area-inset-bottom));
 }
 * {box-sizing: border-box;}
 html {scroll-padding-bottom: var(--site-footer-height);}
@@ -50,12 +50,12 @@ svg {flex-shrink: 0;}
 .brand small {display: block; font-size: 10px; letter-spacing: .055em; color: #bfd7e5;}
 .notification-button {margin-left: auto; position: relative;}
 .notification-button i {position: absolute; right: 8px; top: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--complement);}
-.content {flex: 1 0 auto; width: 100%; max-width: 1160px; margin-inline: auto; padding: 23px 16px 12px; min-width: 0;}
+.content {flex: 1 0 auto; width: 100%; max-width: 1160px; margin-inline: auto; padding: 23px 16px 5px; min-width: 0;}
 .site-footer {
   position: fixed; inset: auto 0 0; z-index: 19;
   height: var(--site-footer-height); display: grid; place-items: center;
   padding: 0 12px env(safe-area-inset-bottom);
-  border-top: 1px solid var(--line); background: var(--surface);
+  pointer-events: none;
   text-align: center; font-size: 9px; line-height: 1.3; color: var(--muted);
 }
 .topbar .desktop-brand, .desktop-section-title {display: none;}
@@ -239,7 +239,8 @@ nav button .counter {margin-left: auto;}
 .battery-overview-table {width:100%; table-layout:fixed; border-collapse:separate; border-spacing:0; font-size:12px;}
 .battery-overview-table th, .battery-overview-table td {padding:2px 1px; text-align:center; border-bottom:1px solid var(--line);}
 .battery-overview-table th:first-child {width:116px; text-align:left; overflow-wrap:anywhere;}
-.battery-timeline-code {display:block; margin-bottom:3px; font-size:12px;}
+.battery-timeline-identity {display:flex;align-items:center;gap:4px;}
+.battery-timeline-code {white-space:nowrap;font-size:12px;}
 .battery-overview-table tbody th .badge {display:inline-flex; white-space:normal; font-size:10px; line-height:1.2;}
 .battery-overview-table thead th {position:sticky; top:0; z-index:1; height:34px; background:var(--surface, white); font-size:11px;}
 .battery-day-button {width:100%; min-width:0; min-height:44px; padding:2px; flex-direction:column; gap:2px; font-variant-numeric:tabular-nums; border-radius:8px;}
@@ -272,7 +273,8 @@ details p {font-size: 13px; margin-top: 12px;}
 .messages-page {display: flex; flex-direction: column;}
 .chat {display: flex; flex: 1 1 380px; min-height: 380px; margin-bottom: 0;}
 .conversation-list {width: 100%; overflow-y: auto;}
-.conversation-list > .search {margin: 14px; max-width: none;}
+.chat-list-controls {display: flow-root; background: var(--surface);}
+.chat-list-controls > .search {margin: 14px; max-width: none;}
 .conversation-row {width: 100%; border: 0; border-radius: 0; padding: 16px; justify-content: start; text-align: left; font-size: 13px; font-weight: 400;}
 .conversation-row.active {background: #e5f4fc;}
 .conversation-meta {display: flex; flex-direction: column; align-items: end; gap: 5px; color: var(--muted);}
@@ -629,3 +631,36 @@ details p {font-size: 13px; margin-top: 12px;}
 .poll-editor-option label {flex:1;}
 .composer.with-poll {display:flex;align-items:flex-start;gap:6px;}
 .composer.with-poll form {flex:1;min-width:0;}
+
+@media (min-width: 1100px) {
+  .app, .signed-out {height: 100dvh; overflow: hidden;}
+  .app > .content, .signed-out > .content {
+    flex: 1 1 0; min-height: 0; overflow: auto; padding-bottom: 5px;
+  }
+  .sidebar {scrollbar-width: none;}
+  .page-controls {
+    position: sticky; top: 0; z-index: 5; background: #f3f7fa;
+  }
+  .page-controls:not(.card) {display: flow-root; padding-block: 6px;}
+  .toolbar.page-controls, .battery-toolbar.page-controls {display: flex;}
+  .page-controls.card {background: var(--surface);}
+  .page-controls > :last-child {margin-bottom: 0;}
+  .page-controls > .toolbar {margin-bottom: 8px;}
+  .battery-toolbar.page-controls {min-height: 62px;}
+  .battery-overview-scroll, .unassigned-list {max-height: none; overflow: visible;}
+  .battery-overview-header {position: sticky; top: 62px; z-index: 4; background: var(--surface);}
+  .battery-overview-table thead th {top: 104px;}
+  .battery-overview-table th:first-child {width: clamp(190px, 27%, 270px);}
+  .battery-timeline-identity {gap: 8px;}
+  .chat.card {flex: 1 0 auto; overflow: clip;}
+  .chat .conversation-list, .chat .message-stream {overflow: visible;}
+  .chat .chat-head, .chat-list-controls {position: sticky; top: 0; z-index: 3; background: var(--surface);}
+  .chat .composer {position: sticky; bottom: 0; z-index: 3;}
+  .attendance-table-scroll {max-height: none; overflow-x: auto;}
+}
+
+@media (min-width: 1100px) and (min-height: 680px) {
+  .app > .attendance-page:has(.attendance-table-scroll) {display: flex; flex-direction: column;}
+  .attendance-page > :not(.attendance-table-scroll) {flex-shrink: 0;}
+  .attendance-table-scroll {flex: 1 1 0; min-height: 0; overflow: auto;}
+}
