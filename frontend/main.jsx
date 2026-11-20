@@ -885,7 +885,9 @@ function MessageInteractions({item, own, change}) {
       {!own && <button type="button" className="reaction-button reaction-trigger" aria-expanded={picker} aria-label="Pridať reakciu"
         onClick={() => setPicker(value => !value)}><SmilePlus size={15} /></button>}
       {!own && picker && <div className="reaction-picker" aria-label="Vybrať reakciu">
-        <EmojiPicker.Root locale={activeLanguage === "sk" ? "sk" : activeLanguage === "uk" ? "uk" : "en"} columns={9} onEmojiSelect={({emoji}) => react(emoji)}>
+        <EmojiPicker.Root locale={activeLanguage === "uk" ? "uk" : activeLanguage === "hu" ? "hu" : "en"}
+          emojibaseUrl={new URL("emoji-data/", document.baseURI).href}
+          columns={9} onEmojiSelect={({emoji}) => react(emoji)}>
           <EmojiPicker.Search className="reaction-picker-search" placeholder="Hľadať emoji…" autoFocus />
           <EmojiPicker.Viewport className="reaction-picker-viewport">
             <EmojiPicker.Loading>Načítavajú sa emoji…</EmojiPicker.Loading>
