@@ -166,6 +166,29 @@ ALTER TABLE members ADD COLUMN IF NOT EXISTS pwa_show_popup boolean NOT NULL DEF
 
 -- Calendar ownership and cascading removal of automatic notices.
 ALTER TABLE trainings ADD COLUMN IF NOT EXISTS created_by bigint REFERENCES members(id) ON DELETE SET NULL;
+ALTER TABLE trainings ADD COLUMN IF NOT EXISTS schedule_revision integer NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS training_changes (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    training_id bigint NOT NULL REFERENCES trainings(id) ON DELETE CASCADE,
+    schedule_revision integer CHECK (schedule_revision > 0),
+    changed_by bigint REFERENCES members(id) ON DELETE SET NULL,
+    changed_at timestamptz NOT NULL DEFAULT now(),
+    changes jsonb NOT NULL,
+    UNIQUE (training_id, schedule_revision)
+);
+CREATE INDEX IF NOT EXISTS training_changes_history_idx ON training_changes (training_id, id DESC);
+CREATE TABLE IF NOT EXISTS training_change_responses (
+    training_id bigint NOT NULL,
+    schedule_revision integer NOT NULL,
+    member_id bigint NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    response text NOT NULL CHECK (response IN ('yes', 'no', 'maybe')),
+    note text NOT NULL DEFAULT '',
+    responded_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (training_id, schedule_revision, member_id),
+    FOREIGN KEY (training_id, schedule_revision) REFERENCES training_changes (training_id, schedule_revision) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS training_change_responses_member_idx
+    ON training_change_responses (training_id, member_id, schedule_revision DESC);
 ALTER TABLE participation DROP CONSTRAINT IF EXISTS participation_training_id_fkey;
 ALTER TABLE participation ADD CONSTRAINT participation_training_id_fkey
     FOREIGN KEY (training_id) REFERENCES trainings(id) ON DELETE CASCADE;

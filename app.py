@@ -816,11 +816,13 @@ class Training(BaseModel):
 
 class TrainingEdit(Training):
     weeks: Literal[1] = 1
+    expected_updated_at: AwareDatetime | None = None
 
 
 class RSVP(BaseModel):
     response: Literal["yes", "no", "maybe"]
     note: Note = ""
+    schedule_revision: int = Field(0, ge=0)
 
 
 class Attendance(BaseModel):
@@ -831,21 +833,33 @@ class Attendance(BaseModel):
 def trainings(conn: DB, user: User):
     return conn.execute(
         """SELECT t.*, p.response, p.note, p.attended,
+        CASE WHEN latest.schedule_revision = t.schedule_revision THEN latest.response END AS change_response,
+        CASE WHEN latest.schedule_revision = t.schedule_revision THEN latest.note END AS change_note,
+        coalesce(latest.response, p.response) AS last_response,
         (%s OR t.created_by=%s OR t.created_by IS NULL) AS can_delete,
         (SELECT json_build_object(
             'yes', count(*) FILTER (WHERE r.response='yes'),
             'no', count(*) FILTER (WHERE r.response='no'),
             'maybe', count(*) FILTER (WHERE r.response='maybe'),
             'unanswered', count(*) FILTER (WHERE r.response IS NULL),
-            'attendance_pending', count(*) FILTER (WHERE r.attended IS NULL))
+            'attendance_pending', count(*) FILTER (WHERE r.attended IS NULL),
+            'change_yes', count(*) FILTER (WHERE cr.response='yes'),
+            'change_pending', count(*) FILTER (WHERE t.schedule_revision > 0 AND cr.response IS NULL))
          FROM members m LEFT JOIN participation r ON r.member_id=m.id AND r.training_id=t.id
+         LEFT JOIN training_change_responses cr ON cr.training_id=t.id
+           AND cr.schedule_revision=t.schedule_revision AND cr.member_id=m.id
          WHERE m.role IN ('member','coach') AND 'player'=ANY(m.club_roles)
          AND m.active AND m.password_hash IS NOT NULL) AS counts
         FROM trainings t
         LEFT JOIN participation p ON p.training_id = t.id AND p.member_id = %s
+        LEFT JOIN LATERAL (
+            SELECT schedule_revision, response, note FROM training_change_responses
+            WHERE training_id=t.id AND member_id=%s
+            ORDER BY schedule_revision DESC LIMIT 1
+        ) latest ON true
         ORDER BY (t.starts_at >= now()) DESC,
         CASE WHEN t.starts_at >= now() THEN t.starts_at END,
-        t.starts_at DESC LIMIT 300""", (user["role"] == "superadmin", user["id"], user["id"]),
+        t.starts_at DESC LIMIT 300""", (user["role"] == "superadmin", user["id"], user["id"], user["id"]),
     ).fetchall()
 
 
@@ -880,29 +894,48 @@ def lock_training(conn, training_id):
     return training
 
 
+SCHEDULE_FIELDS = {"starts_at", "ends_at", "location"}
+
+
 @api.put("/trainings/{training_id}")
-def edit_training(training_id: int, data: TrainingEdit, conn: DB, _staff: Staff):
+def edit_training(training_id: int, data: TrainingEdit, conn: DB, staff_user: Staff):
     training = lock_training(conn, training_id)
     if training["cancelled"]:
         raise HTTPException(409, "Udalosť bola zrušená.")
+    if data.expected_updated_at is not None and training["updated_at"] != data.expected_updated_at:
+        raise HTTPException(409, "Udalosť bola medzitým upravená. Otvor ju znova.")
+    fields = ("title", "starts_at", "ends_at", "location", "instructions", "kind")
+    changed_fields = [field for field in fields if training[field] != getattr(data, field)]
+    if not changed_fields:
+        return {"ok": True}
+    schedule_changed = bool(SCHEDULE_FIELDS.intersection(changed_fields))
+    revision = training["schedule_revision"] + int(schedule_changed)
     conn.execute(
         """UPDATE trainings SET title=%s, starts_at=%s, location=%s, instructions=%s,
-        kind=%s, ends_at=%s, updated_at=now() WHERE id=%s""",
-        (data.title, data.starts_at, data.location, data.instructions, data.kind, data.ends_at, training_id)
+        kind=%s, ends_at=%s, schedule_revision=%s, updated_at=clock_timestamp() WHERE id=%s""",
+        (data.title, data.starts_at, data.location, data.instructions, data.kind, data.ends_at, revision, training_id),
     )
-    schedule_changed = training["starts_at"] != data.starts_at or training["location"] != data.location
-    if any(training[field] != getattr(data, field) for field in
-           ("title", "starts_at", "location", "instructions", "kind", "ends_at")):
-        if schedule_changed and training["starts_at"] > datetime.now(timezone.utc):
-            conn.execute("UPDATE participation SET response=NULL, note='' WHERE training_id=%s",
-                         (training_id,))
-        conn.execute(
-            "INSERT INTO announcements (title, body, event_id) VALUES (%s,%s,%s) RETURNING id",
-            (f"Zmena udalosti: {data.title}",
-             f"Nový termín: {club_date(data.starts_at)} · {data.location}", training_id),
-        )
-        push_service.enqueue(conn, None, "calendar", "Zmena udalosti: " + data.title,
-                             f"#page=calendar&event={training_id}", event_id=training_id)
+    serialized = data.model_dump(mode="json")
+    changes = {field: {
+        "before": training[field].isoformat() if isinstance(training[field], datetime) else training[field],
+        "after": serialized[field],
+    } for field in changed_fields}
+    conn.execute(
+        """INSERT INTO training_changes (training_id, schedule_revision, changed_by, changes)
+        VALUES (%s,%s,%s,%s)""",
+        (training_id, revision if schedule_changed else None, staff_user["id"], Jsonb(changes)),
+    )
+    notice = (f"Nový termín: {club_date(data.starts_at)} · {data.location}"
+              + (f" · koniec {club_date(data.ends_at)}" if data.ends_at else "")
+              + "\nV detaile udalosti môžeš potvrdiť zmenu."
+              if schedule_changed and data.starts_at > datetime.now(timezone.utc)
+              else "Podrobnosti úpravy nájdeš v histórii zmien udalosti.")
+    conn.execute(
+        "INSERT INTO announcements (title, body, event_id) VALUES (%s,%s,%s)",
+        (f"Zmena udalosti: {data.title}", notice, training_id),
+    )
+    push_service.enqueue(conn, None, "calendar", "Zmena udalosti: " + data.title,
+                         f"#page=calendar&event={training_id}", event_id=training_id)
     return {"ok": True}
 
 
@@ -941,6 +974,17 @@ def rsvp(training_id: int, data: RSVP, conn: DB, user: User):
     training = lock_training(conn, training_id)
     if training["cancelled"] or training["starts_at"] <= datetime.now(timezone.utc):
         raise HTTPException(409, "Na túto udalosť sa už nedá prihlásiť.")
+    if data.schedule_revision != training["schedule_revision"]:
+        raise HTTPException(409, "Podmienky udalosti sa zmenili. Skontroluj aktuálny termín a miesto.")
+    if data.schedule_revision:
+        conn.execute(
+            """INSERT INTO training_change_responses
+            (training_id, schedule_revision, member_id, response, note) VALUES (%s,%s,%s,%s,%s)
+            ON CONFLICT (training_id, schedule_revision, member_id)
+            DO UPDATE SET response=excluded.response, note=excluded.note, responded_at=now()""",
+            (training_id, data.schedule_revision, user["id"], data.response, data.note),
+        )
+        return {"ok": True}
     conn.execute(
         """INSERT INTO participation (training_id, member_id, response, note) VALUES (%s,%s,%s,%s)
         ON CONFLICT (training_id, member_id) DO UPDATE SET response=excluded.response, note=excluded.note""",
@@ -949,16 +993,39 @@ def rsvp(training_id: int, data: RSVP, conn: DB, user: User):
     return {"ok": True}
 
 
+@api.get("/trainings/{training_id}/changes")
+def training_history(training_id: int, conn: DB, user: User):
+    if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
+        raise HTTPException(404, "Udalosť sa nenašla.")
+    return conn.execute(
+        """SELECT c.id, c.changed_at, c.schedule_revision, c.changes,
+        CASE WHEN m.role='coach' THEN m.name END AS editor,
+        r.response, r.responded_at
+        FROM training_changes c LEFT JOIN members m ON m.id=c.changed_by
+        LEFT JOIN training_change_responses r ON r.training_id=c.training_id
+          AND r.schedule_revision=c.schedule_revision AND r.member_id=%s
+        WHERE c.training_id=%s ORDER BY c.id DESC""",
+        (user["id"], training_id),
+    ).fetchall()
+
+
 @api.get("/trainings/{training_id}/roster")
 def roster(training_id: int, conn: DB, _staff: Staff):
     if not conn.execute("SELECT 1 FROM trainings WHERE id=%s", (training_id,)).fetchone():
         raise HTTPException(404, "Udalosť sa nenašla.")
     return conn.execute(
-        """SELECT m.id, m.name, m.club_roles AS roles, m.avatar_version, p.response, p.note, p.attended FROM members m
-        LEFT JOIN participation p ON p.member_id=m.id AND p.training_id=%s
-        WHERE m.role IN ('member','coach')
+        """SELECT m.id, m.name, m.club_roles AS roles, m.avatar_version, p.response, p.note, p.attended,
+        coalesce(r.versions, '{}'::jsonb) AS change_responses
+        FROM trainings t CROSS JOIN members m
+        LEFT JOIN participation p ON p.member_id=m.id AND p.training_id=t.id
+        LEFT JOIN LATERAL (
+            SELECT jsonb_object_agg(schedule_revision, jsonb_build_object(
+                'response', response, 'note', note, 'responded_at', responded_at)) AS versions
+            FROM training_change_responses WHERE training_id=t.id AND member_id=m.id
+        ) r ON true
+        WHERE t.id=%s AND m.role IN ('member','coach')
         AND (('player'=ANY(m.club_roles) AND m.active AND m.password_hash IS NOT NULL)
-             OR p.member_id IS NOT NULL)
+             OR p.member_id IS NOT NULL OR r.versions IS NOT NULL)
         ORDER BY m.name, m.id""",
         (training_id,)
     ).fetchall()
@@ -970,8 +1037,11 @@ def attendance(training_id: int, member_id: int, data: Attendance, conn: DB, _st
     if training["cancelled"] or training["starts_at"] > datetime.now(timezone.utc):
         raise HTTPException(409, "Dochádzku možno zapísať od začiatku udalosti.")
     if not conn.execute(
-        "SELECT 1 FROM members WHERE id=%s AND role IN ('member','coach') AND ('player'=ANY(club_roles) OR EXISTS (SELECT 1 FROM participation WHERE member_id=%s AND training_id=%s))",
-        (member_id, member_id, training_id),
+        """SELECT 1 FROM members m WHERE id=%s AND role IN ('member','coach') AND (
+            'player'=ANY(club_roles)
+            OR EXISTS (SELECT 1 FROM participation p WHERE p.member_id=m.id AND p.training_id=%s)
+            OR EXISTS (SELECT 1 FROM training_change_responses r WHERE r.member_id=m.id AND r.training_id=%s))""",
+        (member_id, training_id, training_id),
     ).fetchone():
         raise HTTPException(404, "Člen sa nenašiel.")
     conn.execute(
@@ -994,9 +1064,11 @@ def bulk_attendance(training_id: int, data: BulkAttendance, conn: DB, _staff: St
         raise HTTPException(409, "Dochádzku možno zapísať od začiatku udalosti.")
     ids = set(data.member_ids)
     allowed = conn.execute(
-        """SELECT id FROM members WHERE id=ANY(%s) AND role IN ('member','coach') AND
-        ('player'=ANY(club_roles) OR EXISTS (SELECT 1 FROM participation WHERE member_id=members.id AND training_id=%s))""",
-        (list(ids), training_id),
+        """SELECT id FROM members m WHERE id=ANY(%s) AND role IN ('member','coach') AND (
+            'player'=ANY(club_roles)
+            OR EXISTS (SELECT 1 FROM participation p WHERE p.member_id=m.id AND p.training_id=%s)
+            OR EXISTS (SELECT 1 FROM training_change_responses r WHERE r.member_id=m.id AND r.training_id=%s))""",
+        (list(ids), training_id, training_id),
     ).fetchall()
     if len(allowed) != len(ids):
         raise HTTPException(404, "Niektorý člen sa nenašiel.")

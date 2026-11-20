@@ -405,3 +405,28 @@ Object.assign(ukrainianExtra, {
   "Táto správa nie je anketa.": "Це повідомлення не є опитуванням.",
   "Táto možnosť už v ankete je.": "Такий варіант уже є в опитуванні."
 });
+
+Object.assign(englishExtra, {
+  "História zmien": "Change history", "Zatiaľ bez zmien.": "No changes yet.", "Úprava udalosti": "Event edit",
+  "Zmena termínu alebo miesta ·": "Time or location change ·", "Zmena": "Change",
+  "Zmenil sa termín alebo miesto": "The time or location has changed", "Potvrdiť zmenu": "Confirm change",
+  "Potvrď zmenu udalosti": "Confirm the event change", "Pôvodná účasť": "Original RSVP",
+  "Tvoja účasť po zmene": "Your RSVP after the change", "Odpoveď na zmenu je uložená": "Your response to the change is saved",
+  "Odpovede pre": "Responses for", "Aktuálny termín": "Current event details", "Pôvodný termín": "Original event details",
+  "Bez potvrdenia zmeny": "Change not confirmed", "bez potvrdenia zmeny": "have not confirmed the change",
+  "Pôvodná poznámka": "Original note", "pôvodne prídu": "originally attending", "prídu po zmene": "attending after the change",
+  "Udalosť bola medzitým upravená. Otvor ju znova.": "The event was edited while you had it open. Reopen it to make your changes.",
+  "Podmienky udalosti sa zmenili. Skontroluj aktuálny termín a miesto.": "The event has changed. Check the current time and location."
+});
+Object.assign(ukrainianExtra, {
+  "História zmien": "Історія змін", "Zatiaľ bez zmien.": "Змін поки немає.", "Úprava udalosti": "Редагування події",
+  "Zmena termínu alebo miesta ·": "Зміна часу або місця ·", "Zmena": "Зміна",
+  "Zmenil sa termín alebo miesto": "Час або місце змінилися", "Potvrdiť zmenu": "Підтвердити зміну",
+  "Potvrď zmenu udalosti": "Підтвердь зміну події", "Pôvodná účasť": "Початкова відповідь щодо участі",
+  "Tvoja účasť po zmene": "Твоя участь після зміни", "Odpoveď na zmenu je uložená": "Відповідь на зміну збережено",
+  "Odpovede pre": "Відповіді для", "Aktuálny termín": "Поточні дані події", "Pôvodný termín": "Початкові дані події",
+  "Bez potvrdenia zmeny": "Зміну не підтверджено", "bez potvrdenia zmeny": "не підтвердили зміну",
+  "Pôvodná poznámka": "Початкова примітка", "pôvodne prídu": "спочатку планували прийти", "prídu po zmene": "прийдуть після зміни",
+  "Udalosť bola medzitým upravená. Otvor ju znova.": "Подію вже відредаговано. Відкрий її знову, щоб внести зміни.",
+  "Podmienky udalosti sa zmenili. Skontroluj aktuálny termín a miesto.": "Умови події змінилися. Перевір актуальні час і місце."
+});

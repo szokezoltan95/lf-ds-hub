@@ -175,14 +175,17 @@ function TrainingForm({training, initialDay, places, done}) {
   const [repeat, setRepeat] = useState(false);
   const [place, setPlace] = useState(training?.location || places[0]?.name || "");
   const [newPlace, setNewPlace] = useState(places.length === 0 || Boolean(training && !places.some(p => p.name === training.location)));
+  const [editedVersion] = useState(training?.updated_at);
   return <Form label={training ? "Uložiť zmeny" : "Naplánovať udalosť"} submit={async data => {
-    const starts_at = trainingISO(data.starts_at);
-    const ends_at = data.ends_at ? trainingISO(data.ends_at) : null;
-    if (ends_at && ends_at <= starts_at) throw new Error("Koniec musí nasledovať po začiatku.");
+    const starts_at = training && data.starts_at === clubLocal(training.starts_at) ? training.starts_at : trainingISO(data.starts_at);
+    const ends_at = !data.ends_at ? null : training?.ends_at && data.ends_at === clubLocal(training.ends_at)
+      ? training.ends_at : trainingISO(data.ends_at);
+    if (ends_at && new Date(ends_at) <= new Date(starts_at)) throw new Error("Koniec musí nasledovať po začiatku.");
     if (newPlace) await api("places", "POST", {name: data.location});
     await api(training ? "trainings/" + training.id : "trainings", training ? "PUT" : "POST", {
       title: data.title || kinds[kind], kind, starts_at, ends_at, location: data.location,
       instructions: data.instructions, weeks: Number(data.weeks || 1),
+      expected_updated_at: editedVersion,
     });
     await done();
   }}>
@@ -214,29 +217,45 @@ function TrainingForm({training, initialDay, places, done}) {
 }
 
 function RSVP({training, refresh}) {
+  const revision = training.schedule_revision || 0;
+  const response = revision ? training.change_response : training.response;
+  const savedNote = (revision ? training.change_note : training.note) || "";
   const [noteOpen, setNoteOpen] = useState(false);
-  const [note, setNote] = useState(training.note || "");
-  useEffect(() => {setNote(training.note || "");}, [training.note, training.updated_at]);
+  const [note, setNote] = useState(savedNote);
+  useEffect(() => {setNote(savedNote);}, [savedNote, revision]);
+  async function save(nextResponse) {
+    try {
+      await api("trainings/" + training.id + "/rsvp", "PUT", {response: nextResponse, note, schedule_revision: revision});
+    } catch (error) {
+      if (error.status === 409) await refresh();
+      throw error;
+    }
+    await refresh();
+  }
   return <div className="rsvp">
-    <p className="field-title">{training.response ? "Tvoja účasť" : "Dáš nám vedieť, či prídeš?"}</p>
-    <div className="segmented rsvp-buttons">{Object.entries(labels).map(([response, text]) =>
-      <Action key={response} pressed={training.response === response} className={response + (training.response === response ? " selected" : "")}
-        run={async () => {
-          await api("trainings/" + training.id + "/rsvp", "PUT", {response, note});
-          await refresh();
-        }}>{response === "yes" ? <Check size={17} /> : response === "no" ? <X size={17} /> : <CircleHelp size={17} />}{text}</Action>
+    {revision > 0 && <div className="rsvp-change">
+      <strong>{response ? "Odpoveď na zmenu je uložená" : "Zmenil sa termín alebo miesto"}</strong>
+      <div><span>Pôvodná účasť</span> <span className="badge">{labels[training.response] || "Bez odpovede"}</span></div>
+      {!response && training.last_response && <Action className="primary" run={() => save(training.last_response)}>
+        <Check size={16} /><span>Potvrdiť zmenu</span><span aria-hidden="true">·</span><span>{labels[training.last_response]}</span>
+      </Action>}
+    </div>}
+    <p className="field-title">{revision ? "Tvoja účasť po zmene" : response ? "Tvoja účasť" : "Dáš nám vedieť, či prídeš?"}</p>
+    <div className="segmented rsvp-buttons">{Object.entries(labels).map(([value, label]) =>
+      <Action key={value} pressed={response === value} className={value + (response === value ? " selected" : "")} run={() => save(value)}>
+        {value === "yes" ? <Check size={17} /> : value === "no" ? <X size={17} /> : <CircleHelp size={17} />}{label}
+      </Action>
     )}</div>
-    <button className="text-button" onClick={() => setNoteOpen(!noteOpen)}>{noteOpen ? "Zavrieť poznámku" : training.note ? "Upraviť poznámku" : "+ Poznámka trénerovi"}</button>
+    <button className="text-button" aria-expanded={noteOpen} onClick={() => setNoteOpen(!noteOpen)}>{noteOpen ? "Zavrieť poznámku" : savedNote ? "Upraviť poznámku" : "+ Poznámka trénerovi"}</button>
     {noteOpen && <Form label="Uložiť poznámku" submit={async () => {
-      if (!training.response) throw new Error("Najprv vyber účasť.");
-      await api("trainings/" + training.id + "/rsvp", "PUT", {response: training.response, note});
-      await refresh();
+      if (!response) throw new Error("Najprv vyber účasť.");
+      await save(response);
       setNoteOpen(false);
     }}><label>Poznámka<input value={note} maxLength="1000" onChange={event => setNote(event.target.value)} /></label></Form>}
   </div>;
 }
 
-function TrainingCard({training, staff, refresh, open, prominent = false}) {
+function TrainingCard({training, staff, canRespond = !staff, refresh, open, prominent = false}) {
   const day = new Date(training.starts_at);
   return <article className={"card training-card event-" + (training.kind || "training") + " " + (prominent ? "prominent " : "") + (training.cancelled ? "cancelled" : "")}>
     <button className="event-link" onClick={open}>
@@ -249,10 +268,13 @@ function TrainingCard({training, staff, refresh, open, prominent = false}) {
     </button>
     {training.cancelled ? <p className="notice">Udalosť bola zrušená</p> : <>
       {staff ? <button className="count-strip" onClick={open}>
-        <span><i className="dot yes" />{training.counts?.yes || 0} prídu</span>
-        <span><i className="dot pending" />{training.counts?.unanswered || 0} bez odpovede</span><ArrowUpRight size={16} />
-      </button> : upcoming(training) ? <RSVP training={training} refresh={refresh} /> :
-        <p className="meta">{training.attended === true ? "Bol si prítomný" : training.attended === false ? "Bol si neprítomný" : "Udalosť sa už začala"}</p>}
+        <span><i className="dot yes" />{training.counts?.yes || 0} {training.schedule_revision > 0 ? "pôvodne prídu" : "prídu"}</span>
+        {training.schedule_revision > 0
+          ? <span><i className="dot pending" />{training.counts?.change_yes || 0} <span>prídu po zmene</span> · {training.counts?.change_pending || 0} <span>bez potvrdenia zmeny</span></span>
+          : <span><i className="dot pending" />{training.counts?.unanswered || 0} bez odpovede</span>}
+        <ArrowUpRight size={16} />
+      </button> : upcoming(training) ? canRespond && <RSVP key={training.schedule_revision} training={training} refresh={refresh} /> :
+        <p className="meta">{canRespond && (training.attended === true ? "Bol si prítomný" : training.attended === false ? "Bol si neprítomný" : "Udalosť sa už začala")}</p>}
     </>}
   </article>;
 }
@@ -324,16 +346,57 @@ function TrainingWorkspace({training, staff}) {
 
 const participantResponses = {yes: "Príde", no: "Nepríde", maybe: "Nevie"};
 
-function TrainingDetail({training, staff, places, close, refresh, openScanner}) {
+const trainingChangeLabels = {title: "Názov", starts_at: "Začiatok", ends_at: "Koniec", location: "Miesto",
+  instructions: "Pokyny", kind: "Typ udalosti"};
+
+function trainingChangeValue(field, value) {
+  if (!value) return "—";
+  if (field === "starts_at" || field === "ends_at") return date(value);
+  if (field === "kind") return kinds[value];
+  return value;
+}
+
+function TrainingHistory({history}) {
+  if (!history) return <p className="muted" role="status">Načítava sa…</p>;
+  if (!history.length) return <Empty icon={Clock}>Zatiaľ bez zmien.</Empty>;
+  return <ol className="training-history">{history.map(entry => <li key={entry.id}>
+    <header>
+      <strong>{entry.schedule_revision ? <>Zmena termínu alebo miesta · {entry.schedule_revision}</> : "Úprava udalosti"}</strong>
+      <span className="meta">{date(entry.changed_at)}{entry.editor && <> · {entry.editor}</>}</span>
+    </header>
+    <dl>{Object.entries(trainingChangeLabels).filter(([field]) => entry.changes[field]).map(([field, label]) => {
+      const {before, after} = entry.changes[field];
+      return <div key={field}><dt>{label}</dt><dd><del>{trainingChangeValue(field, before)}</del><span>{trainingChangeValue(field, after)}</span></dd></div>;
+    })}</dl>
+    {entry.response && <p className="meta"><span>Tvoja účasť po zmene</span> · <strong>{labels[entry.response]}</strong> · {date(entry.responded_at)}</p>}
+  </li>)}</ol>;
+}
+
+function TrainingDetail({training, staff, canRespond, places, close, refresh, openScanner}) {
   const [tab, setTab] = useState("info");
   const [rows, setRows] = useState([]);
   const [selected, setSelected] = useState([]);
   const [filter, setFilter] = useState("all");
+  const [selectedRevision, setSelectedRevision] = useState(null);
+  const [history, setHistory] = useState(null);
   const [edit, setEdit] = useState(false);
   const [error, setError] = useState("");
   async function load() {setRows(await api("trainings/" + training.id + "/roster"));}
-  useEffect(() => {if (staff) load().catch(error => setError(error.message));}, [staff, training.id, training.updated_at]);
-  const filtered = rows.filter(row => filter === "all" || (filter === "none" ? !row.response : row.response === filter));
+  useEffect(() => {
+    if (staff && (tab === "rsvp" || tab === "attendance")) load().catch(error => setError(error.message));
+  }, [staff, tab, training.id, training.updated_at, training.counts?.unanswered, training.counts?.change_pending,
+    training.counts?.yes, training.counts?.no, training.counts?.change_yes]);
+  useEffect(() => {
+    if (tab !== "history" && !(tab === "rsvp" && staff && training.schedule_revision > 0)) return;
+    let current = true;
+    api("trainings/" + training.id + "/changes").then(entries => {
+      if (current) setHistory(entries);
+    }).catch(error => {if (current) setError(error.message);});
+    return () => {current = false;};
+  }, [tab, staff, training.id, training.updated_at, training.schedule_revision, training.change_response]);
+  const revision = selectedRevision ?? training.schedule_revision ?? 0;
+  const responseFor = row => revision ? row.change_responses?.[revision]?.response : row.response;
+  const filtered = rows.filter(row => filter === "all" || (filter === "none" ? !responseFor(row) : responseFor(row) === filter));
   async function saveAttendance(ids, attended) {
     await api("trainings/" + training.id + "/attendance", "PUT", {member_ids: ids, attended});
     setSelected([]);
@@ -342,18 +405,18 @@ function TrainingDetail({training, staff, places, close, refresh, openScanner}) 
   }
   return <Modal title={training.title} close={close}>
     {edit ? <TrainingForm training={training} places={places} done={async () => {setEdit(false); await refresh();}} /> : <>
-      <div className="tabs" role="tablist" aria-label="Detail udalosti">
-        {[["info", "Informácie"], ["workout", "Tréning"], ...(staff ? [["rsvp", "Účasť"], ["attendance", "Dochádzka"]] : [])].map(([value, text]) =>
+      <div className="tabs training-tabs" role="tablist" aria-label="Detail udalosti">
+        {[["info", "Informácie"], ["workout", "Tréning"], ...(staff ? [["rsvp", "Účasť"], ["attendance", "Dochádzka"]] : []), ["history", "História zmien"]].map(([value, text]) =>
           <button role="tab" aria-selected={tab === value} key={value} onClick={() => setTab(value)}>{text}</button>)}
       </div>
       {error && <p className="error" role="alert">{error}</p>}
-      {tab === "workout" ? <TrainingWorkspace training={training} staff={staff} /> : tab === "info" ? <>
+      {tab === "workout" ? <TrainingWorkspace training={training} staff={staff} /> : tab === "history" ? <TrainingHistory history={history} /> : tab === "info" ? <>
         {training.cancelled && <p className="notice">Udalosť bola zrušená</p>}
         <div className="detail-facts"><p><CalendarDays />{date(training.starts_at)}</p>
           {training.ends_at && <p><Clock />Do {clock(training.ends_at)}</p>}
           <p><MapPin />{training.location}</p></div>
         {training.instructions && <p className="body">{training.instructions}</p>}
-        {!staff && upcoming(training) && <RSVP training={training} refresh={refresh} />}
+        {canRespond && upcoming(training) && <RSVP key={training.schedule_revision} training={training} refresh={refresh} />}
         {staff && !training.cancelled && <div className="actions section-space">
           <button onClick={() => setEdit(true)}><Pencil size={17} />Upraviť</button>
           <Action className="danger" run={async () => {
@@ -366,38 +429,60 @@ function TrainingDetail({training, staff, places, close, refresh, openScanner}) 
           await api("trainings/" + training.id, "DELETE"); close(); await refresh();
         }}>Vymazať bez upozornenia</Action></div>}
       </> : <>
-        {tab === "rsvp" && <div className="chips">
-          {[["all", "Všetci"], ["yes", "Prídu"], ["no", "Neprídu"], ["maybe", "Nevedia"], ["none", "Bez odpovede"]].map(([value, text]) =>
-            <button className={filter === value ? "selected" : ""} key={value} onClick={() => setFilter(value)}>{text}</button>)}
-        </div>}
+        {tab === "rsvp" && <>
+          {training.schedule_revision > 0 && <label className="rsvp-revision-filter">Odpovede pre
+            <select value={selectedRevision ?? ""} onChange={event => setSelectedRevision(event.target.value === "" ? null : Number(event.target.value))}>
+              <option value="">Aktuálny termín</option><option value="0">Pôvodný termín</option>
+              {(history || []).filter(entry => entry.schedule_revision && entry.schedule_revision !== training.schedule_revision).map(entry =>
+                <option key={entry.id} value={entry.schedule_revision}>Zmena {entry.schedule_revision} · {date(entry.changed_at)}</option>)}
+            </select>
+          </label>}
+          <div className="chips">
+            {[["all", "Všetci"], ["yes", "Prídu"], ["no", "Neprídu"], ["maybe", "Nevedia"],
+              ["none", revision ? "Bez potvrdenia zmeny" : "Bez odpovede"]].map(([value, label]) =>
+              <button aria-pressed={filter === value} key={value} onClick={() => setFilter(value)}>{label}</button>)}
+          </div>
+        </>}
         {tab === "attendance" && (!past(training) || training.cancelled) && <p className="notice">Dochádzku možno zapísať od začiatku nezrušenej udalosti.</p>}
         {tab === "attendance" && past(training) && !training.cancelled && rows.length > 0 && <>
           <label className="checkbox"><input type="checkbox" checked={selected.length === rows.length} onChange={event => setSelected(event.target.checked ? rows.map(row => row.id) : [])} />Vybrať všetkých</label>
           {selected.length > 0 && <div className="actions"><Action run={() => saveAttendance(selected, true)}>Prítomní ({selected.length})</Action>
             <Action run={() => saveAttendance(selected, false)}>Neprítomní ({selected.length})</Action></div>}
         </>}
-        <ul className="people-list">{(tab === "rsvp" ? filtered : rows).map(row => <li key={row.id}
-          className={tab === "rsvp" ? "rsvp-person rsvp-" + (row.response || "none") : undefined}>
+        <ul className="people-list">{(tab === "rsvp" ? filtered : rows).map(row => {
+          const currentResponse = row.change_responses?.[training.schedule_revision];
+          const latestResponse = tab === "attendance" ? Object.values(row.change_responses || {}).at(-1) : null;
+          return <li key={row.id}
+          className={tab === "rsvp" ? "rsvp-person rsvp-" + (responseFor(row) || "none") : undefined}>
           {tab === "attendance" && past(training) && !training.cancelled &&
             <input type="checkbox" aria-label={"Vybrať " + row.name} checked={selected.includes(row.id)}
               onChange={event => setSelected(event.target.checked ? [...selected, row.id] : selected.filter(id => id !== row.id))} />}
           <Avatar name={row.name} id={row.id} version={row.avatar_version} /><div className="grow"><strong>{row.name}</strong><span className="meta">{clubRoleLabel(row.roles)}</span>
-            {tab === "rsvp"
-              ? <span className="badge rsvp-response">{participantResponses[row.response] || "Bez odpovede"}</span>
-              : <span className="meta">{labels[row.response] || "Bez odpovede"}</span>}
-            {row.note && <p className="small body">{row.note}</p>}</div>
+            {tab === "rsvp" ? <>
+              <div className="rsvp-person-summary">
+                {revision > 0 && <span className="meta"><span>Pôvodná účasť</span> · {participantResponses[row.response] || "Bez odpovede"}</span>}
+                <span className="badge rsvp-response">{participantResponses[responseFor(row)] || (revision ? "Bez potvrdenia zmeny" : "Bez odpovede")}</span>
+              </div>
+              {revision > 0 && row.note && <p className="small body"><span>Pôvodná poznámka</span> · {row.note}</p>}
+              {(revision ? row.change_responses?.[revision]?.note : row.note) && <p className="small body">{revision ? row.change_responses[revision].note : row.note}</p>}
+            </> : <>
+              <span className="meta">{labels[latestResponse?.response || row.response] || "Bez odpovede"}
+                {training.schedule_revision > 0 && !currentResponse && <> · <span>Bez potvrdenia zmeny</span></>}</span>
+              {latestResponse?.note && <p className="small body">{latestResponse.note}</p>}
+              {row.note && <p className="small body">{row.note}</p>}
+            </>}</div>
           {tab === "attendance" && past(training) && !training.cancelled && <div className="attendance-buttons">
             <Action className={row.attended === true ? "yes selected" : ""} pressed={row.attended === true} run={() => saveAttendance([row.id], true)}><Check size={18} /><span className="sr-only">Prítomný {row.name}</span></Action>
             <Action className={row.attended === false ? "no selected" : ""} pressed={row.attended === false} run={() => saveAttendance([row.id], false)}><X size={18} /><span className="sr-only">Neprítomný {row.name}</span></Action>
           </div>}
-        </li>)}</ul>
+        </li>;})}</ul>
         {rows.length === 0 && <Empty icon={Users}>Zatiaľ žiadni účastníci.</Empty>}
       </>}
     </>}
   </Modal>;
 }
 
-function Calendar({trainings, staff, places, refresh, openTraining}) {
+function Calendar({trainings, staff, canRespond, places, refresh, openTraining}) {
   const [view, setView] = useState("list");
   const [period, setPeriod] = useState("upcoming");
   const [month, setMonth] = useState(() => today().slice(0, 7));
@@ -451,7 +536,7 @@ function Calendar({trainings, staff, places, refresh, openTraining}) {
       </section>}
       <div className="event-list">{shown.length ? shown.map((t, i) => <React.Fragment key={t.id}>
         {(i === 0 || dayKey(shown[i - 1].starts_at) !== dayKey(t.starts_at)) && <h2 className="day-heading">{new Date(t.starts_at).toLocaleDateString(uiLocale(), {weekday: "long", day: "numeric", month: "long", timeZone})}</h2>}
-        <TrainingCard training={t} staff={staff} refresh={refresh} open={() => openTraining(t.id)} />
+        <TrainingCard training={t} staff={staff} canRespond={canRespond} refresh={refresh} open={() => openTraining(t.id)} />
       </React.Fragment>) : <Empty>V tomto období nie sú žiadne udalosti.</Empty>}</div>
     </div>
     {create && <Modal title="Nová udalosť" close={() => setCreate(false)}><TrainingForm initialDay={selectedDay} places={places} done={async () => {setCreate(false); await refresh();}} /></Modal>}
@@ -1807,31 +1892,56 @@ const navigation = [
   ["documents", "Dokumenty", FileText],
 ];
 
-function Home({user, trainings, announcements, conversations, refresh, navigate, openTraining}) {
+function Home({user, trainings, announcements, conversations, refresh, navigate, openTraining, openScanner, openCard, plan}) {
   const staff = user.role !== "member";
+  const canRespond = user.roles?.includes("player");
+  const has = page => user.menu_access?.includes(page);
   const next = trainings.filter(upcoming);
   const unread = conversations.reduce((sum, row) => sum + row.unread, 0);
-  const waiting = trainings.filter(t => !t.cancelled && past(t) && t.counts?.attendance_pending > 0);
+  const waiting = trainings.find(t => !t.cancelled && past(t) && t.counts?.attendance_pending > 0);
+  const revised = canRespond && next.find(t => t.schedule_revision > 0 && !t.change_response);
   const notice = announcements.find(item => item.pinned) || announcements[0];
+  const shortcuts = [
+    has("calendar") && [CalendarDays, "Kalendár", () => navigate("calendar")],
+    has("messages") && user.role !== "superadmin" && [MessageCircle, "Správy", () => navigate("messages"), unread],
+    has("announcements") && [Megaphone, "Oznamy", () => navigate("announcements")],
+    has("scanner") && [ScanLine, "Skenovať", openScanner],
+    canRespond && [QrCode, "Môj členský QR kód", openCard],
+  ].filter(Boolean);
   return <>
-    <div className="welcome"><h2>Ahoj, {user.name.split(" ")[0]}.</h2>
-      <span className="welcome-date">{new Date().toLocaleDateString(uiLocale(), {weekday: "long", day: "numeric", month: "long", timeZone})}</span>
-    </div>
+    <section className="home-welcome">
+      <div className="home-greeting">
+        <div><time dateTime={today()}>{new Date().toLocaleDateString(uiLocale(), {weekday: "long", day: "numeric", month: "long", timeZone})}</time>
+          <h2>Ahoj, {user.name.split(" ")[0]}!</h2>
+        </div>
+        {staff && has("calendar") && <button className="primary" onClick={plan}><Plus size={20} />Naplánovať udalosť</button>}
+      </div>
+      {shortcuts.length > 0 && <div className="home-shortcuts">{shortcuts.map(([Icon, label, run, count]) =>
+        <button key={label} onClick={() => run()}><span className="home-shortcut-icon"><Icon size={24} /></span>
+          <span>{label}</span>{count > 0 && <span className="counter">{count}</span>}<ChevronRight className="home-shortcut-arrow" size={17} />
+        </button>
+      )}</div>}
+    </section>
+    {revised && <button className="home-change-link" onClick={() => openTraining(revised.id)}>
+      <span className="home-shortcut-icon"><Clock size={23} /></span>
+      <span className="grow"><strong>Potvrď zmenu udalosti</strong><span className="meta">{revised.title} · {date(revised.starts_at)} · {revised.location}</span></span>
+      <ChevronRight size={20} />
+    </button>}
     <div className="home-grid">
-      <section className="home-main"><div className="section-heading"><h2>Najbližšie v klube</h2><button className="text-button" onClick={() => navigate("calendar")}>Kalendár<ChevronRight size={16} /></button></div>
-        {next.length ? <TrainingCard training={next[0]} staff={staff} prominent refresh={refresh} open={() => openTraining(next[0].id)} /> : <Empty>Najbližšia udalosť ešte nie je naplánovaná.</Empty>}
-        {next.slice(1, 3).map(t => <TrainingCard training={t} staff={staff} refresh={refresh} key={t.id} open={() => openTraining(t.id)} />)}
-      </section>
-      <aside className="home-side">
-        {user.role !== "superadmin" && <button className="card quick-link" onClick={() => navigate("messages")}><span className="quick-icon"><MessageCircle /></span><span className="grow"><strong>{unread ? unread + " neprečítaných správ" : "Správy s tímom"}</strong><span className="meta">{staff ? "Otvor konverzácie s členmi" : "Napíš členovi alebo trénerovi"}</span></span><ChevronRight size={18} /></button>}
-        {staff && waiting.length > 0 && <button className="card quick-link" onClick={() => openTraining(waiting[0].id)}>
-          <span className="quick-icon"><CheckCheck /></span><span className="grow"><strong>Doplniť dochádzku</strong><span className="meta">{waiting[0].title} · {date(waiting[0].starts_at)}</span></span><ChevronRight size={18} /></button>}
+      {has("calendar") && <section className="home-main">
+        <div className="section-heading"><h2>Najbližšie v klube</h2></div>
+        {next.length ? next.slice(0, 2).map((event, index) =>
+          <TrainingCard key={event.id} training={event} staff={staff} canRespond={canRespond} prominent={index === 0} refresh={refresh} open={() => openTraining(event.id)} />
+        ) : <Empty>Najbližšia udalosť ešte nie je naplánovaná.</Empty>}
+      </section>}
+      {(notice || (staff && has("attendance") && waiting)) && <aside className="home-side">
         {notice && <article className="card notice-card"><div className="section-heading"><span className="eyebrow">{notice.pinned ? "Pripnutý oznam" : "Nový oznam"}</span><Megaphone size={19} /></div>
           <h2>{notice.title}</h2><p className="body">{notice.body}</p>
           <button className="text-button" onClick={() => navigate("announcements")}>Všetky oznamy<ArrowUpRight size={16} /></button>
         </article>}
-        {!staff && next.filter(t => !t.response).length > 1 && <button className="card quick-link" onClick={() => navigate("calendar")}><CircleHelp /><span className="grow"><strong>Potvrď svoju účasť</strong><span className="meta">{next.filter(t => !t.response).length} udalostí čaká na odpoveď</span></span><ChevronRight size={18} /></button>}
-      </aside>
+        {staff && has("attendance") && waiting && <button className="card quick-link" onClick={() => openTraining(waiting.id)}>
+          <span className="quick-icon"><ClipboardCheck /></span><span className="grow"><strong>Doplniť dochádzku</strong><span className="meta">{waiting.title} · {date(waiting.starts_at)}</span></span><ChevronRight size={18} /></button>}
+      </aside>}
     </div>
   </>;
 }
@@ -2065,10 +2175,11 @@ function App() {
               <button className="icon-button" aria-label="Skryť kartu teraz" onClick={() => setInstallHidden(true)}><X size={18} /></button>
               <Action className="text-button install-opt-out" run={stopInstallPromotions}>Už nezobrazovať</Action>
             </div>}
-            {staff && user.menu_access?.includes("calendar") && <PageToolbar><div className="page-toolbar-row"><button className="primary page-primary" onClick={() => setCreateTraining(true)}><Plus size={18} />Naplánovať udalosť</button></div></PageToolbar>}
-            <Home user={user} {...data} refresh={refresh} navigate={navigate} openTraining={setTrainingId} />
+            <Home user={user} {...data} refresh={refresh} navigate={navigate} openTraining={setTrainingId}
+              openScanner={openScanner} openCard={() => setCardMember({self:true})} plan={() => setCreateTraining(true)} />
           </>}
-          {currentPage === "calendar" && <Calendar trainings={data.trainings} staff={staff} places={data.places} refresh={refresh} openTraining={setTrainingId} />}
+          {currentPage === "calendar" && <Calendar trainings={data.trainings} staff={staff} canRespond={user.roles?.includes("player")}
+            places={data.places} refresh={refresh} openTraining={setTrainingId} />}
           {currentPage === "scanner" && <ClubScanner key={user.id+":"+(scanEvent?.id || "general")+":"+scanSession} user={user} initialEvent={scanEvent} refresh={refresh} />}
           {currentPage === "attendance" && staff && <AttendanceOverview openScanner={user.menu_access?.includes("scanner") ? openScanner : undefined} />}
           {currentPage === "messages" && <Messages key={user.id + ":" + contact + ":" + route} user={user} conversations={data.conversations} refresh={refresh} initialContact={contact} />}
@@ -2111,7 +2222,8 @@ function App() {
         <p>Ak túto možnosť prehliadač ponúka, potvrď inštaláciu DroneSoccer LF.</p></>}
     </Modal>}
     {user && cardMember && <MemberQr key={cardMember.self ? "self" : cardMember.id} member={cardMember} close={()=>setCardMember(null)} />}
-    {user && training && <TrainingDetail key={training.id} training={training} staff={staff} places={data.places} refresh={refresh} openScanner={openScanner} close={() => setTrainingId(null)} />}
+    {user && training && <TrainingDetail key={training.id} training={training} staff={staff} canRespond={user.roles?.includes("player")}
+      places={data.places} refresh={refresh} openScanner={openScanner} close={() => setTrainingId(null)} />}
     {user && createTraining && <Modal title="Nová udalosť" close={() => setCreateTraining(false)}><TrainingForm places={data.places} done={async () => {setCreateTraining(false); await refresh();}} /></Modal>}
     {user && notifications && <Modal title="Oznámenia" close={() => setNotifications(false)}>
       {!superadmin && <button className="card quick-link" onClick={() => navigate("messages")}><MessageCircle /><span className="grow"><strong>Správy</strong><span className="meta">{unread ? unread + " neprečítaných" : "Všetko máš prečítané"}</span></span><ChevronRight /></button>}

@@ -22,6 +22,7 @@ from py_vapid import Vapid
 class ClubUpdates(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.admin_hash = portal.password_hash(os.environ['HUB_ADMIN_PASSWORD'])
         cls.worker=patch('push_service.worker',lambda *args:None)
         cls.worker.start()
         cls.client=TestClient(portal.app,headers={'origin':portal.ORIGIN})
@@ -38,15 +39,17 @@ class ClubUpdates(unittest.TestCase):
             conn.execute("TRUNCATE members RESTART IDENTITY CASCADE")
             self.ids={}
             for name,role in [('root','superadmin'),('coach','coach'),('other','coach'),('member','member'),('outsider','member')]:
-                self.ids[name]=conn.execute('INSERT INTO members(name,email,role,password_hash) VALUES (%s,%s,%s,%s) RETURNING id',
-                    (name,None if role=='superadmin' else name+'@test.sk',role,'set')).fetchone()['id']
+                roles = [] if role == 'superadmin' else ['coach'] if role == 'coach' else ['player']
+                self.ids[name]=conn.execute('INSERT INTO members(name,email,role,password_hash,club_roles) VALUES (%s,%s,%s,%s,%s) RETURNING id',
+                    (name,None if role=='superadmin' else name+'@test.sk',role,self.admin_hash if role=='superadmin' else 'set',roles)).fetchone()['id']
             conn.execute("INSERT INTO chat_groups(name,system_key) VALUES ('Celý tím','team'),('Tréneri','coaches')")
         self.as_user('coach')
 
     def as_user(self,name):
         def current():
             with portal.connect() as conn:
-                return conn.execute('SELECT * FROM members WHERE id=%s',(self.ids[name],)).fetchone()
+                return conn.execute("SELECT *, club_roles AS roles FROM members WHERE id=%s",
+                                    (self.ids[name],)).fetchone()
         portal.app.dependency_overrides[portal.identity]=current
 
     def sql(self,query,args=()):
@@ -68,6 +71,70 @@ class ClubUpdates(unittest.TestCase):
         data={'title':'Stretnutie','starts_at':(datetime.now(timezone.utc)+timedelta(days=10)).isoformat(),'location':'Hala','kind':'meeting',**extra}
         self.post('trainings',data)
         return self.sql('SELECT max(id) AS id FROM trainings')[0]['id'],data
+
+    def test_event_schedule_edits_keep_original_and_version_rsvps(self):
+        event, data = self.event()
+        endpoint = f'trainings/{event}'
+
+        def put(path, body, status=200):
+            response = self.client.put(f'{portal.PREFIX}/api/{path}', json=body)
+            self.assertEqual(response.status_code, status, response.text)
+
+        def summary():
+            return next(row for row in self.get('trainings') if row['id'] == event)
+
+        def member_roster():
+            return next(row for row in self.get(endpoint + '/roster') if row['id'] == self.ids['member'])
+
+        self.as_user('member')
+        put(endpoint + '/rsvp', {'response': 'yes', 'note': 'Pôvodná poznámka'})
+        self.as_user('coach')
+        previous = summary()['updated_at']
+        put(endpoint, {**data, 'instructions': 'Prineste dron', 'expected_updated_at': previous})
+        self.assertEqual(summary()['schedule_revision'], 0)
+        self.assertEqual(member_roster()['response'], 'yes')
+        put(endpoint, {**data, 'instructions': 'Prineste dron'})
+        self.assertEqual(len(self.get(endpoint + '/changes')), 1)
+        put(endpoint, {**data, 'location': 'Stará verzia', 'expected_updated_at': previous}, 409)
+
+        revised = {**data, 'instructions': 'Prineste dron', 'location': 'Hala B'}
+        put(endpoint, revised)
+        self.as_user('member')
+        first = summary()
+        self.assertEqual((first['schedule_revision'], first['response'], first['note'], first['change_response']),
+                         (1, 'yes', 'Pôvodná poznámka', None))
+        self.assertEqual((first['counts']['yes'], first['counts']['change_yes']), (1, 0))
+        put(endpoint + '/rsvp', {'response': 'no'}, 409)
+        put(endpoint + '/rsvp', {'schedule_revision': 1, 'response': 'no', 'note': 'Po zmene nemôžem'})
+        self.assertEqual((summary()['response'], summary()['change_response']), ('yes', 'no'))
+
+        self.as_user('coach')
+        end = (datetime.fromisoformat(data['starts_at']) + timedelta(hours=1)).isoformat()
+        put(endpoint, {**revised, 'ends_at': end})
+        self.as_user('member')
+        second = summary()
+        self.assertEqual((second['schedule_revision'], second['response'], second['change_response'], second['last_response']),
+                         (2, 'yes', None, 'no'))
+        put(endpoint + '/rsvp', {'schedule_revision': 1, 'response': 'yes'}, 409)
+        put(endpoint + '/rsvp', {'schedule_revision': 2, 'response': 'yes'})
+        self.assertEqual(summary()['counts']['change_yes'], 1)
+        history = self.get(endpoint + '/changes')
+        self.assertEqual([entry['schedule_revision'] for entry in history], [2, 1, None])
+        self.assertEqual([entry['response'] for entry in history], ['yes', 'no', None])
+        self.assertEqual(history[1]['changes']['location'], {'before': 'Hala', 'after': 'Hala B'})
+
+        self.as_user('outsider')
+        put(endpoint + '/rsvp', {'schedule_revision': 2, 'response': 'maybe'})
+        self.assertIsNone(summary()['response'])
+        self.assertEqual([entry['response'] for entry in self.get(endpoint + '/changes')], ['maybe', None, None])
+        self.as_user('coach')
+        row = member_roster()
+        self.assertEqual((row['response'], row['note']), ('yes', 'Pôvodná poznámka'))
+        self.assertEqual(row['change_responses']['1']['note'], 'Po zmene nemôžem')
+        self.assertEqual(row['change_responses']['2']['response'], 'yes')
+        self.assertEqual(self.client.delete(f'{portal.PREFIX}/api/{endpoint}').status_code, 200)
+        for table in ('training_changes', 'training_change_responses'):
+            self.assertEqual(self.sql(f'SELECT * FROM {table} WHERE training_id=%s', (event,)), [])
 
     def subscription(self):
         key=ec.generate_private_key(ec.SECP256R1()).public_key().public_bytes(serialization.Encoding.X962,serialization.PublicFormat.UncompressedPoint)
