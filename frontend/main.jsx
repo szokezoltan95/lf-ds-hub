@@ -1795,7 +1795,7 @@ function Drawer({close, children}) {
   }, []);
   return <dialog ref={ref} className="drawer" aria-label="Navigácia" onCancel={event => {event.preventDefault(); close();}}
     onClick={event => {if (event.target === ref.current) close();}}>
-    <div className="drawer-head"><strong>Menu</strong><button aria-label="Zavrieť menu" className="icon-button" onClick={close}><X /></button></div>
+    <div className="drawer-head"><strong>Drone Soccer Hub</strong><button aria-label="Zavrieť menu" className="icon-button" onClick={close}><X /></button></div>
     {children}
   </dialog>;
 }
@@ -1999,7 +1999,7 @@ function App() {
       </aside>}
       {error && <div className="error-banner" role="alert">{error}<Action run={refresh}>Skúsiť znova</Action></div>}
       {user === undefined ? <Empty>Načítava sa…</Empty> : !user ? <Login onLogin={loadUser} /> : <>
-        {currentPage !== "home" && <h1 className="sr-only desktop-section-title">{title}</h1>}
+        {currentPage !== "home" && <h1 className="desktop-section-title">{title}</h1>}
         {loading ? <Empty>Načítava sa…</Empty> : <>
           {currentPage === "home" && <>
             {!installation.installed && user.pwa_show_card !== false && !installHidden && <div className="install-promotion">
@@ -2026,6 +2026,7 @@ function App() {
         </>}
       </>}
     </main>
+    <footer className="site-footer">DRONE SOCCER HUB LF © 2026 Zoltán Szőke</footer>
     {user && installPopup && user.pwa_show_popup !== false && !installation.installed && <Modal title="Maj klub vždy poruke" close={() => setInstallPopup(false)}>
       <InstallPanel installation={installation} install={install} />
       <div className="install-popup-actions">
