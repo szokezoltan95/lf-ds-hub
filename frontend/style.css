@@ -10,7 +10,7 @@
   --accent: #41b6e6;
   --complement: #f2b494;
   --surface: #fff;
-  --site-footer-height: calc(24px + env(safe-area-inset-bottom));
+  --site-footer-height: calc(14px + env(safe-area-inset-bottom));
 }
 * {box-sizing: border-box;}
 html {scroll-padding-bottom: var(--site-footer-height);}
@@ -53,14 +53,10 @@ svg {flex-shrink: 0;}
 .content {flex: 1 0 auto; width: 100%; max-width: 1160px; margin-inline: auto; padding: 23px 16px 5px; min-width: 0;}
 .site-footer {
   position: fixed; inset: auto 0 0; z-index: 19;
-  height: var(--site-footer-height); display: flex; align-items: center; justify-content: center; gap: 10px;
+  height: var(--site-footer-height); display: grid; place-items: center;
   padding: 0 12px env(safe-area-inset-bottom);
   pointer-events: none;
   text-align: center; font-size: 9px; line-height: 1.3; color: var(--muted);
-}
-.site-footer a {
-  display: inline-flex; align-items: center; gap: 2px; min-height: 24px;
-  white-space: nowrap; pointer-events: auto; color: inherit; font-size: 11px;
 }
 .topbar .desktop-brand, .topbar .home-title {display: none;}
 .topbar-title {
@@ -559,6 +555,7 @@ details p {font-size: 13px; margin-top: 12px;}
 .install-promotion .install-card {padding-bottom: 45px;}
 .install-popup-actions {display: flex; flex-direction: column; align-items: start; gap: 8px;}
 .install-settings form {margin-bottom: 0;}
+.profile-about-link {display: inline-flex; align-items: center; gap: 6px; min-height: 32px;}
 
 .recipient-picker {max-height:16rem;overflow:auto;border:1px solid var(--line, #d9e4ea);border-radius:12px;padding:12px;}
 .attachment-list {list-style:none;padding:0;display:grid;gap:8px;}

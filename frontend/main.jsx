@@ -2360,6 +2360,11 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
       </Form>
     </section>
     <InstallPanel installation={installation} install={install} />
+    <section className="card">
+      <h2>O aplikácii</h2>
+      <a className="profile-about-link" href="https://github.com/szokezoltan95/lf-ds-hub/blob/main/docs/index.md"
+        target="_blank" rel="noopener noreferrer">Dokumentácia na GitHube <ArrowUpRight size={16} aria-hidden="true" /></a>
+    </section>
     {edit === "avatar" && <Modal title="Profilová fotka" close={() => setEdit(null)}>
       <Form label="Nahrať fotku" submit={async ({photo}) => {
         if (photo.size > 5 * 1024 * 1024) throw new Error(localizeText("Fotka môže mať najviac 5 MB.", activeLanguage));
@@ -2860,11 +2865,7 @@ function App() {
       </>}
     </main>
     </ToolbarTarget.Provider>
-    <footer className="site-footer">
-      <span>DRONE SOCCER HUB LF © 2026 Zoltán Szőke</span>
-      <a href="https://github.com/szokezoltan95/lf-ds-hub/blob/main/docs/index.md"
-        target="_blank" rel="noopener noreferrer">O aplikácii <ArrowUpRight size={12} aria-hidden="true" /></a>
-    </footer>
+    <footer className="site-footer">DRONE SOCCER HUB LF © 2026 Zoltán Szőke</footer>
     </div>
     {user && installPopup && user.pwa_show_popup !== false && !installation.installed && <Modal title="Maj klub vždy poruke" close={() => setInstallPopup(false)}>
       <InstallPanel installation={installation} install={install} />
