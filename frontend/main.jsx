@@ -1,7 +1,7 @@
 import React, {useContext, useEffect, useRef, useState} from "react";
 import {createPortal} from "react-dom";
 import {createRoot} from "react-dom/client";
-import {Drone, Menu, X, House, CalendarDays, MessageCircle, Megaphone, Users, Battery, Boxes, ShieldCheck, Construction, BookOpen, Timer,
+import {Drone, Gamepad2, Zap, Menu, X, House, CalendarDays, MessageCircle, Megaphone, Users, Battery, Boxes, ShieldCheck, Construction, BookOpen, Timer,
   LogOut, Bell, Plus, ChevronLeft, ChevronRight, MapPin, Clock, Check, CircleHelp,
   Search, ScanLine, QrCode, ClipboardCheck, Pin, FileText, Download, ArrowUpRight, Settings2, Send, CheckCheck, Pencil, SmilePlus, SlidersHorizontal, Heart, MoveUp, MoveDown} from "lucide-react";
 import "@fontsource/dm-sans/latin-400.css";
@@ -1293,7 +1293,7 @@ function Batteries({staff, initialCode}) {
           {!["stored", "damaged", "retired"].includes(b.status) && <button className="text-button" aria-haspopup="dialog" onClick={() => openBattery(b.code, "used")}>Zapísať použitie</button>}
         </div>
       </article>)}{assets.filter(item=>kindFilter==="all"||item.kind===kindFilter).map(item=><button type="button" className={"card battery-state-card equipment-asset-card state-"+(item.status||"unknown")} key={item.code} onClick={()=>{setSelectedAsset(item.code);setAssetAction("");setShowMoreAssetActions(false);}}>
-        <span className="battery-card-heading"><strong className="equipment-card-title">{item.kind==="drone"?<Drone size={16}/>:<Boxes size={16}/>} {item.code}</strong><span className="badge">{equipmentKindLabels[item.kind]}</span></span>
+        <span className="battery-card-heading"><strong className="equipment-card-title">{item.kind==="drone"?<Drone size={16}/>:item.kind==="controller"?<Gamepad2 size={16}/>:item.kind==="charger"?<Zap size={16}/>:<Boxes size={16}/>} {item.code}</strong><span className="badge">{equipmentKindLabels[item.kind]}</span></span>
         <span className="battery-card-details"><span className="battery-card-label muted">{item.assigned_member_name?"Pridelené: "+item.assigned_member_name:item.label}</span><span className={"badge equipment-status-badge state-"+(item.status||"unknown")}>{equipmentActionLabels[item.status]||"Bez záznamu"}</span></span>
       </button>)}</div>}
     {view === "cards" && items.length===0&&assets.filter(item=>kindFilter==="all"||item.kind===kindFilter).length===0 && <Empty icon={Battery}>Pre tento filter zatiaľ nie je zaevidované žiadne zariadenie.</Empty>}
