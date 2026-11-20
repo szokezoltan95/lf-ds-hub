@@ -1476,10 +1476,10 @@ function EquipmentActivityTimeline({items, revision, end, openBattery, openAsset
       !byItem.size ? <p className="muted">V tomto období nie sú žiadne záznamy pre zobrazené zariadenia.</p> : <>
         <div className="battery-overview-scroll" role="region" aria-labelledby="equipment-timeline-heading" tabIndex={0}>
           <table className="battery-overview-table" aria-labelledby="equipment-timeline-heading">
-            <thead><tr><th scope="col">Zariadenie</th>{days.map(day =>
+            <thead><tr><th scope="col">Kód</th>{days.map(day =>
               <th key={day} scope="col"><time dateTime={day}>{dayFormat(day)}</time></th>)}</tr></thead>
             <tbody>{items.filter(item => byItem.has(item.code)).map(item =>
-              <tr key={item.code}><th scope="row"><div className="battery-timeline-identity"><span className="battery-timeline-code">{item.code}</span><span className={"badge " + (item.kind === "battery" ? "battery-state-badge" : "equipment-status-badge") + " state-" + (item.status || "unknown")}>{itemLabel(item)}</span></div></th>{days.map(day => {
+              <tr key={item.code}><th scope="row"><div className="battery-timeline-identity"><span className="battery-timeline-code">{item.code}</span><span className={"equipment-timeline-status state-" + (item.status || "unknown")} title={itemLabel(item)} role="img" aria-label={itemLabel(item)} /></div></th>{days.map(day => {
                 const events = byItem.get(item.code).get(day);
                 if (!events) return <td key={day}><span className="muted" aria-hidden="true">–</span><span className="sr-only">Bez záznamu</span></td>;
                 const counts = events.reduce((totals,event)=>({...totals,[event.action]:(totals[event.action]||0)+1}),{});

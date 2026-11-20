@@ -378,7 +378,13 @@ nav button .counter {margin-left: auto;}
 .battery-overview-table th:first-child {width:116px; text-align:left; overflow-wrap:anywhere;}
 .battery-timeline-identity {display:flex;align-items:center;gap:4px;}
 .battery-timeline-code {white-space:nowrap;font-size:12px;}
-.battery-overview-table tbody th .badge {display:inline-flex; white-space:normal; font-size:10px; line-height:1.2;}
+.equipment-timeline-status {display:inline-block;width:9px;height:9px;flex:0 0 9px;border-radius:50%;background:#7c8791;}
+.equipment-timeline-status.state-charged,.equipment-timeline-status.state-returned {background:#21834a;}
+.equipment-timeline-status.state-in_drone,.equipment-timeline-status.state-storage_exit,.equipment-timeline-status.state-unknown {background:#7c8791;}
+.equipment-timeline-status.state-discharged,.equipment-timeline-status.state-repair,.equipment-timeline-status.state-maintenance {background:#d68a12;}
+.equipment-timeline-status.state-stored,.equipment-timeline-status.state-assigned,.equipment-timeline-status.state-inspection,.equipment-timeline-status.state-battery_check {background:#287ca4;}
+.equipment-timeline-status.state-damaged,.equipment-timeline-status.state-retired,.equipment-timeline-status.state-fault {background:#c23c43;}
+.equipment-timeline-status.state-training,.equipment-timeline-status.state-propeller_replacement,.equipment-timeline-status.state-motor_replacement {background:#6b68ad;}
 .battery-overview-table thead th {position:sticky; top:0; z-index:10; height:34px; background-color:var(--surface, #fff); background-clip:border-box; box-shadow:0 1px var(--line); font-size:11px;}
 .battery-day-button {width:100%; min-width:0; min-height:44px; padding:2px; flex-direction:column; gap:2px; font-variant-numeric:tabular-nums; border-radius:8px;}
 .battery-day-button:focus-visible {outline-offset:-3px;}
@@ -490,7 +496,7 @@ details p {font-size: 13px; margin-top: 12px;}
   .dashboard-reorder .icon-button {width: 30px; min-height: 34px; padding: 5px;}
   .dashboard-link-picker {grid-template-columns: minmax(0,1fr);}
   .equipment-kind-filter {max-width:100%;flex:1 1 150px;}
-  .battery-timeline-identity {align-items:flex-start;flex-direction:column;gap:4px;}
+  .battery-timeline-identity {align-items:center;flex-direction:row;gap:4px;}
   .battery-day-action-counts {flex-direction:column;align-items:flex-start;gap:2px;}
   .reaction-picker-viewport {height:230px;}
 }
