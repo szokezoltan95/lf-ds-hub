@@ -583,8 +583,8 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
       {error&&<p className="error" role="alert">{error}</p>}
       <div className="card flush"><ul className="people-list">{found.map(member=><li key={member.id}><button className="person-link" onClick={()=>{setSelected(member);setLink("");}}>
         <Avatar name={member.name} id={member.id} version={member.avatar_version}/><span className="grow"><strong>{member.name}</strong><span className="meta">{[clubRoleLabel(member.roles), member.email].filter(Boolean).join(" · ")}</span>
-        <span className="meta">{member.recorded_count>0?"Dochádzka "+member.attended_count+"/"+member.recorded_count:"Dochádzka zatiaľ bez záznamu"}</span></span>
-        {member.equipment?.length>0&&<span className="meta member-equipment-summary"><Boxes size={13}/>{member.equipment.map(item=>item.code).join(", ")}</span>}
+        <span className="meta">{member.recorded_count>0?"Dochádzka "+member.attended_count+"/"+member.recorded_count:"Dochádzka zatiaľ bez záznamu"}</span>
+        {member.equipment?.length>0&&<span className="meta member-equipment-summary"><Boxes size={13}/>{member.equipment.map(item=>item.code).join(", ")}</span>}</span>
         <span className={"badge "+(member.active?"positive":"")}>{status(member)}</span><ChevronRight size={18}/></button></li>)}
       </ul>{found.length===0&&<Empty icon={Users}>Žiadne zodpovedajúce účty.</Empty>}</div>
       {form&&<Modal title="Pozvať člena" close={()=>setForm(false)}>{link?<InviteLink link={link}/>:<Form label="Vytvoriť pozvánku" submit={async data=>{
