@@ -4,7 +4,7 @@
 
 [Otvoriť členský portál](https://thrust.lf.tuke.sk/dronesoccer/) · [Dokumentácia](docs/index.md)
 
-## Čo v portáli nájdeš
+## Funkcie portálu
 
 - **Kalendár a dochádzka** — tréningy, stretnutia a zápasy, návrhy tréningov s hlasovaním, potvrdenie účasti a prehľad zapísanej dochádzky.
 - **Tímy a rozvoj** — klubové a zápasové zostavy, nominácie, tréningové plány, cvičenia a spätná väzba.
@@ -12,7 +12,7 @@
 - **Vybavenie** — batérie, drony, ovládače a nabíjačky, história použitia a servisu, pridelenia a zápožičky.
 - **Domovská stránka** — vlastný výber widgetov pre telefón aj počítač.
 
-Portál je dostupný na pozvánku. Zobrazené stránky a akcie sa riadia klubovými oprávneniami. Na podporovaných zariadeniach si ho môžeš pridať na plochu ako **DroneSoccer LF**.
+Portál je dostupný na pozvánku. Zobrazené stránky a akcie sa riadia klubovými oprávneniami. Na podporovaných zariadeniach možno portál pridať na plochu ako **DroneSoccer LF**.
 
 ## Príručky
 

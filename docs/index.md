@@ -10,4 +10,4 @@ Drone Soccer Hub je členský portál klubu Drone Soccer na LF TUKE. [Otvoriť �
 | [Technická prevádzka](prevadzka.md) | Lokálny štart, nasadenie na serveri THRUST, aktualizácie, zálohovanie, obnova a riešenie problémov. |
 | [Architektúra a vývoj](architektura.md) | Súčasti portálu, databázové údaje, API, rozšírenie oprávnení a integračné testy. |
 
-Príručky pokrývajú aj funkcie dostupné iba vybraným rolám. V aplikácii je tento prehľad dostupný cez **Profil a nastavenia → O aplikácii → Dokumentácia na GitHube**.
+Popis jednotlivých funkcií sa vzťahuje na účty s príslušnými oprávneniami. Prehľad príručiek sa v aplikácii otvára cez **Profil a nastavenia → O aplikácii → Dokumentácia na GitHube**.

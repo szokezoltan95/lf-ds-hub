@@ -46,11 +46,11 @@ API je dostupné pod `<prefix>/api`. V produkcii je prefix `/dronesoccer`. Zákl
 | `/batteries`, `/battery-charges`, `/equipment` | Evidencia, úkony, servis, pridelenia a zápožičky. |
 | `/push` | Konfigurácia Web Push, odbery a podrobnosti oznámení. |
 
-Pri pridávaní funkcie použi stabilný identifikátor `stranka.blok.akcia` v [permissions.py](../permissions.py) a doplň závislosti. Editor načíta katalóg z API, takže nové právo sa zobrazí v príslušnej skupine. Priraď kontrolu k serverovej trase cez `ENDPOINTS`. Ak jedna trasa vykonáva rôzne úkony, vyber konkrétne právo po validácii vstupu a skontroluj aj prístup ku konkrétnemu záznamu. Právo použi v rozhraní na zobrazenie príslušnej akcie. Server odmieta chránenú trasu bez nastavenej kontroly. Pri zmene existujúceho práva over dopad na uložené pridelenia v databáze.
+Nové oprávnenie sa definuje v [permissions.py](../permissions.py) so stabilným identifikátorom `stranka.blok.akcia` a so všetkými potrebnými závislosťami. Editor načítava katalóg z API a nové právo zobrazuje v príslušnej skupine. Kontrola serverovej trasy sa nastavuje cez `ENDPOINTS`. Pri trase s viacerými úkonmi sa konkrétne právo vyberá po validácii vstupu a overuje sa aj prístup ku konkrétnemu záznamu. Rozhranie podľa oprávnenia zobrazuje príslušnú akciu. Server odmieta prístup k chránenej trase bez nastavenej kontroly. Pri zmene existujúceho práva je potrebné overiť vplyv na pridelenia uložené v databáze.
 
 ## Vývoj a testovanie
 
-Zostavenie frontendu z koreňového adresára repozitára:
+Frontend sa zostavuje z koreňového adresára repozitára.
 
 ```sh
 npm ci --prefix frontend
@@ -59,7 +59,7 @@ npm run build --prefix frontend
 
 Skript prekopíruje lokálne dáta pre výber emoji a vytvorí `frontend/dist`. [Dockerfile](../Dockerfile) používa Node.js 22 na zostavenie a Python 3.12 v aplikačnom obraze.
 
-[Integračné testy](../tests/test_club_updates.py) vyžadujú samostatnú PostgreSQL databázu. Testy vyprázdňujú tabuľky a používajú simulovaný push transport. Priprav prázdnu databázu s používateľom, ktorý v nej môže vytvárať tabuľky, a spúšťaj testy z koreňa repozitára.
+[Integračné testy](../tests/test_club_updates.py) vyžadujú samostatnú databázu PostgreSQL. Testy vyprázdňujú tabuľky a používajú simulované doručovanie push. Potrebná je prázdna databáza a databázový účet s právom vytvárať tabuľky. Testy sa spúšťajú z koreňového adresára repozitára.
 
 ```sh
 python -m venv .venv
@@ -69,4 +69,4 @@ HUB_DATABASE_URL=postgresql://hub:password@localhost/hub_test \
   HUB_DIST=frontend/dist python -m unittest discover -s tests -v
 ```
 
-Pri manuálnom overení použi samostatné účty s príslušnými rolami. Účasť, dochádzku, schvaľovanie tréningu a prevzatie vybavenia skontroluj z pohľadu každej zúčastnenej osoby.
+Na manuálne overenie sa používajú samostatné účty s príslušnými rolami. Potvrdenie účasti, zápis dochádzky, schvaľovanie tréningu a prevzatie vybavenia je potrebné overiť z pohľadu každej zúčastnenej osoby.

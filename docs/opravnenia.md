@@ -6,12 +6,12 @@
 
 **Superadmin** je systémový účet s plným prístupom. Bežný účet môže mať viac klubových rolí. Dostane zjednotenie platných práv zo všetkých svojich rolí. Odobratie práva z jednej roly ho preto neodoberie účtu, ktorý ho má z inej.
 
-Editor je pod **Členovia → Roly a prístupy**. Práva sú zoradené podľa stránky, bloku a akcie. Otvorenie stránky sprístupní jej vstup. Na čítanie podrobností alebo vykonanie konkrétneho úkonu vyber príslušné akcie. Niektoré práva vyžadujú ďalší prístup, napríklad čítanie vybavenia pred zapisovaním servisu. Zásahy do konkrétneho záznamu sa riadia aj jeho stavom, vlastníctvom, adresátom alebo členstvom v skupine.
+Editor je dostupný cez **Členovia → Roly a prístupy**. Práva sú zoradené podľa stránky, bloku a akcie. Právo na otvorenie stránky sprístupňuje vstup na stránku. Na čítanie podrobností alebo vykonanie konkrétneho úkonu je potrebné povoliť príslušné akcie. Niektoré práva majú ďalšie závislosti. Napríklad zápis servisu vyžaduje aj právo na zobrazenie vybavenia. Prístup ku konkrétnemu záznamu môže závisieť aj od jeho stavu, vlastníctva, adresáta alebo členstva v skupine.
 
-1. Otvor vybranú rolu a rozbaľ stránku a blok.
-2. Zaškrtni potrebné akcie a skontroluj ich závislosti. Pri skupinovom výbere skontroluj aj jednotlivé akcie, ktoré obsahuje.
-3. Ulož rolu. Ak ju medzitým upravil iný správca, načítaj jej aktuálne nastavenie.
-4. V prehľade efektívnych práv skontroluj konkrétneho člena. História oprávnení ukazuje pridané a odobraté práva.
+1. Otvoriť vybranú rolu a rozbaliť príslušnú stránku a blok.
+2. Označiť potrebné akcie a overiť ich závislosti. Pri skupinovom výbere skontrolovať aj jednotlivé akcie v skupine.
+3. Uložiť rolu. Ak ju medzitým upravil iný správca, znovu načítať jej nastavenie.
+4. Overiť práva konkrétneho člena v prehľade efektívnych práv. Pridané a odobraté práva sú uvedené v histórii oprávnení.
 
 ## Čo sa dá rozdeliť
 
@@ -33,15 +33,15 @@ Editor je pod **Členovia → Roly a prístupy**. Práva sú zoradené podľa st
 ### Príklady rozdelenia práv
 
 - Hráč môže navrhnúť tréning, hlasovať a potvrdiť vlastnú účasť. Právo vytvoriť oficiálny tréning, upravovať cudzie udalosti a schvaľovať návrhy dostane iba rola, ktorá má tréningy plánovať.
-- Vedúci môže založiť zápožičku dronu. Príjemca s právom **Potvrdiť vlastné prevzatie** môže potvrdiť iba zápožičku založenú pre jeho účet. Zápis vrátenia priraď osobe, ktorá vybavenie preberá, servisné úkony technikovi.
-- Tréner, ktorý eviduje dochádzku hráčov, potrebuje práva na jej prehľad a zápis. Ak sa má aj sám evidovať ako účastník, pridaj mu právo na vlastnú odpoveď.
+- Vedúci môže založiť zápožičku dronu. Príjemca s právom **Potvrdiť vlastné prevzatie** môže potvrdiť iba zápožičku založenú pre jeho účet. Právo na zápis vrátenia možno prideliť osobe, ktorá vybavenie preberá. Práva na servisné úkony možno prideliť technikovi.
+- Tréner, ktorý eviduje dochádzku hráčov, potrebuje práva na jej prehľad a zápis. Na evidenciu trénera aj ako účastníka možno jeho role prideliť právo na vlastnú odpoveď.
 
 ### Kto sa zobrazuje v dochádzke
 
-Pri zaradení medzi účastníkov a v tímovom prehľade sa kontrolujú práva **Kalendár → Účasť → Odpovedať za seba** a **Potvrdiť zmenu za seba**. Stačí jedno z nich v ktorejkoľvek priradenej role. Ak sa vedúci alebo tréner zobrazuje medzi účastníkmi a nemá tam byť, skontroluj obe práva vo všetkých jeho rolách. V detaile konkrétnej udalosti môže osoba zostať zobrazená, ak už má uloženú odpoveď alebo záznam dochádzky.
+Pri zaradení medzi účastníkov a v tímovom prehľade sa kontrolujú práva **Kalendár → Účasť → Odpovedať za seba** a **Potvrdiť zmenu za seba**. Na zaradenie stačí ktorékoľvek z týchto práv v jednej priradenej role. Pri neočakávanom zaradení vedúceho alebo trénera je potrebné overiť obe práva vo všetkých jeho rolách. V detaile konkrétnej udalosti môže osoba zostať zobrazená, ak už má uloženú odpoveď alebo záznam dochádzky.
 
 ## Vyskúšať ako rola
 
-Superadmin môže v **Roly a prístupy** dočasne otvoriť portál ako vybraná rola alebo kombinácia rolí. Náhľad platí pre aktuálnu prihlasovaciu reláciu. Dá sa v ňom overiť viditeľnosť stránok a údajov. Zápisové operácie sú v náhľade blokované. Na ukončenie náhľadu použi trvalo dostupné **Späť na Superadmina** v hornej lište.
+Superadmin môže v časti **Roly a prístupy** dočasne otvoriť portál ako vybraná rola alebo kombinácia rolí. Náhľad platí pre aktuálnu prihlasovaciu reláciu a umožňuje overiť viditeľnosť stránok a údajov. Zápisové operácie sú v náhľade blokované. Náhľad sa ukončuje voľbou **Späť na Superadmina** v hornej lište.
 
-Po nasadení nového oprávnenia skontroluj jeho pridelenie. Existujúce nastavenia sa pri štarte zachovajú. Nové akcie bez samostatnej migrácie musí superadmin povoliť vybraným rolám v editore.
+Po nasadení nového oprávnenia je potrebné overiť jeho pridelenie. Existujúce nastavenia sa pri štarte zachovajú. Nové akcie bez samostatnej migrácie musí superadmin povoliť vybraným rolám v editore.
