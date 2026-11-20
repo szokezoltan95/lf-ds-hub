@@ -571,6 +571,7 @@ class DashboardPreferences(BaseModel):
     widgets: list[DashboardWidgetPreference | DashboardWidgetId] = Field(max_length=14)
     quick_links: list[DashboardLinkId] = Field(default_factory=list, max_length=13)
     theme: Annotated[str, StringConstraints(pattern=r"^(blue|sky|mint|coral|#[0-9a-fA-F]{6})$")] = "blue"
+    columns: Literal[1, 2, 3, 4] = 2
 
 
 @api.put("/me/dashboard-preferences")
@@ -583,7 +584,8 @@ def update_dashboard_preferences(data: DashboardPreferences, conn: DB, user: Use
         if key not in seen:
             widgets.append({"id": key, "display": "both"} if isinstance(value, str) else value)
             seen.add(key)
-    preferences = {"widgets": widgets, "quick_links": list(dict.fromkeys(data.quick_links)), "theme": data.theme}
+    preferences = {"widgets": widgets, "quick_links": list(dict.fromkeys(data.quick_links)),
+                   "theme": data.theme, "columns": data.columns}
     conn.execute("UPDATE members SET dashboard_preferences=%s WHERE id=%s",
                  (Jsonb(preferences), user["id"]))
     return preferences

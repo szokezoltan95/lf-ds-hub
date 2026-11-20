@@ -1940,11 +1940,12 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
   const widgets = rawWidgets.map(item => typeof item === "string" ? {id:item,display:defaults.find(([id])=>id===item)?.[1]||"both"} : item)
     .filter((item,index,list) => item && availableWidgets.includes(item.id) && list.findIndex(other => (typeof other === "string" ? other : other.id) === item.id) === index);
   const theme = saved.theme || "blue";
+  const columns = [1,2,3,4].includes(saved.columns) ? saved.columns : 2;
   const homeColor = theme.startsWith("#") ? theme : ({blue:"#41b6e6",sky:"#7fc8ed",mint:"#83cbb4",coral:"#e8a28c"}[theme] || "#41b6e6");
   const defaultLinks = ["calendar",...(has("messages")? ["messages"]:[]),...(has("announcements")?["announcements"]:[]),...(canRespond?["member_qr"]:[]),...(has("scanner")?["scanner"]:[])];
   const availableLinks = Object.keys(dashboardLinkInfo).filter(key => key === "member_qr" ? canRespond : key === "scanner" ? has("scanner") : key === "messages" ? has("messages")&&user.role!=="superadmin" : key === "team" ? has("team")&&user.role!=="superadmin" : has(key));
   const quickLinks = (Array.isArray(saved.quick_links) ? saved.quick_links : defaultLinks).filter(key => availableLinks.includes(key));
-  const [editOpen, setEditOpen] = useState(false), [draftWidgets, setDraftWidgets] = useState(widgets), [draftLinks, setDraftLinks] = useState(quickLinks), [draftTheme, setDraftTheme] = useState(theme);
+  const [editOpen, setEditOpen] = useState(false), [draftWidgets, setDraftWidgets] = useState(widgets), [draftLinks, setDraftLinks] = useState(quickLinks), [draftTheme, setDraftTheme] = useState(theme), [draftColumns, setDraftColumns] = useState(columns);
   const [dashboardData, setDashboardData] = useState({attendance:[],batteries:[],batteryActivity:[],members:[],teamAttendance:null});
   const [dataLoaded, setDataLoaded] = useState({});
   const [saveError, setSaveError] = useState(""), [saving, setSaving] = useState(false);
@@ -1970,11 +1971,11 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
     });
     return () => {current = false;};
   }, [visibleWidgetIds.join(","), JSON.stringify(dataLoaded)]);
-  function openEditor() {setDraftWidgets(widgets); setDraftLinks(quickLinks); setDraftTheme(theme); setSaveError(""); setEditOpen(true);}
+  function openEditor() {setDraftWidgets(widgets); setDraftLinks(quickLinks); setDraftTheme(theme); setDraftColumns(columns); setSaveError(""); setEditOpen(true);}
   async function saveDashboard() {
     setSaving(true); setSaveError("");
     try {
-      const preferences = await api("me/dashboard-preferences", "PUT", {widgets: draftWidgets, quick_links: draftLinks, theme: draftTheme});
+      const preferences = await api("me/dashboard-preferences", "PUT", {widgets: draftWidgets, quick_links: draftLinks, theme: draftTheme, columns: draftColumns});
       user.dashboard_preferences = preferences;
       setEditOpen(false);
     } catch (error) {setSaveError(error.message);}
@@ -2063,8 +2064,18 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
     </article>;
     return null;
   }
+  const activeWidgetIds=draftWidgets.map(item=>item.id).filter(id=>availableWidgets.includes(id));
+  const inactiveWidgetIds=availableWidgets.filter(id=>!activeWidgetIds.includes(id));
+  function renderEditorWidget(key, selected) {
+    const [Icon,label]=dashboardWidgetInfo[key], position=draftWidgets.findIndex(item=>item.id===key), display=selected?draftWidgets[position].display:"both";
+    return <div className={"dashboard-editor-row "+(selected?"is-active":"is-inactive")} key={key}>
+      {selected&&<span className="dashboard-order-number" aria-label={"Poradie "+(position+1)}>{position+1}</span>}
+      <label className="checkbox"><input type="checkbox" checked={selected} onChange={event=>setDraftWidgets(items=>event.target.checked?[...items,{id:key,display:"both"}]:items.filter(item=>item.id!==key))}/><Icon size={18}/><span>{label}</span></label>
+      {selected&&<div className="dashboard-editor-controls"><select aria-label={label+" – zobrazenie"} value={display} onChange={event=>setDraftWidgets(items=>items.map(item=>item.id===key?{...item,display:event.target.value}:item))}><option value="both">Všade</option><option value="desktop">Len desktop</option><option value="mobile">Len mobil</option></select><span className="dashboard-reorder"><button type="button" className="icon-button" aria-label={"Posunúť "+label+" vyššie"} disabled={position<=0} onClick={()=>setDraftWidgets(items=>{const copy=[...items],i=copy.findIndex(item=>item.id===key);[copy[i-1],copy[i]]=[copy[i],copy[i-1]];return copy;})}><MoveUp size={17}/></button><button type="button" className="icon-button" aria-label={"Posunúť "+label+" nižšie"} disabled={position===draftWidgets.length-1} onClick={()=>setDraftWidgets(items=>{const copy=[...items],i=copy.findIndex(item=>item.id===key);[copy[i+1],copy[i]]=[copy[i],copy[i+1]];return copy;})}><MoveDown size={17}/></button></span></div>}
+    </div>;
+  }
   return <>
-    <section className="home-welcome" style={{"--home-color": homeColor}}>
+    <section className="home-welcome" style={{"--home-color": homeColor,"--dashboard-columns": columns}}>
       <button className="home-edit-icon" aria-label="Upraviť úvodnú stránku" title="Upraviť úvodnú stránku" onClick={openEditor}><SlidersHorizontal size={18}/></button>
       <section className="home-summary-widget" aria-label="Privítanie a dôležité informácie">
         <div className="home-greeting"><time dateTime={today()}>{new Date().toLocaleDateString(uiLocale(), {weekday: "long", day: "numeric", month: "long", timeZone})}</time><h2>Ahoj, {user.name.split(" ")[0]}!</h2></div>
@@ -2074,12 +2085,15 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
     </section>
     {editOpen && <Modal title="Prispôsobiť úvodnú stránku" close={() => setEditOpen(false)}><div className="dashboard-editor">
       <p className="muted">Vyber widgety a urč, na ktorých displejoch sa zobrazia. Poradie je spoločné.</p>
-      <div className="dashboard-editor-widgets">{availableWidgets.map(key => {const [Icon,label]=dashboardWidgetInfo[key], position=draftWidgets.findIndex(item=>item.id===key), selected=position>=0, display=selected?draftWidgets[position].display:"both"; return <div className="dashboard-editor-row" key={key}>
-        <label className="checkbox"><input type="checkbox" checked={selected} onChange={event=>setDraftWidgets(items=>event.target.checked?[...items,{id:key,display:"both"}]:items.filter(item=>item.id!==key))}/><Icon size={18}/><span>{label}</span></label>
-        {selected&&<div className="dashboard-editor-controls"><select aria-label={label+" – zobrazenie"} value={display} onChange={event=>setDraftWidgets(items=>items.map(item=>item.id===key?{...item,display:event.target.value}:item))}><option value="both">Všade</option><option value="desktop">Len desktop</option><option value="mobile">Len mobil</option></select><span className="dashboard-reorder"><button type="button" className="icon-button" aria-label={"Posunúť "+label+" vyššie"} disabled={position<=0} onClick={()=>setDraftWidgets(items=>{const copy=[...items],i=copy.findIndex(item=>item.id===key);[copy[i-1],copy[i]]=[copy[i],copy[i-1]];return copy;})}><MoveUp size={17}/></button><button type="button" className="icon-button" aria-label={"Posunúť "+label+" nižšie"} disabled={position===draftWidgets.length-1} onClick={()=>setDraftWidgets(items=>{const copy=[...items],i=copy.findIndex(item=>item.id===key);[copy[i+1],copy[i]]=[copy[i],copy[i+1]];return copy;})}><MoveDown size={17}/></button></span></div>}
-      </div>;})}</div>
+      <label className="dashboard-column-setting">Počet stĺpcov na desktope<select value={draftColumns} onChange={event=>setDraftColumns(Number(event.target.value))}><option value="1">1 stĺpec</option><option value="2">2 stĺpce</option><option value="3">3 stĺpce</option><option value="4">4 stĺpce</option></select></label>
+      <div className="dashboard-editor-widgets">
+        {activeWidgetIds.length>0&&<strong className="dashboard-editor-section-label">Zobrazené widgety · aktuálne poradie</strong>}
+        {activeWidgetIds.map(key=>renderEditorWidget(key,true))}
+        {inactiveWidgetIds.length>0&&<strong className="dashboard-editor-section-label inactive">Neaktívne widgety</strong>}
+        {inactiveWidgetIds.map(key=>renderEditorWidget(key,false))}
+      </div>
       {draftWidgets.some(item=>item.id==="quick_links")&&<fieldset className="dashboard-link-picker"><legend>Odkazy v widgete Rýchly prístup</legend>{availableLinks.map(key=>{const [Icon,label]=dashboardLinkInfo[key];return <label className="checkbox" key={key}><input type="checkbox" checked={draftLinks.includes(key)} onChange={event=>setDraftLinks(items=>event.target.checked?[...items,key]:items.filter(item=>item!==key))}/><Icon size={17}/><span>{label}</span></label>;})}</fieldset>}
-      <fieldset className="dashboard-theme-picker"><legend>Farebný tón panelu</legend><div className="dashboard-theme-options">{dashboardThemes.map(([key,label])=><label key={key}><input type="radio" name="dashboard-theme" checked={draftTheme===key} onChange={()=>setDraftTheme(key)}/><span className={"dashboard-theme-swatch theme-"+key}/>{label}</label>)}
+      <fieldset className="dashboard-theme-picker"><legend>Farebný akcent</legend><div className="dashboard-theme-options">{dashboardThemes.map(([key,label])=><label key={key}><input type="radio" name="dashboard-theme" checked={draftTheme===key} onChange={()=>setDraftTheme(key)}/><span className={"dashboard-theme-swatch theme-"+key}/>{label}</label>)}
         <label className="dashboard-custom-color"><input type="radio" name="dashboard-theme" checked={draftTheme.startsWith("#")} onChange={()=>setDraftTheme(draftTheme.startsWith("#")?draftTheme:"#a78bfa")}/><input type="color" aria-label="Vlastná farba" value={draftTheme.startsWith("#")?draftTheme:"#a78bfa"} onChange={event=>setDraftTheme(event.target.value)}/>Vlastná</label></div></fieldset>
       {saveError && <p className="error" role="alert">{saveError}</p>}<div className="actions"><button type="button" onClick={()=>setEditOpen(false)}>Zrušiť</button><button type="button" className="primary" disabled={saving} onClick={saveDashboard}>{saving?"Ukladá sa…":"Uložiť"}</button></div>
     </div></Modal>}
