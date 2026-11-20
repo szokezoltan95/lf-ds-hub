@@ -332,7 +332,7 @@ Object.assign(ukrainianExtra, {
 Object.assign(englishExtra, {
   "Multinabíjačka ":"Multi-charger ", "Zaznamenať nabitie":"Record charge", "Vybrať všetky vhodné batérie":"Select all eligible batteries",
   "Vyber aspoň jednu batériu.":"Select at least one battery.", "Nabitie zapísané pre ":"Charging recorded for ", "batérií.":"batteries.",
-  "Kód multinabíjačky musí mať LF-C a 2 až 6 číslic, napríklad LF-C01.":"A multi-charger code must start with LF-C and contain 2 to 6 digits, for example LF-C01.",
+  "Kód nabíjačky musí mať LF-X a 2 až 6 číslic, napríklad LF-X01.":"A multi-charger code must start with LF-C and contain 2 to 6 digits, for example LF-C01.",
   "Batéria môže byť vo výbere uvedená iba raz.":"A battery can only be selected once.", "Jedna alebo viaceré vybrané batérie sa nenašli.":"One or more selected batteries could not be found.",
   "Poškodené, vyradené alebo uskladnené batérie nemožno označiť ako nabité: ":"Damaged, retired or stored batteries cannot be marked as charged: ",
   "Identifikátor nabíjania už bol použitý.":"This charging request ID has already been used."
@@ -340,7 +340,7 @@ Object.assign(englishExtra, {
 Object.assign(ukrainianExtra, {
   "Multinabíjačka ":"Мультизарядний пристрій ", "Zaznamenať nabitie":"Записати заряджання", "Vybrať všetky vhodné batérie":"Вибрати всі придатні акумулятори",
   "Vyber aspoň jednu batériu.":"Виберіть принаймні один акумулятор.", "Nabitie zapísané pre ":"Заряджання записано для ", "batérií.":"акумуляторів.",
-  "Kód multinabíjačky musí mať LF-C a 2 až 6 číslic, napríklad LF-C01.":"Код мультизарядного пристрою має починатися з LF-C і містити від 2 до 6 цифр, наприклад LF-C01.",
+  "Kód nabíjačky musí mať LF-X a 2 až 6 číslic, napríklad LF-X01.":"Код мультизарядного пристрою має починатися з LF-C і містити від 2 до 6 цифр, наприклад LF-C01.",
   "Batéria môže byť vo výbere uvedená iba raz.":"Акумулятор можна вибрати лише один раз.", "Jedna alebo viaceré vybrané batérie sa nenašli.":"Один або кілька вибраних акумуляторів не знайдено.",
   "Poškodené, vyradené alebo uskladnené batérie nemožno označiť ako nabité: ":"Пошкоджені, списані або складські акумулятори не можна позначити як заряджені: ",
   "Identifikátor nabíjania už bol použitý.":"Цей ідентифікатор заряджання вже використано."
@@ -435,4 +435,11 @@ Object.assign(ukrainianExtra, {
   "Pôvodná poznámka": "Початкова примітка", "pôvodne prídu": "спочатку планували прийти", "prídu po zmene": "прийдуть після зміни",
   "Udalosť bola medzitým upravená. Otvor ju znova.": "Подію вже відредаговано. Відкрий її знову, щоб внести зміни.",
   "Podmienky udalosti sa zmenili. Skontroluj aktuálny termín a miesto.": "Умови події змінилися. Перевір актуальні час і місце."
+});
+
+Object.assign(englishExtra, {
+  "Tímy a zostavy":"Teams and lineups", "Prehľad tímov":"Team overview", "Vybavenie":"Equipment", "Zariadenie":"Equipment type", "Všetky typy":"All types", "Batérie":"Batteries", "Nabíjačky":"Chargers", "Drony":"Drones", "Ovládače":"Controllers", "Pridať zariadenie":"Add equipment", "Typ zariadenia":"Equipment type", "Vyber úkon":"Choose an action", "Zaznamenať úkon":"Record action", "V drone":"In drone", "Pridelené":"Assigned", "Vrátené":"Returned", "Predletová kontrola":"Pre-flight inspection", "Použitie na tréningu":"Used in training", "Porucha":"Fault", "Oprava":"Repair", "Údržba":"Maintenance", "Výmena vrtúľ":"Propeller replacement", "Výmena motorov":"Motor replacement", "Kontrola batérie":"Battery check", "Vyradené":"Retired", "Bez záznamu":"No records", "Pridať":"Add", "Viac":"More", "Hľadať emoji…":"Search emoji…", "Načítavajú sa emoji…":"Loading emoji…", "Emoji sa nenašli.":"No emoji found.", "Záznam bol uložený.":"Record saved.", "Zariadenie ešte nie je evidované.":"This equipment has not been registered yet.", "Zariadenie nie je evidované. Požiadaj trénera o jeho pridanie.":"This equipment is not registered. Ask a coach to add it."
+});
+Object.assign(ukrainianExtra, {
+  "Tímy a zostavy":"Команди та склади", "Prehľad tímov":"Огляд команди", "Vybavenie":"Обладнання", "Zariadenie":"Тип обладнання", "Všetky typy":"Усі типи", "Batérie":"Акумулятори", "Nabíjačky":"Зарядні пристрої", "Drony":"Дрони", "Ovládače":"Пульти", "Pridať zariadenie":"Додати обладнання", "Typ zariadenia":"Тип обладнання", "Vyber úkon":"Виберіть дію", "Zaznamenať úkon":"Записати дію", "V drone":"У дроні", "Pridelené":"Призначено", "Vrátené":"Повернуто", "Predletová kontrola":"Передпольотна перевірка", "Použitie na tréningu":"Використано на тренуванні", "Porucha":"Несправність", "Oprava":"Ремонт", "Údržba":"Обслуговування", "Výmena vrtúľ":"Заміна пропелерів", "Výmena motorov":"Заміна моторів", "Kontrola batérie":"Перевірка акумулятора", "Vyradené":"Списано", "Bez záznamu":"Немає записів", "Viac":"Ще", "Hľadať emoji…":"Пошук емодзі…", "Načítavajú sa emoji…":"Завантаження емодзі…", "Emoji sa nenašli.":"Емодзі не знайдено.", "Záznam bol uložený.":"Запис збережено.", "Zariadenie ešte nie je evidované.":"Обладнання ще не зареєстровано.", "Zariadenie nie je evidované. Požiadaj trénera o jeho pridanie.":"Обладнання не зареєстроване. Попросіть тренера додати його."
 });

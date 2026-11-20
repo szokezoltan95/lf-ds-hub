@@ -42,7 +42,7 @@ COOKIE = "lf_ds_hub_session"
 CLUB_ZONE = ZoneInfo("Europe/Bratislava")
 STAFF_ROLES = ("superadmin", "coach")
 MENU_KEYS = ("home", "calendar", "attendance", "scanner", "messages", "announcements", "members",
-             "team", "development", "lineups", "drills", "equipment", "documents")
+             "team", "development", "drills", "equipment", "documents")
 ROLE_DEFINITIONS = {
     "player": ("Hráč", "Zúčastňuje sa na činnosti tímu a používa členskú aplikáciu.", True, False,
                ("home", "calendar", "scanner", "messages", "announcements", "team", "equipment", "documents")),
@@ -57,11 +57,11 @@ ROLE_DEFINITIONS = {
     "social_media_manager": ("Správca sociálnych sietí", "Pripravuje klubové oznamy a komunikačné podklady.", True, True,
                              ("home", "messages", "announcements", "documents")),
     "competition_coordinator": ("Koordinátor súťaží", "Koordinuje zápasy, nominácie a súťažné zostavy.", True, True,
-                                ("home", "calendar", "attendance", "members", "team", "lineups", "announcements", "documents")),
+              ("home", "calendar", "attendance", "members", "team", "announcements", "documents")),
     "recruitment_coordinator": ("Koordinátor náboru", "Komunikuje so záujemcami a organizuje nábor.", False, False, ()),
     "safety_coordinator": ("Bezpečnostný a prevádzkový koordinátor", "Spravuje bezpečnostné postupy a poučenia.", False, False, ()),
     "team_coordinator": ("Koordinátor tímov", "Koordinuje zloženie tímov a priradenie hráčov.", True, True,
-                         ("home", "calendar", "members", "team", "lineups")),
+                         ("home", "calendar", "members", "team")),
     "content_creator": ("Fotograf / tvorca obsahu", "Pripravuje fotografie a klubový obsah.", False, False, ()),
 }
 ROLE_CAPABILITIES = {
@@ -116,7 +116,7 @@ def menu_for_path(path, method="GET"):
         if "/attendance" in path:
             return "attendance"
         if "/lineup" in path:
-            return "team" if method in {"GET", "HEAD"} else "lineups"
+            return "team"
         return "calendar"
     if path.startswith(("attendance",)):
         return "attendance"
@@ -127,7 +127,7 @@ def menu_for_path(path, method="GET"):
     if path.startswith("role-requests"):
         return "members"
     if path.startswith(("lineup",)):
-        return "team" if method in {"GET", "HEAD"} else "lineups"
+        return "team"
     if path.startswith(("drills",)):
         return "drills"
     if path.startswith(("announcements", "announcement-")):
@@ -136,7 +136,7 @@ def menu_for_path(path, method="GET"):
         return "documents"
     if path.startswith(("conversations", "contacts", "chat-groups", "messages")):
         return "messages"
-    if path.startswith(("batteries",)):
+    if path.startswith(("batteries", "equipment")):
         return "equipment"
     return None
 
@@ -171,7 +171,8 @@ Password = Annotated[str, StringConstraints(min_length=8, max_length=128)]
 Body = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
 Note = Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)]
 Code = Annotated[str, StringConstraints(pattern=r"^LF-B[0-9]{2,6}$")]
-ChargerCode = Annotated[str, StringConstraints(pattern=r"^LF-C[0-9]{2,6}$")]
+ChargerCode = Annotated[str, StringConstraints(pattern=r"^LF-X[0-9]{2,6}$")]
+EquipmentCode = Annotated[str, StringConstraints(pattern=r"^LF-(?:C|D|X)[0-9]{2,6}$")]
 
 
 def connect():
@@ -219,6 +220,7 @@ async def lifespan(_app):
     with connect() as conn:
         conn.execute("SELECT pg_advisory_xact_lock(81364, 1)")
         conn.execute((ROOT / "schema.sql").read_text(), prepare=False)
+        conn.execute((ROOT / "equipment_schema.sql").read_text(), prepare=False)
         seed_access_control(conn)
         account = conn.execute(
             "SELECT id, password_hash FROM members WHERE role='superadmin' FOR UPDATE"
@@ -1000,7 +1002,7 @@ def delete_training(training_id: int, conn: DB, user: Staff):
 
 
 def club_date(timestamp):
-    return timestamp.astimezone(CLUB_ZONE).strftime("%d.%m.%Y %H:%M")
+    return timestamp.astimezone(CLUB_ZONE).strftime("%d/%m/%Y %H:%M")
 
 
 @api.put("/trainings/{training_id}/rsvp")
@@ -1887,7 +1889,8 @@ def interactive_message(conn, message_id, user, *, edit_options=False):
     return row
 
 
-ReactionEmoji = Literal["👍", "❤️", "😂", "😮", "😢", "🎉"]
+ReactionEmoji = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=32,
+                                                  pattern=r"^[^\s]{1,32}$")]
 
 
 class MessageReaction(BaseModel):
@@ -2064,7 +2067,7 @@ class BatteryEvent(BaseModel):
 def batteries(conn: DB, _user: User):
     return conn.execute(
         """SELECT b.*,
-        (SELECT CASE WHEN action='used' THEN NULL ELSE action END FROM battery_events WHERE code=b.code
+        (SELECT CASE WHEN action='used' THEN 'in_drone' ELSE action END FROM battery_events WHERE code=b.code
           AND action IN ('used','charged','discharged','stored','storage_exit','damaged','retired')
           ORDER BY id DESC LIMIT 1) AS status,
         (SELECT created_at FROM battery_events WHERE code=b.code
@@ -2130,7 +2133,7 @@ def add_event(code: Code, data: BatteryEvent, conn: DB, user: User):
             if (previous["code"],previous["actor_id"],previous["action"],previous["note"]) != (code,user["id"],data.action,data.note):
                 raise HTTPException(409, "Identifikátor záznamu už bol použitý.")
             return {"ok": True}
-    last = conn.execute("SELECT CASE WHEN action='used' THEN NULL ELSE action END AS action FROM battery_events WHERE code=%s AND action IN ('used','charged','discharged','stored','storage_exit','damaged','retired') ORDER BY id DESC LIMIT 1",
+    last = conn.execute("SELECT CASE WHEN action='used' THEN 'in_drone' ELSE action END AS action FROM battery_events WHERE code=%s AND action IN ('used','charged','discharged','stored','storage_exit','damaged','retired') ORDER BY id DESC LIMIT 1",
                         (code,)).fetchone()
     status = last["action"] if last else None
     if (status == "retired" and data.action != "note") or (status == "damaged" and data.action not in {"damaged", "retired", "note"}):
@@ -2145,6 +2148,74 @@ def add_event(code: Code, data: BatteryEvent, conn: DB, user: User):
     )
     if not inserted.rowcount:
         raise HTTPException(409, "Identifikátor záznamu už bol použitý.")
+    return {"ok": True}
+
+
+class EquipmentAssetInput(BaseModel):
+    code: EquipmentCode
+    kind: Literal["controller", "drone", "charger"]
+    label: Short
+
+    @model_validator(mode="after")
+    def prefix_matches_kind(self):
+        expected = {"controller": "LF-C", "drone": "LF-D", "charger": "LF-X"}[self.kind]
+        if not self.code.startswith(expected):
+            raise ValueError("Kód zariadenia nezodpovedá jeho typu.")
+        return self
+
+
+class EquipmentEventInput(BaseModel):
+    action: Literal["assigned", "returned", "inspection", "training", "fault", "repair", "maintenance",
+                    "propeller_replacement", "motor_replacement", "battery_check", "retired", "note"]
+    note: Note = ""
+
+
+@api.get("/equipment/assets")
+def equipment_assets(conn: DB, _user: User):
+    return conn.execute(
+        """SELECT a.code,a.kind,a.label,a.created_at,e.action AS status,e.created_at AS status_at
+        FROM equipment_assets a LEFT JOIN LATERAL (
+            SELECT action,created_at FROM equipment_events WHERE code=a.code ORDER BY id DESC LIMIT 1
+        ) e ON true ORDER BY a.kind,a.code"""
+    ).fetchall()
+
+
+@api.post("/equipment/assets")
+def add_equipment_asset(data: EquipmentAssetInput, conn: DB, _staff: Staff):
+    result = conn.execute("INSERT INTO equipment_assets(code,kind,label) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+                          (data.code, data.kind, data.label))
+    if not result.rowcount:
+        raise HTTPException(409, "Zariadenie s týmto kódom už existuje.")
+    return {"ok": True}
+
+
+@api.get("/equipment/assets/{code}/events")
+def equipment_asset_events(code: EquipmentCode, conn: DB, _user: User):
+    if not conn.execute("SELECT 1 FROM equipment_assets WHERE code=%s", (code,)).fetchone():
+        raise HTTPException(404, "Zariadenie sa nenašlo.")
+    return conn.execute(
+        """SELECT e.id,e.code,e.action,e.note,e.created_at,
+        CASE WHEN m.role='superadmin' THEN 'Systém' ELSE COALESCE(m.name,'Odstránený účet') END AS name
+        FROM equipment_events e LEFT JOIN members m ON m.id=e.actor_id WHERE e.code=%s ORDER BY e.id DESC LIMIT 100""",
+        (code,),
+    ).fetchall()
+
+
+@api.post("/equipment/assets/{code}/events")
+def add_equipment_event(code: EquipmentCode, data: EquipmentEventInput, conn: DB, user: User):
+    asset = conn.execute("SELECT kind FROM equipment_assets WHERE code=%s FOR UPDATE", (code,)).fetchone()
+    if not asset:
+        raise HTTPException(404, "Zariadenie sa nenašlo.")
+    if data.action in {"propeller_replacement", "motor_replacement"} and asset["kind"] != "drone":
+        raise HTTPException(422, "Výmena vrtúľ alebo motorov sa eviduje iba pri dronoch.")
+    if data.action == "battery_check" and asset["kind"] != "controller":
+        raise HTTPException(422, "Kontrola batérie ovládača sa eviduje iba pri ovládačoch.")
+    if data.action != "note":
+        last = conn.execute("SELECT action FROM equipment_events WHERE code=%s ORDER BY id DESC LIMIT 1", (code,)).fetchone()
+        if last and last["action"] == "retired":
+            raise HTTPException(409, "Zariadenie je vyradené.")
+    conn.execute("INSERT INTO equipment_events(code,actor_id,action,note) VALUES (%s,%s,%s,%s)",
+                  (code, user["id"], data.action, data.note))
     return {"ok": True}
 
 
@@ -2201,13 +2272,27 @@ def scan_value(value):
     if value.upper().startswith('LF-C'):
         value=value.upper()
         try:
+            controller=TypeAdapter(EquipmentCode).validate_python(value)
+            return 'controller',controller
+        except ValueError:
+            raise HTTPException(422,'Kód ovládača musí mať LF-C a 2 až 6 číslic, napríklad LF-C01.') from None
+    if value.upper().startswith('LF-D'):
+        value=value.upper()
+        try:
+            drone=TypeAdapter(EquipmentCode).validate_python(value)
+            return 'drone',drone
+        except ValueError:
+            raise HTTPException(422,'Kód dronu musí mať LF-D a 2 až 6 číslic, napríklad LF-D01.') from None
+    if value.upper().startswith('LF-X'):
+        value=value.upper()
+        try:
             charger=TypeAdapter(ChargerCode).validate_python(value)
             return 'charger',charger
         except ValueError:
-            raise HTTPException(422,'Kód multinabíjačky musí mať LF-C a 2 až 6 číslic, napríklad LF-C01.') from None
+            raise HTTPException(422,'Kód nabíjačky musí mať LF-X a 2 až 6 číslic, napríklad LF-X01.') from None
     if re.fullmatch(r'LF-M:[A-Za-z0-9_-]{43}',value):
         return 'member',value[5:]
-    raise HTTPException(422,'Nerozpoznaný kód. Použi klubový kód batérie alebo členský QR.')
+    raise HTTPException(422,'Nerozpoznaný kód. Použi kód zariadenia LF-B, LF-C, LF-D alebo LF-X, prípadne členský QR.')
 
 
 @api.get('/scan/events')
@@ -2247,15 +2332,27 @@ def scan(data:ScanRequest, conn:DB, user:User):
     if kind=='charger':
         batteries=conn.execute(
             """SELECT b.code,b.label,
-            (SELECT CASE WHEN action='used' THEN NULL ELSE action END FROM battery_events
+            (SELECT CASE WHEN action='used' THEN 'in_drone' ELSE action END FROM battery_events
               WHERE code=b.code AND action IN ('used','charged','discharged','stored','storage_exit','damaged','retired')
               ORDER BY id DESC LIMIT 1) AS status
             FROM batteries b ORDER BY b.code"""
         ).fetchall()
         return {'type':'charger','code':code,'batteries':batteries}
+    if kind in {'controller','drone'}:
+        asset=conn.execute(
+            """SELECT a.code,a.kind,a.label,e.action AS status,e.created_at AS status_at
+            FROM equipment_assets a LEFT JOIN LATERAL (
+              SELECT action,created_at FROM equipment_events WHERE code=a.code ORDER BY id DESC LIMIT 1
+            ) e ON true WHERE a.code=%s""",(code,),
+        ).fetchone()
+        if not asset and user['role'] not in STAFF_ROLES:
+            raise HTTPException(404,'Zariadenie nie je evidované. Požiadaj trénera o jeho pridanie.')
+        return {'type':'equipment','exists':bool(asset),'code':code,
+                'kind':asset['kind'] if asset else kind,'label':asset['label'] if asset else code,
+                'status':asset['status'] if asset else None,'status_at':asset['status_at'] if asset else None}
     if kind=='battery':
         battery=conn.execute(
-            """SELECT b.*,(SELECT CASE WHEN action='used' THEN NULL ELSE action END FROM battery_events WHERE code=b.code
+            """SELECT b.*,(SELECT CASE WHEN action='used' THEN 'in_drone' ELSE action END FROM battery_events WHERE code=b.code
               AND action IN ('used','charged','discharged','stored','storage_exit','damaged','retired')
               ORDER BY id DESC LIMIT 1) AS status,
               (SELECT created_at FROM battery_events WHERE code=b.code

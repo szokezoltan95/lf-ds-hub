@@ -12,15 +12,20 @@ import "./style.css";
 import {CameraScanner} from "./scanner.jsx";
 import {usePwaInstall, promptInstallation, installationPlatform} from "./install.js";
 import {detectLanguage, initialLanguage, localizeText, translateNode, translatePage} from "./localization.js";
+import {EmojiPicker} from "frimousse";
 
 const base = new URL("./", location.href);
 let activeLanguage = initialLanguage();
 const uiLocale = () => activeLanguage === "sk" ? "sk-SK" : activeLanguage === "uk" ? "uk-UA" : "en-GB";
 const labels = {yes: "Prídem", no: "Neprídem", maybe: "Ešte neviem"};
-const batteryLabels = {used: "Použitie zaznamenané", charged: "Nabitá", discharged: "Vybitá", stored: "Dlhodobo uskladnená", storage_exit: "Vydaná zo skladu", damaged: "Poškodená", retired: "Vyradená", note: "Poznámka"};
-const batteryStateLabels = {charged: "Nabitá", discharged: "Vybitá", stored: "Dlhodobo uskladnená", storage_exit: "Stav neznámy po vybratí zo skladu", damaged: "Poškodená", retired: "Vyradená"};
+const batteryLabels = {used: "V drone", charged: "Nabitá", discharged: "Vybitá", stored: "Dlhodobo uskladnená", storage_exit: "Vydaná zo skladu", damaged: "Poškodená", retired: "Vyradená", note: "Poznámka"};
+const batteryStateLabels = {in_drone: "V drone", charged: "Nabitá", discharged: "Vybitá", stored: "Dlhodobo uskladnená", storage_exit: "Stav neznámy po vybratí zo skladu", damaged: "Poškodená", retired: "Vyradená"};
 const timeZone = "Europe/Bratislava";
-const date = value => new Date(value).toLocaleString(uiLocale(), {dateStyle: "medium", timeStyle: "short", timeZone});
+const formatShortDate = value => {
+  const dateValue = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(value + "T00:00:00Z") : new Date(value);
+  return new Intl.DateTimeFormat("en-GB", {day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Europe/Bratislava"}).format(dateValue);
+};
+const date = value => formatShortDate(value) + " " + new Intl.DateTimeFormat(uiLocale(), {hour: "2-digit", minute: "2-digit", timeZone}).format(new Date(value));
 const past = t => new Date(t.starts_at) <= new Date();
 const hash = () => new URLSearchParams(location.hash.slice(1));
 const trainingParts = new Intl.DateTimeFormat("sv-SE", {
@@ -194,8 +199,8 @@ function TrainingForm({training, initialDay, places, done}) {
     </select></label>
     <label>Názov<input name="title" maxLength="120" defaultValue={training?.title} placeholder={kinds[kind]} /></label>
     <div className="form-row">
-      <label>Začiatok<input type="datetime-local" name="starts_at" defaultValue={training ? clubLocal(training.starts_at) : initialDay ? initialDay + "T17:00" : ""} required /></label>
-      <label>Koniec<input type="datetime-local" name="ends_at" defaultValue={training?.ends_at ? clubLocal(training.ends_at) : ""} /></label>
+      <label>Začiatok<input type="datetime-local" lang="sk-SK" name="starts_at" defaultValue={training ? clubLocal(training.starts_at) : initialDay ? initialDay + "T17:00" : ""} required /></label>
+      <label>Koniec<input type="datetime-local" lang="sk-SK" name="ends_at" defaultValue={training?.ends_at ? clubLocal(training.ends_at) : ""} /></label>
     </div>
     <small>Časy sú v časovom pásme Slovenska.</small>
     <label>Miesto{newPlace ?
@@ -256,11 +261,9 @@ function RSVP({training, refresh}) {
 }
 
 function TrainingCard({training, staff, canRespond = !staff, refresh, open, prominent = false}) {
-  const day = new Date(training.starts_at);
   return <article className={"card training-card event-" + (training.kind || "training") + " " + (prominent ? "prominent " : "") + (training.cancelled ? "cancelled" : "")}>
     <button className="event-link" onClick={open}>
-      <span className="date-tile"><strong>{day.toLocaleDateString(uiLocale(), {day: "numeric", timeZone})}</strong>
-        <span>{day.toLocaleDateString(uiLocale(), {month: "short", timeZone})}</span></span>
+      <span className="date-tile"><strong>{formatShortDate(training.starts_at)}</strong></span>
       <span className="event-text"><span className={"badge event-type " + (training.kind || "training")}>{kinds[training.kind] || "Tréning"}</span><strong>{training.title}</strong>
         <span className="meta"><Clock size={14} />{clock(training.starts_at)}{training.ends_at && " – " + clock(training.ends_at)}</span>
         <span className="meta"><MapPin size={14} />{training.location}</span>
@@ -483,12 +486,9 @@ function TrainingDetail({training, staff, canRespond, places, close, refresh, op
 }
 
 function Calendar({trainings, staff, canRespond, places, refresh, openTraining}) {
-  const [view, setView] = useState("list");
-  const [period, setPeriod] = useState("upcoming");
   const [month, setMonth] = useState(() => today().slice(0, 7));
   const [selectedDay, setSelectedDay] = useState(null);
   const [create, setCreate] = useState(false);
-  const filtered = trainings.filter(t => period === "all" || (period === "past" ? past(t) : !past(t)));
   const [year, monthNumber] = month.split("-").map(Number);
   const start = new Date(Date.UTC(year, monthNumber - 1, 1));
   const padding = (start.getUTCDay() + 6) % 7;
@@ -497,24 +497,21 @@ function Calendar({trainings, staff, canRespond, places, refresh, openTraining})
     setMonth(new Date(Date.UTC(year, monthNumber - 1 + offset, 1)).toISOString().slice(0, 7));
     setSelectedDay(null);
   }
-  const shown = view === "month" ? trainings.filter(t => dayKey(t.starts_at).startsWith(month) && (!selectedDay || dayKey(t.starts_at) === selectedDay)).sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)) : filtered;
+  const shown = trainings.filter(t => dayKey(t.starts_at).startsWith(month) && (!selectedDay || dayKey(t.starts_at) === selectedDay))
+    .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
   return <>
     <PageToolbar><div className="page-toolbar-row">
-      <div className="segmented"><button aria-pressed={view === "list"} onClick={() => setView("list")}>Zoznam</button>
-        <button aria-pressed={view === "month"} onClick={() => setView("month")}>Mesiac</button></div>
-      {view === "list" ? <div className="chips">{[["upcoming", "Nadchádzajúce"], ["past", "História"], ["all", "Všetky"]].map(([value, label]) =>
-        <button key={value} aria-pressed={period === value} onClick={() => setPeriod(value)}>{label}</button>)}</div> :
-        <div className="period-control">
-          <button className="icon-button" aria-label="Predchádzajúci mesiac" onClick={() => moveMonth(-1)}><ChevronLeft size={18} /></button>
-          <span aria-live="polite">{start.toLocaleDateString(uiLocale(), {month: "long", year: "numeric", timeZone: "UTC"})}</span>
-          <button className="icon-button" aria-label="Nasledujúci mesiac" onClick={() => moveMonth(1)}><ChevronRight size={18} /></button>
-        </div>}
+      <div className="period-control">
+        <button className="icon-button" aria-label="Predchádzajúci mesiac" onClick={() => moveMonth(-1)}><ChevronLeft size={18} /></button>
+        <span aria-live="polite">{start.toLocaleDateString(uiLocale(), {month: "long", year: "numeric", timeZone: "UTC"})}</span>
+        <button className="icon-button" aria-label="Nasledujúci mesiac" onClick={() => moveMonth(1)}><ChevronRight size={18} /></button>
+      </div>
       {staff && <button className="primary page-primary" onClick={() => setCreate(true)}><Plus size={18} />
-        {selectedDay ? <>Pridať udalosť na {selectedDay.split("-").reverse().join(".")}</> : "Naplánovať"}
+        {selectedDay ? <>Pridať udalosť na {formatShortDate(selectedDay)}</> : "Naplánovať"}
       </button>}
     </div></PageToolbar>
-    <div className={view === "month" ? "calendar-month-layout" : undefined}>
-      {view === "month" && <section className="card calendar">
+    <div className="calendar-month-layout">
+      <section className="card calendar">
         <div className="calendar-grid">{["Po", "Ut", "St", "Št", "Pi", "So", "Ne"].map(day => <span className="weekday" key={day}>{day}</span>)}
           {Array.from({length: padding}, (_, i) => <span key={"pad" + i} />)}
           {Array.from({length: days}, (_, i) => {
@@ -522,18 +519,16 @@ function Calendar({trainings, staff, canRespond, places, refresh, openTraining})
             const activities = trainings.filter(t => dayKey(t.starts_at) === key && !t.cancelled);
             const types = [...new Set(activities.map(t => t.kind || "training"))];
             const summary = activities.map(t => kinds[t.kind || "training"] + ": " + t.title).join(", ");
-            return <button key={key} aria-label={"Vybrať " + key + (summary ? " · " + summary : "")} aria-pressed={selectedDay === key}
+            return <button key={key} aria-label={"Vybrať " + formatShortDate(key) + (summary ? " · " + summary : "")} aria-pressed={selectedDay === key}
               className={(key === today() ? "today " : "") + (key === selectedDay ? "selected " : "") + (types.length ? "has-activities " : "") + (types.length === 1 ? "activity-" + types[0] : "")}
               onClick={() => setSelectedDay(selectedDay === key ? null : key)}>
               <span className="calendar-day-number">{i + 1}</span>
-              {types.length > 0 && <span className="calendar-markers" aria-hidden="true">{types.map(type =>
-                <span className={"event-marker " + type} key={type} />)}</span>}
+              {types.length > 0 && <span className="calendar-markers" aria-hidden="true">{types.map(type => <span className={"event-marker " + type} key={type} />)}</span>}
               {activities.length > 0 && <span className="calendar-event-count" aria-hidden="true">{activities.length}</span>}
             </button>;
           })}</div>
-        <div className="calendar-legend">{Object.entries(kinds).map(([type, name]) =>
-          <span key={type}><span className={"event-marker " + type} />{name}</span>)}</div>
-      </section>}
+        <div className="calendar-legend">{Object.entries(kinds).map(([type, name]) => <span key={type}><span className={"event-marker " + type} />{name}</span>)}</div>
+      </section>
       <div className="event-list">{shown.length ? shown.map((t, i) => <React.Fragment key={t.id}>
         {(i === 0 || dayKey(shown[i - 1].starts_at) !== dayKey(t.starts_at)) && <h2 className="day-heading">{new Date(t.starts_at).toLocaleDateString(uiLocale(), {weekday: "long", day: "numeric", month: "long", timeZone})}</h2>}
         <TrainingCard training={t} staff={staff} canRespond={canRespond} refresh={refresh} open={() => openTraining(t.id)} />
@@ -542,6 +537,7 @@ function Calendar({trainings, staff, canRespond, places, refresh, openTraining})
     {create && <Modal title="Nová udalosť" close={() => setCreate(false)}><TrainingForm initialDay={selectedDay} places={places} done={async () => {setCreate(false); await refresh();}} /></Modal>}
   </>;
 }
+
 function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,userId}) {
   const [members,setMembers]=useState([]),[query,setQuery]=useState(""),[filter,setFilter]=useState("active");
   const [selected,setSelected]=useState(null),[form,setForm]=useState(false),[link,setLink]=useState(""),[inviteTarget,setInviteTarget]=useState(null);
@@ -678,7 +674,7 @@ function AttendanceOverview({openScanner}) {
   const status = (person, event) => event.cancelled ? "Zrušené" : !past(event) ? "Plánované" :
     records.get(person.id + ":" + event.id) === true ? "Prítomný" : records.get(person.id + ":" + event.id) === false ? "Neprítomný" : "Nezapísané";
   const classes = {"Prítomný": "present", "Neprítomný": "absent", "Nezapísané": "unknown", "Plánované": "planned", "Zrušené": "cancelled"};
-  const dateLabel = value => new Date(value + "T00:00:00Z").toLocaleDateString(uiLocale(), {timeZone: "UTC"});
+  const dateLabel = value => formatShortDate(value);
   const appliedPeriod = [filters.date_from, filters.date_to].map(value => value ? dateLabel(value) : "…").join(" – ");
   const filterCount = Number(filters.kinds.length !== Object.keys(kinds).length) + Number(filters.include_cancelled);
   return <>
@@ -698,8 +694,8 @@ function AttendanceOverview({openScanner}) {
         setFilters({...draft, kinds: [...draft.kinds]});
       }}>
         <div className="attendance-date-filters">
-          <label>Od<input type="date" value={draft.date_from} onChange={event => setDraft({...draft, date_from: event.target.value})} /></label>
-          <label>Do<input type="date" value={draft.date_to} onChange={event => setDraft({...draft, date_to: event.target.value})} /></label>
+          <label>Od<input type="date" lang="sk-SK" value={draft.date_from} onChange={event => setDraft({...draft, date_from: event.target.value})} /></label>
+          <label>Do<input type="date" lang="sk-SK" value={draft.date_to} onChange={event => setDraft({...draft, date_to: event.target.value})} /></label>
         </div>
         <fieldset className="attendance-types"><legend>Typy udalostí</legend>
           {Object.entries(kinds).map(([key, label]) => <label className="checkbox" key={key}><input type="checkbox" checked={draft.kinds.includes(key)} onChange={event => setDraft({...draft,
@@ -844,8 +840,6 @@ function GroupEditor({contacts, group, user, close, done}) {
   </Modal>;
 }
 
-const reactionEmoji = ["👍", "❤️", "😂", "😮", "😢", "🎉"];
-
 function MessageInteractions({item, own, change}) {
   const [picker, setPicker] = useState(false);
   const [reactors, setReactors] = useState(null);
@@ -890,9 +884,15 @@ function MessageInteractions({item, own, change}) {
         </Action>)}
       {!own && <button type="button" className="reaction-button reaction-trigger" aria-expanded={picker} aria-label="Pridať reakciu"
         onClick={() => setPicker(value => !value)}><SmilePlus size={15} /></button>}
-      {!own && picker && <div className="reaction-picker" role="group" aria-label="Vybrať reakciu">
-        {reactionEmoji.map(emoji => <Action key={emoji} className="reaction-button"
-          pressed={reactions.some(row => row.emoji === emoji && row.mine)} run={() => react(emoji)}>{emoji}</Action>)}
+      {!own && picker && <div className="reaction-picker" aria-label="Vybrať reakciu">
+        <EmojiPicker.Root locale={activeLanguage === "sk" ? "sk" : activeLanguage === "uk" ? "uk" : "en"} columns={9} onEmojiSelect={({emoji}) => react(emoji)}>
+          <EmojiPicker.Search className="reaction-picker-search" placeholder="Hľadať emoji…" autoFocus />
+          <EmojiPicker.Viewport className="reaction-picker-viewport">
+            <EmojiPicker.Loading>Načítavajú sa emoji…</EmojiPicker.Loading>
+            <EmojiPicker.Empty>Emoji sa nenašli.</EmojiPicker.Empty>
+            <EmojiPicker.List components={{CategoryHeader: ({category, ...props}) => <div {...props}>{category.label}</div>, Emoji: ({emoji, ...props}) => <button type="button" aria-label={emoji.label} title={emoji.label} {...props}>{emoji.emoji}</button>}} />
+          </EmojiPicker.Viewport>
+        </EmojiPicker.Root>
       </div>}
     </div>}
     {reactors && <Modal title={localizeText("Reakcie", activeLanguage) + " " + reactors.emoji} close={() => setReactors(null)}>
@@ -1119,13 +1119,13 @@ function Messages({user, conversations, refresh, initialContact}) {
 
 function BatteryActionPicker({action,onAction,status}) {
   const [showMore,setShowMore]=useState(false);
-  const more=Object.entries(batteryLabels).filter(([key])=>!['charged','discharged'].includes(key))
+  const more=Object.entries(batteryLabels)
     .filter(([key])=>key!=="storage_exit"||status==="stored")
     .filter(([key])=>status!=="damaged"||["damaged","retired","note"].includes(key))
     .filter(([key])=>status!=="retired"||key==="note");
   return <div className="battery-actions">
-    {["charged","discharged"].map(key=><button type="button" key={key} className={action===key?"selected":""} disabled={["damaged","retired"].includes(status)} onClick={()=>onAction(key)}>{batteryLabels[key]}</button>)}
-    <button type="button" aria-expanded={showMore} className={showMore?"selected":""} onClick={()=>setShowMore(value=>!value)}>{showMore?"Skryť":"Ďalšie"}</button>
+    {["charged","used","discharged"].filter(key=>status!==({charged:"charged",used:"in_drone",discharged:"discharged"}[key])).map(key=><button type="button" key={key} className={action===key?"selected":""} disabled={["damaged","retired"].includes(status)} onClick={()=>onAction(key)}>{batteryLabels[key]}</button>)}
+    <button type="button" aria-expanded={showMore} className="text-button battery-more-link" onClick={()=>setShowMore(value=>!value)}>{showMore?"Skryť":"Viac"}</button>
     {showMore&&<div className="battery-action-more-list">{more.map(([key,label])=><button type="button" key={key} className={action===key?"selected":""} onClick={()=>onAction(key)}>{label}</button>)}</div>}
   </div>;
 }
@@ -1141,7 +1141,7 @@ function BatteryTimeline({items, revision, end, openBattery, canEdit, onDelete})
   const [selectedDay, setSelectedDay] = useState(null);
   const days = Array.from({length: 7}, (_, index) => shiftBatteryDay(end, index - 6));
   const current = result?.end === end && result.revision === revision ? result : null;
-  const dayFormat = new Intl.DateTimeFormat(uiLocale(), {day: "numeric", month: "numeric", timeZone: "UTC"});
+  const dayFormat = new Intl.DateTimeFormat("en-GB", {day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC"});
   const fullDayFormat = new Intl.DateTimeFormat(uiLocale(), {dateStyle: "full", timeZone: "UTC"});
   const timeFormat = new Intl.DateTimeFormat(uiLocale(), {timeStyle: "short", timeZone});
   const fullDay = day => fullDayFormat.format(new Date(day + "T00:00:00Z"));
@@ -1184,13 +1184,12 @@ function BatteryTimeline({items, revision, end, openBattery, canEdit, onDelete})
               <tr key={item.code}><th scope="row"><div className="battery-timeline-identity"><span className="battery-timeline-code">{item.code}</span><span className={"badge battery-state-badge state-"+(item.status||"unknown")}>{batteryStateLabels[item.status] || "Neznámy stav"}</span></div></th>{days.map(day => {
                 const events = byBattery.get(item.code).get(day);
                 if (!events) return <td key={day}><span className="muted" aria-hidden="true">–</span><span className="sr-only">Bez záznamu</span></td>;
-                const actions = [...new Set(events.map(event => event.action))];
+                const counts = events.reduce((totals,event)=>({...totals,[event.action]:(totals[event.action]||0)+1}),{});
+                const actions = Object.keys(counts);
                 return <td key={day}><button type="button" className="battery-day-button"
-                  aria-label={[item.code, fullDay(day), events.length, ...actions.map(action => text(batteryLabels[action]))].join(" · ")}
+                  aria-label={[item.code, fullDay(day), ...actions.map(action => counts[action]+" × "+text(batteryLabels[action]))].join(" · ")}
                   onClick={() => setSelectedDay({code: item.code, day})}>
-                  <span>{events.length}</span><span className="battery-day-colors" aria-hidden="true">
-                    {actions.map(action => <i className={"battery-event-color action-" + action} key={action} />)}
-                  </span>
+                  <span className="battery-day-action-counts">{actions.map(action => <span key={action}><i className={"battery-event-color action-" + action} />{counts[action]}</span>)}</span>
                 </button></td>;
               })}</tr>)}</tbody>
           </table>
@@ -1217,16 +1216,24 @@ function BatteryTimeline({items, revision, end, openBattery, canEdit, onDelete})
 function Batteries({staff, initialCode}) {
   const currentDay = today();
   const [items, setItems] = useState([]);
+  const [assets, setAssets] = useState([]);
   const [selected, setSelected] = useState(initialCode || null);
+  const [selectedAsset, setSelectedAsset] = useState(null);
   const [events, setEvents] = useState([]);
   const [view, setView] = useState("cards");
   const [end, setEnd] = useState(currentDay);
   const [create, setCreate] = useState(false);
+  const [kindFilter, setKindFilter] = useState("all");
+  const [newKind, setNewKind] = useState("battery");
+  const [newCode, setNewCode] = useState("");
+  const [assetEvents, setAssetEvents] = useState([]);
+  const [assetAction, setAssetAction] = useState("");
   const [action, setAction] = useState(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   async function load() {
-    setItems(await api("batteries"));
+    const [batteries,devices]=await Promise.all([api("batteries"),api("equipment/assets")]);
+    setItems(batteries);setAssets(devices);
     setRevision(value => value + 1);
   }
   useEffect(() => {load().catch(error => setError(error.message));}, []);
@@ -1238,6 +1245,8 @@ function Batteries({staff, initialCode}) {
     return () => {current = false;};
   }, [selected]);
   const battery = items.find(item => item.code === selected);
+  const asset = assets.find(item=>item.code===selectedAsset);
+  useEffect(()=>{let active=true;if(selectedAsset)api("equipment/assets/"+encodeURIComponent(selectedAsset)+"/events").then(rows=>{if(active)setAssetEvents(rows);}).catch(error=>{if(active)setError(error.message);});return()=>{active=false;};},[selectedAsset,revision]);
   function openBattery(code, initialAction = null) {setSelected(code); setAction(initialAction);}
   async function deleteEvent(event) {
     if (!window.confirm("Odstrániť tento záznam z histórie batérie?")) return;
@@ -1251,31 +1260,37 @@ function Batteries({staff, initialCode}) {
         <button type="button" aria-pressed={view === "cards"} onClick={()=>setView("cards")}>Karty</button>
         <button type="button" aria-pressed={view === "timeline"} onClick={()=>{if (view !== "timeline") setEnd(currentDay);setView("timeline");}}>Časová os</button>
       </div>
+      <label className="toolbar-select equipment-kind-filter">Zariadenie<select value={kindFilter} onChange={event=>setKindFilter(event.target.value)}>
+        <option value="all">Všetky typy</option><option value="battery">Batérie</option><option value="charger">Nabíjačky</option><option value="drone">Drony</option><option value="controller">Ovládače</option>
+      </select></label>
       {view === "timeline" && items.length > 0 && <div className="period-control">
         <button type="button" className="icon-button" aria-label="Predchádzajúcich 7 dní" onClick={() => setEnd(shiftBatteryDay(end, -7))}><ChevronLeft size={18} /></button>
-        <span aria-live="polite">{new Intl.DateTimeFormat(uiLocale(), {dateStyle: "medium", timeZone: "UTC"})
-          .formatRange(new Date(shiftBatteryDay(end, -6)), new Date(end))}</span>
+        <span aria-live="polite">{formatShortDate(shiftBatteryDay(end, -6)) + " – " + formatShortDate(end)}</span>
         <button type="button" className="icon-button" aria-label="Nasledujúcich 7 dní" disabled={end >= currentDay} onClick={() => {
           const next = shiftBatteryDay(end, 7);
           setEnd(next > currentDay ? currentDay : next);
         }}><ChevronRight size={18} /></button>
       </div>}
-      {staff && <button className="primary page-primary" onClick={() => setCreate(true)}><Plus size={18} />Pridať batériu</button>}
+      {staff && <button className="primary page-primary" onClick={() => {setNewKind("battery");setNewCode("");setCreate(true);}}><Plus size={18} />Pridať zariadenie</button>}
     </div></PageToolbar>
     {error && <p className="error" role="alert">{error}</p>}
-    {view === "timeline" && items.length > 0 && <BatteryTimeline items={items} revision={revision} end={end} openBattery={openBattery} canEdit={staff} onDelete={deleteEvent} />}
-    {view === "cards" && <div className="equipment-grid">{items.map(b =>
+    {view === "timeline" && (kindFilter==="all"||kindFilter==="battery") && items.length > 0 && <BatteryTimeline items={items} revision={revision} end={end} openBattery={openBattery} canEdit={staff} onDelete={deleteEvent} />}
+    {view === "timeline" && kindFilter!=="all"&&kindFilter!=="battery"&&<EquipmentTimeline assets={assets.filter(item=>item.kind===kindFilter)} onOpen={setSelectedAsset} end={end} setEnd={setEnd} currentDay={currentDay} />}
+    {view === "cards" && <div className="equipment-grid">{(kindFilter==="all"||kindFilter==="battery"?items:[]).map(b =>
       <article className={"card battery-state-card state-"+(b.status||"unknown")} key={b.code}>
         <div className="battery-card-heading">
-          <button className="text-button" aria-haspopup="dialog" onClick={() => openBattery(b.code)}><Battery size={17} />{b.code}</button>
+        <button className="text-button" aria-haspopup="dialog" onClick={() => openBattery(b.code)}><Battery size={17} />{b.code}</button>
           <span className={"badge battery-state-badge state-"+(b.status||"unknown")}>{batteryStateLabels[b.status] || "Neznámy stav"}</span>
         </div>
         <div className="battery-card-details">
           <span className="battery-card-label muted">{b.label}</span>
           {!["stored", "damaged", "retired"].includes(b.status) && <button className="text-button" aria-haspopup="dialog" onClick={() => openBattery(b.code, "used")}>Zapísať použitie</button>}
         </div>
-      </article>)}</div>}
-    {items.length === 0 && <Empty icon={Battery}>Zatiaľ žiadne batérie.</Empty>}
+      </article>)}{assets.filter(item=>kindFilter==="all"||item.kind===kindFilter).map(item=><button type="button" className="card battery-state-card equipment-asset-card" key={item.code} onClick={()=>setSelectedAsset(item.code)}>
+        <span className="battery-card-heading"><strong>{item.code}</strong><span className="badge">{equipmentKindLabels[item.kind]}</span></span>
+        <span className="battery-card-details"><span className="battery-card-label muted">{item.label}</span><span className="badge">{equipmentActionLabels[item.status]||"Bez záznamu"}</span></span>
+      </button>)}</div>}
+    {view === "cards" && items.length===0&&assets.filter(item=>kindFilter==="all"||item.kind===kindFilter).length===0 && <Empty icon={Battery}>Pre tento filter zatiaľ nie je zaevidované žiadne zariadenie.</Empty>}
     {selected && <Modal title={battery ? battery.code : "Batéria"} close={() => {setSelected(null); setAction(null);}}>
       {battery ? <>
         <p className="muted">{battery.label}</p><p><span className={"badge battery-state-badge state-"+(battery.status||"unknown")}>{batteryStateLabels[battery.status] || "Neznámy stav"}</span></p>
@@ -1293,9 +1308,18 @@ function Batteries({staff, initialCode}) {
         </li>)}</ul>
       </> : <p>Batéria sa načítava alebo sa nenašla.</p>}
     </Modal>}
-    {create && <Modal title="Nová batéria" close={() => setCreate(false)}><Form label="Pridať batériu" submit={async data => {
-      await api("batteries", "POST", data); await load(); setCreate(false); setSelected(data.code);
-    }}><label>Kód<input name="code" pattern="LF-B[0-9]{2,6}" placeholder="LF-B01" required /></label><label>Označenie<input name="label" maxLength="120" required /></label></Form></Modal>}
+    {selectedAsset&&<Modal title={asset?.code||selectedAsset} close={()=>{setSelectedAsset(null);setAssetAction("");}}>{asset&&<>
+      <p>{asset.label}</p><p><span className="badge">{equipmentKindLabels[asset.kind]} · {equipmentActionLabels[asset.status]||"Bez záznamu"}</span></p>
+      {staff&&<><label>Úkon<select value={assetAction} onChange={event=>setAssetAction(event.target.value)}><option value="">Vyber úkon</option>{equipmentActions[asset.kind].map(key=><option key={key} value={key}>{equipmentActionLabels[key]}</option>)}</select></label>
+        {assetAction&&<Form label="Zaznamenať úkon" submit={async data=>{await api("equipment/assets/"+encodeURIComponent(asset.code)+"/events","POST",{action:assetAction,note:data.note});setAssetAction("");await load();}}><label>Poznámka<input name="note" maxLength="1000" placeholder="Nepovinná poznámka"/></label></Form>}</>}
+      <h3 className="section-space">História</h3><ul className="timeline">{assetEvents.map(event=><li key={event.id}><strong>{equipmentActionLabels[event.action]}</strong><span className="meta">{date(event.created_at)} · {event.name}</span>{event.note&&<p className="body small">{event.note}</p>}</li>)}</ul>
+    </>}</Modal>}
+    {create && <Modal title="Pridať zariadenie" close={() => setCreate(false)}><label>Typ zariadenia<select value={newKind} onChange={event=>setNewKind(event.target.value)}><option value="battery">Batéria</option><option value="charger">Nabíjačka</option><option value="drone">Dron</option><option value="controller">Ovládač</option></select></label><Form label="Pridať zariadenie" submit={async data => {
+      const record={code:data.code.toUpperCase(),label:data.label};
+      if(newKind==="battery")await api("batteries","POST",record);
+      else await api("equipment/assets","POST",{...record,kind:newKind});
+      await load();setCreate(false);if(newKind==="battery")setSelected(record.code);else setSelectedAsset(record.code);
+    }}><label>Kód<input name="code" value={newCode} onChange={event=>{const value=event.target.value.toUpperCase();setNewCode(value);const prefix=value.slice(0,4);if(prefix==="LF-B")setNewKind("battery");else if(prefix==="LF-C")setNewKind("controller");else if(prefix==="LF-D")setNewKind("drone");else if(prefix==="LF-X")setNewKind("charger");}} pattern={{battery:"LF-B[0-9]{2,6}",controller:"LF-C[0-9]{2,6}",drone:"LF-D[0-9]{2,6}",charger:"LF-X[0-9]{2,6}"}[newKind]} placeholder={{battery:"LF-B01",controller:"LF-C01",drone:"LF-D01",charger:"LF-X01"}[newKind]} required /></label><label>Označenie<input name="label" maxLength="120" required /></label></Form></Modal>}
   </>;
 }
 
@@ -1314,6 +1338,20 @@ function DrillLibrary() {
     </article>)}</div>
     {items.length === 0 && <Empty icon={BookOpen}>Knižnica cvičení je zatiaľ prázdna. Cvičenia pridáš v úpravách plánu tréningu.</Empty>}
   </>;
+}
+
+const equipmentKindLabels={controller:"Ovládač",drone:"Dron",charger:"Nabíjačka"};
+const equipmentActionLabels={assigned:"Pridelené",returned:"Vrátené",inspection:"Predletová kontrola",training:"Použitie na tréningu",fault:"Porucha",repair:"Oprava",maintenance:"Údržba",propeller_replacement:"Výmena vrtúľ",motor_replacement:"Výmena motorov",battery_check:"Kontrola batérie",retired:"Vyradené",note:"Poznámka"};
+const equipmentActions={drone:["assigned","returned","inspection","training","fault","repair","maintenance","propeller_replacement","motor_replacement","retired","note"],controller:["assigned","returned","inspection","training","fault","repair","maintenance","battery_check","retired","note"],charger:["assigned","returned","inspection","fault","repair","maintenance","retired","note"]};
+
+function EquipmentTimeline({assets,onOpen,end,setEnd,currentDay}) {
+  const [events,setEvents]=useState([]);
+  const [error,setError]=useState("");
+  useEffect(()=>{let active=true;Promise.all(assets.map(asset=>api("equipment/assets/"+encodeURIComponent(asset.code)+"/events"))).then(rows=>{if(active)setEvents(rows.flat().filter(event=>clubLocal(event.created_at).slice(0,10)>=shiftBatteryDay(end,-6)&&clubLocal(event.created_at).slice(0,10)<=end).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)));}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[assets.map(item=>item.code).join(","),end]);
+  const changeEnd=offset=>{const next=shiftBatteryDay(end,offset);setEnd(next>currentDay?currentDay:next);};
+  return <section className="card equipment-timeline"><div className="period-control"><button className="icon-button" aria-label="Predchádzajúcich 7 dní" onClick={()=>changeEnd(-7)}><ChevronLeft size={18}/></button><span>{formatShortDate(shiftBatteryDay(end,-6))} – {formatShortDate(end)}</span><button className="icon-button" aria-label="Nasledujúcich 7 dní" disabled={end>=currentDay} onClick={()=>changeEnd(7)}><ChevronRight size={18}/></button></div>
+    {error?<p className="error" role="alert">{error}</p>:events.length?<ul className="timeline">{events.map(event=><li key={event.id}><strong className="battery-event-title"><span className="equipment-event-mark" aria-hidden="true"/>{equipmentActionLabels[event.action]}</strong><span className="meta">{formatShortDate(event.created_at)} · {new Intl.DateTimeFormat(uiLocale(),{timeStyle:"short",timeZone}).format(new Date(event.created_at))} · {event.code} · {event.name}</span>{event.note&&<p className="body small">{event.note}</p>}<button type="button" className="text-button" onClick={()=>onOpen(event.code)}>Detail zariadenia</button></li>)}</ul>:<p className="muted">V tomto období nie sú záznamy pre zobrazené zariadenia.</p>}
+  </section>;
 }
 
 function PlayerDevelopmentPage() {
@@ -1533,6 +1571,17 @@ function LineupPlanner({trainings}) {
   </>;
 }
 
+function TeamWorkspace({trainings,staff}) {
+  const [section,setSection]=useState("overview");
+  return <>
+    {staff&&<div className="team-workspace-tabs segmented" role="tablist" aria-label="Prehľad tímu a zostavy">
+      <button type="button" role="tab" aria-selected={section==="overview"} onClick={()=>setSection("overview")}>Prehľad tímov</button>
+      <button type="button" role="tab" aria-selected={section==="lineups"} onClick={()=>setSection("lineups")}>Zostavy</button>
+    </div>}
+    {section==="lineups"&&staff?<LineupPlanner trainings={trainings}/>:<TeamSheet trainings={trainings}/>}
+  </>;
+}
+
 function Documents({staff}) {
   const [items, setItems] = useState([]);
   const [create, setCreate] = useState(false);
@@ -1644,8 +1693,10 @@ function ClubScanner({user,initialEvent,refresh}) {
         }else setPendingMember(response);
       }else if(response.type==="charger"){
         setResult(response);setSelectedBatteries(response.batteries.filter(b=>!['damaged','retired','stored'].includes(b.status)).map(b=>b.code));setBatchRequestId(crypto.randomUUID());
+      }else if(response.type==="equipment"){
+        setResult(response);setAction(response.kind==="drone"?"training":"assigned");
       }else{
-        setResult(response);setAction(response.status==="retired"?"note":response.status==="damaged"?"damaged":response.status==="stored"?"storage_exit":"used");setRequestId(crypto.randomUUID());
+        setResult(response);setAction(response.status==="retired"?"note":response.status==="damaged"?"damaged":response.status==="stored"?"storage_exit":response.status==="charged"?"used":response.status==="in_drone"?"discharged":"used");setRequestId(crypto.randomUUID());
       }
     }catch(e){if(mounted.current){setResult(null);setError(e.message);}}
     finally{if(mounted.current)setBusy(false);locked.current=false;}
@@ -1670,7 +1721,7 @@ function ClubScanner({user,initialEvent,refresh}) {
     {toast&&<div className="scan-success-toast" role="status"><Check size={16}/>{toast}</div>}
     {pendingMember&&<Modal title={pendingMember.name} close={()=>setPendingMember(null)}>
       <p>Vyber udalosť pre zápis dochádzky alebo vytvor novú udalosť.</p>
-      <label>Deň udalosti<input type="date" value={day} onChange={event=>{setEventId(null);setDay(event.target.value);}} /></label>
+      <label>Deň udalosti<input type="date" lang="sk-SK" value={day} onChange={event=>{setEventId(null);setDay(event.target.value);}} /></label>
       {eventsLoading&&<p className="muted">Načítavajú sa udalosti…</p>}
       {!eventsLoading&&events.filter(event=>event.can_record).map(event=><button className="card scan-event-option" key={event.id} onClick={async()=>{
         try{const response=await api("scan","POST",{value:pendingMember.payload,event_id:event.id});setPendingMember(null);if(response.recorded){const prefix=response.already_present?"Dochádzka už bola zapísaná: ":"Zapísaná dochádzka: ";setToast(localizeText(prefix,activeLanguage)+response.name+" · "+response.event_title);await refresh();}}
@@ -1685,11 +1736,11 @@ function ClubScanner({user,initialEvent,refresh}) {
         const response=await api("scan","POST",{value:pendingMember.payload,event_id:created.id});setNewPrivateEvent(false);setPendingMember(null);
         setToast(localizeText("Zapísaná dochádzka: ",activeLanguage)+response.name+" · "+response.event_title);await refresh();
       }}><label>Názov<input name="title" defaultValue="Neplánovaný tréning" maxLength="120" required/></label>
-        <label>Začiatok<input name="starts_at" type="datetime-local" defaultValue={clubLocal(new Date())} required/></label>
-        <label>Koniec<input name="ends_at" type="datetime-local"/></label><label>Miesto<input name="location" maxLength="120" defaultValue="Hala" required/></label></Form>}
+        <label>Začiatok<input name="starts_at" lang="sk-SK" type="datetime-local" defaultValue={clubLocal(new Date())} required/></label>
+        <label>Koniec<input name="ends_at" lang="sk-SK" type="datetime-local"/></label><label>Miesto<input name="location" maxLength="120" defaultValue="Hala" required/></label></Form>}
     </Modal>}
     {result?.type==="charger"&&<section className="card scan-result">
-      <Battery size={26}/><h2>Multinabíjačka {result.code}</h2>
+      <Battery size={26}/><h2>Nabíjačka {result.code}</h2>
       {saved?<p className="success" role="status">{saved}</p>:<Form label={localizeText("Zaznamenať nabitie",activeLanguage)+" ("+selectedBatteries.length+")"} submit={async()=>{
         const response=await api("battery-charges","POST",{charger_code:result.code,codes:selectedBatteries,request_id:batchRequestId});
         setSaved(localizeText("Nabitie zapísané pre ",activeLanguage)+response.count+" "+localizeText("batérií.",activeLanguage));await refresh();
@@ -1703,6 +1754,19 @@ function ClubScanner({user,initialEvent,refresh}) {
         {selectedBatteries.length===0&&<p className="error">Vyber aspoň jednu batériu.</p>}
         <button className="primary" disabled={selectedBatteries.length===0}>Zaznamenať nabitie</button>
       </Form>}
+      <button className="section-space" onClick={()=>{setResult(null);setSaved("");locked.current=false;setRunning(true);}}>Skenovať ďalší kód</button>
+    </section>}
+    {result?.type==="equipment"&&<section className="card scan-result">
+      <Drone size={26}/><h2>{result.code}</h2>
+      {!result.exists?<><p>Zariadenie ešte nie je evidované.</p>{staff?<Form label="Pridať zariadenie" submit={async data=>{
+        await api("equipment/assets","POST",{code:result.code,kind:result.kind,label:data.label});const updated=await api("scan","POST",{value:result.code});setResult(updated);setAction(result.kind==="drone"?"inspection":"assigned");await refresh();
+      }}><label>Typ<input value={equipmentKindLabels[result.kind]} readOnly /></label><label>Označenie<input name="label" defaultValue={result.code} maxLength="120" required/></label></Form>:<p>Požiadaj trénera o zaevidovanie.</p>}</>:<>
+        <p>{result.label}</p>{result.status&&<p><span className="badge">{equipmentActionLabels[result.status]}</span></p>}{result.status_at&&<p className="meta">Zaznamenané {date(result.status_at)}</p>}
+        {!saved&&<Form label="Zaznamenať úkon" submit={async data=>{await api("equipment/assets/"+encodeURIComponent(result.code)+"/events","POST",{action,note:data.note});const updated=await api("scan","POST",{value:result.code});setResult(updated);setSaved("Záznam bol uložený.");await refresh();}}>
+          <label>Úkon<select value={action} onChange={event=>setAction(event.target.value)}>{equipmentActions[result.kind].map(key=><option key={key} value={key}>{equipmentActionLabels[key]}</option>)}</select></label>
+          <label>Poznámka<input name="note" maxLength="1000" placeholder="Nepovinná poznámka"/></label>
+        </Form>}{saved&&<p className="success" role="status">{saved}</p>}
+      </>}
       <button className="section-space" onClick={()=>{setResult(null);setSaved("");locked.current=false;setRunning(true);}}>Skenovať ďalší kód</button>
     </section>}
     {result?.type==="battery"&&<section className="card scan-result">
@@ -1888,7 +1952,7 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
 const navigation = [
   ["home", "Domov", House], ["calendar", "Kalendár", CalendarDays], ["attendance", "Dochádzka", ClipboardCheck],
   ["messages", "Správy", MessageCircle], ["announcements", "Oznamy", Megaphone],
-  ["members", "Členovia", Users], ["team", "Tímy", Users], ["development", "Rozvoj hráčov", Users], ["lineups", "Zostavy", ClipboardCheck], ["drills", "Knižnica cvičení", BookOpen], ["equipment", "Vybavenie", Battery],
+  ["members", "Členovia", Users], ["team", "Tímy a zostavy", Users], ["development", "Rozvoj hráčov", Users], ["drills", "Knižnica cvičení", BookOpen], ["equipment", "Vybavenie", Battery],
   ["documents", "Dokumenty", FileText],
 ];
 
@@ -1906,8 +1970,8 @@ const dashboardWidgetInfo = {
 };
 const dashboardLinkInfo = {
   calendar: [CalendarDays, "Kalendár"], attendance: [ClipboardCheck, "Dochádzka"], messages: [MessageCircle, "Správy"],
-  announcements: [Megaphone, "Oznamy"], members: [Users, "Členovia"], team: [Users, "Tímy"],
-  development: [Users, "Rozvoj hráčov"], lineups: [ClipboardCheck, "Zostavy"], drills: [BookOpen, "Knižnica cvičení"],
+  announcements: [Megaphone, "Oznamy"], members: [Users, "Členovia"], team: [Users, "Tímy a zostavy"],
+  development: [Users, "Rozvoj hráčov"], lineups: [ClipboardCheck, "Tímy a zostavy"], drills: [BookOpen, "Knižnica cvičení"],
   equipment: [Battery, "Vybavenie"], documents: [FileText, "Dokumenty"], scanner: [ScanLine, "Skenovať"],
   member_qr: [QrCode, "Môj členský QR kód"],
 };
@@ -1981,7 +2045,7 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
     } catch (error) {setSaveError(error.message);}
     finally {setSaving(false);}
   }
-  const pageLinks={calendar:()=>navigate("calendar"),attendance:()=>navigate("attendance"),messages:()=>navigate("messages"),announcements:()=>navigate("announcements"),members:()=>navigate("members"),team:()=>navigate("team"),development:()=>navigate("development"),lineups:()=>navigate("lineups"),drills:()=>navigate("drills"),equipment:()=>navigate("equipment"),documents:()=>navigate("documents"),scanner:openScanner,member_qr:openCard};
+  const pageLinks={calendar:()=>navigate("calendar"),attendance:()=>navigate("attendance"),messages:()=>navigate("messages"),announcements:()=>navigate("announcements"),members:()=>navigate("members"),team:()=>navigate("team"),development:()=>navigate("development"),lineups:()=>navigate("team"),drills:()=>navigate("drills"),equipment:()=>navigate("equipment"),documents:()=>navigate("documents"),scanner:openScanner,member_qr:openCard};
   const homeAlerts=[];
   if(revised) homeAlerts.push({tone:"urgent",text:"Zmenila sa udalosť: "+revised.title,action:()=>openTraining(revised.id)});
   else if(unanswered.length) homeAlerts.push({tone:"attention",text:"Čaká sa na tvoju odpoveď: "+unanswered[0].title,action:()=>openTraining(unanswered[0].id)});
@@ -2001,7 +2065,7 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
       </article>;
     }
     if (key === "schedule") return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><CalendarDays size={18}/><h3>Nadchádzajúci program</h3></div>
-      {next.length ? <div className="dashboard-mini-list">{next.slice(0,3).map(event=><button key={event.id} onClick={()=>openTraining(event.id)}><span className="dashboard-date-chip">{new Date(event.starts_at).toLocaleDateString(uiLocale(),{day:"numeric",month:"short",timeZone})}</span><span><strong>{event.title}</strong><small>{clock(event.starts_at)} · {event.location}</small></span><ChevronRight size={16}/></button>)}</div>:<p className="muted">Zatiaľ nie sú naplánované žiadne udalosti.</p>}
+      {next.length ? <div className="dashboard-mini-list">{next.slice(0,3).map(event=><button key={event.id} onClick={()=>openTraining(event.id)}><span className="dashboard-date-chip">{formatShortDate(event.starts_at)}</span><span><strong>{event.title}</strong><small>{clock(event.starts_at)} · {event.location}</small></span><ChevronRight size={16}/></button>)}</div>:<p className="muted">Zatiaľ nie sú naplánované žiadne udalosti.</p>}
       {makeAction("Otvoriť kalendár",()=>navigate("calendar"))}
     </article>;
     if (key === "rsvp") return <article className="dashboard-widget" key={key}><div className="dashboard-widget-title"><Check size={18}/><h3>Moje potvrdenia</h3></div>
@@ -2129,7 +2193,7 @@ function App() {
   const [user, setUser] = useState(undefined);
   const contentRef = useRef(null);
   const [toolbarTarget, setToolbarTarget] = useState(null);
-  const [page, setPage] = useState(() => hash().has("battery") ? "equipment" : hash().get("page") || "home");
+  const [page, setPage] = useState(() => hash().has("battery") ? "equipment" : hash().get("page")==="lineups" ? "team" : hash().get("page") || "home");
   const [menu, setMenu] = useState(false);
   const [route, setRoute] = useState(location.hash);
   const [snapshot, setSnapshot] = useState(null);
@@ -2265,7 +2329,7 @@ function App() {
       setRoute(location.hash);
       setMenu(Boolean(history.state?.drawer));
       setActiveBattery(hash().get("battery"));
-      setPage(hash().has("battery") ? "equipment" : hash().get("page") || "home");
+      setPage(hash().has("battery") ? "equipment" : hash().get("page")==="lineups" ? "team" : hash().get("page") || "home");
       setTrainingId(Number(hash().get("event")) || null); setContact(Number(hash().get("contact")) || null);
     };
     addEventListener("popstate", onNavigation); addEventListener("hashchange", onNavigation);
@@ -2339,9 +2403,8 @@ function App() {
           {currentPage === "messages" && <Messages key={user.id + ":" + contact + ":" + route} user={user} conversations={data.conversations} refresh={refresh} initialContact={contact} />}
           {currentPage === "announcements" && <Bulletin items={data.announcements} staff={staff} refresh={refresh} />}
           {currentPage === "members" && <Members key="members" user={user} userId={user.id} staff={staff} superadmin={superadmin} onTrialBanner={setTrialBannerEnabled} onMessage={messageMember} onCard={setCardMember} />}
-          {currentPage === "team" && user.role !== "superadmin" && <TeamSheet trainings={data.trainings} />}
+          {currentPage === "team" && user.role !== "superadmin" && <TeamWorkspace trainings={data.trainings} staff={staff} />}
           {currentPage === "development" && staff && <PlayerDevelopmentPage />}
-          {currentPage === "lineups" && staff && <LineupPlanner trainings={data.trainings} />}
           {currentPage === "drills" && staff && <DrillLibrary />}
           {currentPage === "equipment" && <Batteries key={user.id + ":" + activeBattery} staff={staff} initialCode={activeBattery} />}
           {currentPage === "documents" && <Documents staff={staff} />}

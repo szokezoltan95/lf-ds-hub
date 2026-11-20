@@ -210,7 +210,7 @@ nav button .counter {margin-left: auto;}
 .dashboard-widget-title h3 {margin: 0; color: var(--ink); font-size: 15px; line-height: 1.3;}
 .dashboard-widget > .training-card {padding: 12px; border: 1px solid var(--line); border-top: 2px solid var(--home-color); border-radius: 12px; box-shadow: none;}
 .dashboard-widget .event-text strong {font-size: 15px; margin-bottom: 6px;}
-.dashboard-widget .date-tile {width: 44px; height: 56px;}
+.dashboard-widget .date-tile {width: 82px; height: 44px;}
 .dashboard-widget .rsvp {margin-top: 10px;}
 .dashboard-widget .rsvp .field-title {margin: 8px 0; font-size: 13px;}
 .dashboard-widget .rsvp-buttons button {min-height: 36px; padding: 7px 9px; font-size: 12px;}
@@ -260,7 +260,8 @@ nav button .counter {margin-left: auto;}
 .dashboard-editor-row {display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line);}
 .dashboard-editor-row.is-inactive {opacity: .78;}
 .dashboard-order-number {display: inline-grid; width: 24px; height: 24px; flex: 0 0 24px; place-items: center; border-radius: 50%; background: #e8f4fa; color: #175f80; font-size: 12px; font-weight: 700;}
-.dashboard-editor-row .checkbox {display: flex; align-items: center; gap: 9px; margin: 0;}
+.dashboard-editor-row .checkbox {display: flex; flex: 1; align-items: center; justify-content: flex-start; gap: 9px; margin: 0; text-align: left;}
+.dashboard-editor-row .checkbox > span {text-align: left;}
 .dashboard-reorder {display: flex; gap: 2px;}
 .dashboard-reorder .icon-button {width: 34px; min-height: 34px;}
 .dashboard-reorder .icon-button:disabled {opacity: .35; cursor: default;}
@@ -277,9 +278,8 @@ nav button .counter {margin-left: auto;}
 .event-text {flex: 1; min-width: 0;}
 .event-text strong {display: block; font-size: 16px; line-height: 1.3; margin: 4px 0 10px; letter-spacing: -.02em; overflow-wrap: anywhere;}
 .event-text .meta {margin-block: 3px;}
-.date-tile {width: 50px; height: 64px; background: #edf3f8; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0;}
-.date-tile strong {font-size: 25px; line-height: 1.2; letter-spacing: -.04em;}
-.date-tile span {font-size: 10px; text-transform: uppercase;}
+.date-tile {width: 82px; height: 48px; background: #edf3f8; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;}
+.date-tile strong {font-size: 12px; line-height: 1.2; font-variant-numeric: tabular-nums; white-space: nowrap;}
 .prominent {border-top: 3px solid #41b6e6;}
 .prominent .date-tile {background: #ddf2fc;}
 .cancelled {opacity: .7;}
@@ -342,11 +342,13 @@ nav button .counter {margin-left: auto;}
 .battery-delete-event {min-height:36px; padding:5px 9px; margin-top:7px; font-size:12px;}
 .battery-state-card {border-left:5px solid #a8b2bc;}
 .battery-state-card.state-charged {border-left-color:#21834a;}
+.battery-state-card.state-in_drone {border-left-color:#287ca4;}
 .battery-state-card.state-discharged {border-left-color:#d68a12;}
 .battery-state-card.state-stored {border-left-color:#287ca4;}
 .battery-state-card.state-storage_exit,.battery-state-card.state-unknown {border-left-color:#7c8791;}
 .battery-state-card.state-damaged,.battery-state-card.state-retired {border-left-color:#c23c43;}
 .battery-state-badge.state-charged {background:#e5f4eb;color:#176338;}
+.battery-state-badge.state-in_drone {background:#e5f2f8;color:#155d7d;}
 .battery-state-badge.state-discharged {background:#fff2d9;color:#81550a;}
 .battery-state-badge.state-stored {background:#e5f2f8;color:#155d7d;}
 .battery-state-badge.state-storage_exit,.battery-state-badge.state-unknown {background:#edf0f3;color:#525f69;}
@@ -369,10 +371,27 @@ nav button .counter {margin-left: auto;}
 .battery-overview-table thead th {position:sticky; top:0; z-index:1; height:34px; background:var(--surface, white); font-size:11px;}
 .battery-day-button {width:100%; min-width:0; min-height:44px; padding:2px; flex-direction:column; gap:2px; font-variant-numeric:tabular-nums; border-radius:8px;}
 .battery-day-button:focus-visible {outline-offset:-3px;}
-.battery-day-colors {display:flex; justify-content:center; gap:2px; flex-wrap:wrap; max-width:38px;}
+.battery-day-action-counts {display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:2px 4px;}
+.battery-day-action-counts > span {display:inline-flex;align-items:center;gap:2px;font-size:11px;font-weight:700;line-height:1.1;}
 .battery-event-color {display:inline-block; flex:0 0 auto; width:8px; height:8px; border-radius:50%; background:#606c7c;}
 .battery-day-colors .battery-event-color {width:5px; height:5px;}
 .battery-event-color.action-used {background:#606c7c;}
+.equipment-event-mark {display:inline-block;width:9px;height:9px;flex:0 0 auto;border-radius:50%;background:#2784a8;}
+.battery-more-link {grid-column:1/-1;justify-self:start;min-height:28px;padding:2px 0;border:0;background:transparent;text-decoration:underline;text-underline-offset:2px;}
+.equipment-asset-card {display:flex;width:100%;flex-direction:column;gap:10px;text-align:left;color:var(--ink);}
+.equipment-kind-filter {max-width:220px;}
+.equipment-timeline {display:grid;gap:12px;}
+.equipment-timeline .period-control {justify-content:center;}
+.team-workspace-tabs {display:flex;width:max-content;max-width:100%;margin:0 0 12px;}
+.reaction-picker {flex:0 0 100%;max-width:min(350px,100%);padding:8px;border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:0 8px 25px #102d3a18;}
+.reaction-picker [frimousse-root] {display:grid;gap:8px;}
+.reaction-picker-search {width:100%;min-height:36px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);}
+.reaction-picker-viewport {height:260px;overflow:auto;}
+.reaction-picker [frimousse-list] {display:grid;gap:8px;}
+.reaction-picker [frimousse-category-header] {padding:7px 2px 3px;color:var(--muted);font-size:11px;font-weight:650;}
+.reaction-picker [frimousse-row] {display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:2px;}
+.reaction-picker [frimousse-emoji] {display:grid;width:32px;height:32px;place-items:center;padding:0;border:0;border-radius:7px;background:transparent;font-size:21px;}
+.reaction-picker [frimousse-emoji]:hover,.reaction-picker [frimousse-emoji]:focus-visible {background:color-mix(in srgb,var(--accent) 18%,white);outline:none;}
 .battery-event-color.action-charged {background:#21834a;}
 .battery-event-color.action-discharged {background:#b36b05;}
 .battery-event-color.action-stored {background:#287ca4;}
@@ -445,6 +464,10 @@ details p {font-size: 13px; margin-top: 12px;}
   .dashboard-editor-controls select {max-width: 108px; font-size: 10px;}
   .dashboard-reorder .icon-button {width: 30px; min-height: 34px; padding: 5px;}
   .dashboard-link-picker {grid-template-columns: minmax(0,1fr);}
+  .equipment-kind-filter {max-width:100%;flex:1 1 150px;}
+  .battery-timeline-identity {align-items:flex-start;flex-direction:column;gap:4px;}
+  .battery-day-action-counts {flex-direction:column;align-items:flex-start;gap:2px;}
+  .reaction-picker-viewport {height:230px;}
 }
 @media (min-width: 780px) {
   .dashboard-widget-slot.scope-mobile {display: none;}
