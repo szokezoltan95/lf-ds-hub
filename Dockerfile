@@ -9,7 +9,7 @@ FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && useradd --system --uid 10001 hub
-COPY app.py push_service.py schema.sql ./
+COPY app.py push_service.py schema.sql equipment_schema.sql ./
 COPY --from=frontend /build/dist ./dist
 USER hub
 EXPOSE 8000
