@@ -1,4 +1,5 @@
-import React, {useEffect, useRef, useState} from "react";
+import React, {useContext, useEffect, useRef, useState} from "react";
+import {createPortal} from "react-dom";
 import {createRoot} from "react-dom/client";
 import {Drone, Menu, X, House, CalendarDays, MessageCircle, Megaphone, Users, Battery, ShieldCheck, Construction, BookOpen, Timer,
   LogOut, Bell, Plus, ChevronLeft, ChevronRight, MapPin, Clock, Check, CircleHelp,
@@ -144,6 +145,13 @@ function Avatar({name, id, version}) {
 
 function Empty({icon: Icon = CalendarDays, children}) {
   return <div className="empty"><Icon size={28} /><p>{children}</p></div>;
+}
+
+const ToolbarTarget = React.createContext(null);
+
+function PageToolbar({children}) {
+  const target = useContext(ToolbarTarget);
+  return target && createPortal(children, target);
 }
 
 function Modal({title, close, children}) {
@@ -406,19 +414,22 @@ function Calendar({trainings, staff, places, refresh, openTraining}) {
   }
   const shown = view === "month" ? trainings.filter(t => dayKey(t.starts_at).startsWith(month) && (!selectedDay || dayKey(t.starts_at) === selectedDay)).sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)) : filtered;
   return <>
-    <div className="page-controls">
-    <div className="toolbar">
-      <div className="segmented"><button className={view === "list" ? "selected" : ""} onClick={() => setView("list")}>Zoznam</button>
-        <button className={view === "month" ? "selected" : ""} onClick={() => setView("month")}>Mesiac</button></div>
-      {staff && <button className="primary" onClick={() => setCreate(true)}><Plus size={18} />Naplánovať</button>}
-    </div>
-    {view === "list" && <div className="chips">{[["upcoming", "Nadchádzajúce"], ["past", "História"], ["all", "Všetky"]].map(([value, text]) =>
-      <button key={value} className={period === value ? "selected" : ""} onClick={() => setPeriod(value)}>{text}</button>)}</div>}
-    </div>
-    {view === "month" && <section className="card calendar">
-        <div className="month-heading"><button className="icon-button" aria-label="Predchádzajúci mesiac" onClick={() => moveMonth(-1)}><ChevronLeft /></button>
-          <h2>{start.toLocaleDateString(uiLocale(), {month: "long", year: "numeric", timeZone: "UTC"})}</h2>
-          <button className="icon-button" aria-label="Nasledujúci mesiac" onClick={() => moveMonth(1)}><ChevronRight /></button></div>
+    <PageToolbar><div className="page-toolbar-row">
+      <div className="segmented"><button aria-pressed={view === "list"} onClick={() => setView("list")}>Zoznam</button>
+        <button aria-pressed={view === "month"} onClick={() => setView("month")}>Mesiac</button></div>
+      {view === "list" ? <div className="chips">{[["upcoming", "Nadchádzajúce"], ["past", "História"], ["all", "Všetky"]].map(([value, label]) =>
+        <button key={value} aria-pressed={period === value} onClick={() => setPeriod(value)}>{label}</button>)}</div> :
+        <div className="period-control">
+          <button className="icon-button" aria-label="Predchádzajúci mesiac" onClick={() => moveMonth(-1)}><ChevronLeft size={18} /></button>
+          <span aria-live="polite">{start.toLocaleDateString(uiLocale(), {month: "long", year: "numeric", timeZone: "UTC"})}</span>
+          <button className="icon-button" aria-label="Nasledujúci mesiac" onClick={() => moveMonth(1)}><ChevronRight size={18} /></button>
+        </div>}
+      {staff && <button className="primary page-primary" onClick={() => setCreate(true)}><Plus size={18} />
+        {selectedDay ? <>Pridať udalosť na {selectedDay.split("-").reverse().join(".")}</> : "Naplánovať"}
+      </button>}
+    </div></PageToolbar>
+    <div className={view === "month" ? "calendar-month-layout" : undefined}>
+      {view === "month" && <section className="card calendar">
         <div className="calendar-grid">{["Po", "Ut", "St", "Št", "Pi", "So", "Ne"].map(day => <span className="weekday" key={day}>{day}</span>)}
           {Array.from({length: padding}, (_, i) => <span key={"pad" + i} />)}
           {Array.from({length: days}, (_, i) => {
@@ -437,12 +448,12 @@ function Calendar({trainings, staff, places, refresh, openTraining}) {
           })}</div>
         <div className="calendar-legend">{Object.entries(kinds).map(([type, name]) =>
           <span key={type}><span className={"event-marker " + type} />{name}</span>)}</div>
-        {staff && selectedDay && <button className="text-button" onClick={() => setCreate(true)}><Plus size={16} />Pridať udalosť na {selectedDay.split("-").reverse().join(".")}</button>}
       </section>}
-    <div className="event-list">{shown.length ? shown.map((t, i) => <React.Fragment key={t.id}>
-      {(i === 0 || dayKey(shown[i - 1].starts_at) !== dayKey(t.starts_at)) && <h2 className="day-heading">{new Date(t.starts_at).toLocaleDateString(uiLocale(), {weekday: "long", day: "numeric", month: "long", timeZone})}</h2>}
-      <TrainingCard training={t} staff={staff} refresh={refresh} open={() => openTraining(t.id)} />
-    </React.Fragment>) : <Empty>V tomto období nie sú žiadne udalosti.</Empty>}</div>
+      <div className="event-list">{shown.length ? shown.map((t, i) => <React.Fragment key={t.id}>
+        {(i === 0 || dayKey(shown[i - 1].starts_at) !== dayKey(t.starts_at)) && <h2 className="day-heading">{new Date(t.starts_at).toLocaleDateString(uiLocale(), {weekday: "long", day: "numeric", month: "long", timeZone})}</h2>}
+        <TrainingCard training={t} staff={staff} refresh={refresh} open={() => openTraining(t.id)} />
+      </React.Fragment>) : <Empty>V tomto období nie sú žiadne udalosti.</Empty>}</div>
+    </div>
     {create && <Modal title="Nová udalosť" close={() => setCreate(false)}><TrainingForm initialDay={selectedDay} places={places} done={async () => {setCreate(false); await refresh();}} /></Modal>}
   </>;
 }
@@ -474,17 +485,19 @@ function Members({user,superadmin,staff=true,onMessage,onCard,onTrialBanner,user
   function toggle(setter,current,key){setter(current.includes(key)?current.filter(x=>x!==key):[...current,key]);}
   const navLabel={home:"Domov",calendar:"Kalendár",attendance:"Dochádzka",scanner:"Skenovať",messages:"Správy",announcements:"Oznamy",members:"Členovia",team:"Tímy",development:"Rozvoj hráčov",lineups:"Zostavy",drills:"Knižnica cvičení",equipment:"Vybavenie",documents:"Dokumenty"};
   return <>
-    <div className="page-controls">
-    {superadmin&&<div className="tabs member-admin-tabs"><button className={section==="members"?"selected":""} onClick={()=>setSection("members")}>Členovia</button>
-      <button className={section==="requests"?"selected":""} onClick={()=>setSection("requests")}>Žiadosti o roly {requests.length>0&&<span className="counter">{requests.length}</span>}</button>
-      <button className={section==="roles"?"selected":""} onClick={()=>setSection("roles")}>Roly a prístupy</button></div>}
-    {!superadmin&&canReview&&<button className="card quick-link role-request-alert" onClick={()=>setSection(section==="requests"?"members":"requests")}><ShieldCheck/><span className="grow"><strong>Žiadosti o pridanie rolí</strong><span className="meta">{requests.length?"Čakajúce žiadosti: "+requests.length:"Žiadne čakajúce žiadosti"}</span></span>{requests.length>0&&<span className="counter">{requests.length}</span>}</button>}
-    {section==="members"&&<>
-      <div className="toolbar"><label className="search"><Search size={18}/><input type="search" aria-label="Hľadať člena" placeholder="Hľadať podľa mena…" value={query} onChange={e=>setQuery(e.target.value)}/></label>
-        {canCreateInvites&&<button className="primary" onClick={()=>{setLink("");setInviteTarget(null);setInviteRoles(["player"]);setForm(true);}}><Plus size={18}/>Pozvať člena</button>}</div>
-      <div className="chips">{[["active","Aktívni"],["coaches","Tréneri"],["invited","Pozvaní"],["inactive","Neaktívni"],["all","Všetci"]].map(([value,text])=><button key={value} className={filter===value?"selected":""} onClick={()=>setFilter(value)}>{text}</button>)}</div>
-    </>}
-    </div>
+    <PageToolbar>
+      <div className="page-toolbar-row">
+        {superadmin && <div className="segmented"><button aria-pressed={section==="members"} onClick={()=>setSection("members")}>Členovia</button>
+          <button aria-pressed={section==="requests"} onClick={()=>setSection("requests")}>Žiadosti o roly {requests.length>0&&<span className="counter">{requests.length}</span>}</button>
+          <button aria-pressed={section==="roles"} onClick={()=>setSection("roles")}>Roly a prístupy</button></div>}
+        {section==="members" && <label className="search"><Search size={17}/><input type="search" aria-label="Hľadať člena" placeholder="Hľadať podľa mena…" value={query} onChange={e=>setQuery(e.target.value)}/></label>}
+        {!superadmin&&canReview&&<button aria-pressed={section==="requests"} onClick={()=>setSection(section==="requests"?"members":"requests")}><ShieldCheck size={16}/>Žiadosti o roly {requests.length>0&&<span className="counter">{requests.length}</span>}</button>}
+        {section==="members"&&canCreateInvites&&<button className="primary page-primary" onClick={()=>{setLink("");setInviteTarget(null);setInviteRoles(["player"]);setForm(true);}}><Plus size={18}/>Pozvať člena</button>}
+      </div>
+      {section==="members" && <div className="page-toolbar-row"><div className="chips">
+        {[["active","Aktívni"],["coaches","Tréneri"],["invited","Pozvaní"],["inactive","Neaktívni"],["all","Všetci"]].map(([value,label])=><button key={value} aria-pressed={filter===value} onClick={()=>setFilter(value)}>{label}</button>)}
+      </div></div>}
+    </PageToolbar>
     {section==="members"&&<>
       {error&&<p className="error" role="alert">{error}</p>}
       <div className="card flush"><ul className="people-list">{found.map(member=><li key={member.id}><button className="person-link" onClick={()=>{setSelected(member);setLink("");}}>
@@ -580,9 +593,21 @@ function AttendanceOverview({openScanner}) {
   const status = (person, event) => event.cancelled ? "Zrušené" : !past(event) ? "Plánované" :
     records.get(person.id + ":" + event.id) === true ? "Prítomný" : records.get(person.id + ":" + event.id) === false ? "Neprítomný" : "Nezapísané";
   const classes = {"Prítomný": "present", "Neprítomný": "absent", "Nezapísané": "unknown", "Plánované": "planned", "Zrušené": "cancelled"};
+  const dateLabel = value => new Date(value + "T00:00:00Z").toLocaleDateString(uiLocale(), {timeZone: "UTC"});
+  const appliedPeriod = [filters.date_from, filters.date_to].map(value => value ? dateLabel(value) : "…").join(" – ");
+  const filterCount = Number(filters.kinds.length !== Object.keys(kinds).length) + Number(filters.include_cancelled);
   return <>
-    <section className="card attendance-filters"><div className="row-between"><h2>Prehľad dochádzky tímu</h2></div>
-      <details className="attendance-filter-details"><summary>Filtre a obdobie</summary><form onSubmit={event => {
+    <PageToolbar>
+      <div className="page-toolbar-row">
+        <label className="search"><Search size={17} /><input type="search" aria-label="Vyhľadať člena" value={search} onChange={event => setSearch(event.target.value)} placeholder="Vyhľadať člena" /></label>
+        {result && <span className="meta" role="status">Členovia: {people.length} · Udalosti: {events.length}</span>}
+        {openScanner && <button className="primary page-primary" onClick={() => openScanner()}><ScanLine size={18} />Skenovať dochádzku</button>}
+      </div>
+      <details className="attendance-filter-details"><summary>
+        <span>Filtre a obdobie</span>
+        {filterCount > 0 && <span className="counter">{filterCount}</span>}
+        <span className="meta filter-period">{filters.date_from || filters.date_to ? appliedPeriod : "Celé obdobie"}</span>
+      </summary><form onSubmit={event => {
         event.preventDefault();
         if (draft.date_from && draft.date_to && draft.date_from > draft.date_to) {setError("Dátum od nesmie byť neskôr než dátum do."); return;}
         setFilters({...draft, kinds: [...draft.kinds]});
@@ -596,16 +621,14 @@ function AttendanceOverview({openScanner}) {
             kinds: event.target.checked ? [...draft.kinds, key] : draft.kinds.filter(kind => kind !== key)})} />{label}</label>)}
         </fieldset>
         <label className="checkbox"><input type="checkbox" checked={draft.include_cancelled} onChange={event => setDraft({...draft, include_cancelled: event.target.checked})} />Zobraziť aj zrušené udalosti</label>
-        <div className="actions"><button className="primary">Zobraziť</button>
-          <button type="button" onClick={() => {const all = {date_from: "", date_to: "", kinds: Object.keys(kinds), include_cancelled: false}; setDraft(all); setFilters(all);}}>Celé obdobie</button>
+        <div className="actions"><button type="button" onClick={() => {const all = {date_from: "", date_to: "", kinds: Object.keys(kinds), include_cancelled: false}; setDraft(all); setFilters(all);}}>Celé obdobie</button>
           <button type="button" onClick={() => setRevision(value => value + 1)}>Obnoviť údaje</button>
+          <button className="primary">Zobraziť</button>
         </div>
       </form></details>
-    </section>
+    </PageToolbar>
     {error && <p className="error" role="alert">{error}</p>}
     {loading ? <Empty>Načítava sa dochádzka…</Empty> : result && <>
-      <div className="attendance-overview-toolbar"><label>Vyhľadať člena<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Meno člena" /></label>
-        <p className="meta" role="status">Členovia: {people.length} · Udalosti: {events.length}</p></div>
       {!events.length ? <Empty icon={CalendarDays}>Pre vybrané filtre nie sú žiadne udalosti.</Empty> : !people.length ? <Empty icon={Users}>Žiadni členovia pre tento výber.</Empty> : <>
         <div className="attendance-table-scroll" tabIndex={0} role="region" aria-label="Tabuľka dochádzky členov, posúvateľná vodorovne aj zvislo">
           <table className="attendance-table"><caption className="sr-only">Členovia tímu a dochádzka na udalostiach podľa vybraných filtrov</caption>
@@ -690,7 +713,7 @@ function Bulletin({items, staff, refresh}) {
     if(id) document.getElementById("notice-"+id)?.scrollIntoView?.({block:"center"});
   },[items]);
   return <>
-    {staff && <div className="toolbar end page-controls"><button className="primary" onClick={()=>setEditor({})}><Plus size={18} />Nový oznam</button></div>}
+    {staff && <PageToolbar><div className="page-toolbar-row"><button className="primary page-primary" onClick={()=>setEditor({})}><Plus size={18} />Nový oznam</button></div></PageToolbar>}
     {items.length ? <div className="bulletin-list">{items.map(item=><article className="card" key={item.id} id={"notice-"+item.id}>
       <div className="row-between"><span className="meta">{date(item.created_at)}</span>{item.pinned && <span className="badge"><Pin size={13} />Pripnuté</span>}</div>
       <h2>{item.title}</h2><p className="body">{item.body}</p>
@@ -927,14 +950,16 @@ function Messages({user, conversations, refresh, initialContact}) {
       scrollPending.current = false;
     }
   }, [messages]);
-  return <div className={"chat card flush " + (selected ? "conversation-open" : "")}>
-    <aside className="conversation-list">
-      <div className="chat-list-controls">
-      <div className="chat-list-actions"><button className="primary" onClick={() => {setRecipientQuery(""); setNewMessage(true);}}><Plus size={17} />Nová správa</button>
+  return <>
+    <PageToolbar><div className={"page-toolbar-row chat-toolbar" + (selected ? " conversation-open" : "")}>
+      <label className="search"><Search size={17} /><input type="search" aria-label="Hľadať konverzáciu" placeholder="Hľadať konverzáciu…" value={query} onChange={event => setQuery(event.target.value)} /></label>
+      <div className="actions page-primary">
         {user.role === "coach" && <button className="icon-button" aria-label="Nová skupina" onClick={() => setGroupEditor({})}><Users size={20} /></button>}
+        <button className="primary" onClick={() => {setRecipientQuery(""); setNewMessage(true);}}><Plus size={17} />Nová správa</button>
       </div>
-      <label className="search"><Search size={18} /><input type="search" aria-label="Hľadať konverzáciu" placeholder="Hľadať konverzáciu…" value={query} onChange={event => setQuery(event.target.value)} /></label>
-      </div>
+    </div></PageToolbar>
+    <div className={"chat card flush " + (selected ? "conversation-open" : "")}>
+    <aside className="conversation-list">
       {error && !selected && <p className="error chat-list-error" role="alert">{error}</p>}
       {rows.filter(row => row.name.toLowerCase().includes(query.toLowerCase())).map(row => {
         const group = row.type === "group";
@@ -987,6 +1012,7 @@ function Messages({user, conversations, refresh, initialContact}) {
           <p className="notice">Do tejto konverzácie už nemožno posielať správy.</p>}
       </> : <Empty icon={MessageCircle}>Vyber konverzáciu alebo vytvor novú správu.</Empty>}
     </section>
+    </div>
     {canSend && pollOpen && <PollComposer close={() => setPollOpen(false)} send={send} />}
     {newMessage && <Modal title="Nová správa" close={() => setNewMessage(false)}>
       <label className="search"><Search size={18} /><input type="search" aria-label="Hľadať adresáta" value={recipientQuery} placeholder="Hľadať člena alebo trénera…" onChange={event => setRecipientQuery(event.target.value)} /></label>
@@ -1003,7 +1029,7 @@ function Messages({user, conversations, refresh, initialContact}) {
     </Modal>}
     {groupEditor && <GroupEditor group={groupEditor.id ? groupEditor : null} contacts={contacts} user={user} close={() => setGroupEditor(null)}
       done={async group_id => {setGroupEditor(null); await refresh(); openConversation({type: "group", id: group_id});}} />}
-  </div>;
+  </>;
 }
 
 function BatteryActionPicker({action,onAction,status}) {
@@ -1025,15 +1051,12 @@ function shiftBatteryDay(day, offset) {
   return value.toISOString().slice(0, 10);
 }
 
-function BatteryTimeline({items, revision, openBattery, canEdit, onDelete}) {
-  const today = clubLocal(Date.now()).slice(0, 10);
-  const [end, setEnd] = useState(today);
+function BatteryTimeline({items, revision, end, openBattery, canEdit, onDelete}) {
   const [result, setResult] = useState(null);
   const [selectedDay, setSelectedDay] = useState(null);
   const days = Array.from({length: 7}, (_, index) => shiftBatteryDay(end, index - 6));
   const current = result?.end === end && result.revision === revision ? result : null;
   const dayFormat = new Intl.DateTimeFormat(uiLocale(), {day: "numeric", month: "numeric", timeZone: "UTC"});
-  const periodFormat = new Intl.DateTimeFormat(uiLocale(), {dateStyle: "medium", timeZone: "UTC"});
   const fullDayFormat = new Intl.DateTimeFormat(uiLocale(), {dateStyle: "full", timeZone: "UTC"});
   const timeFormat = new Intl.DateTimeFormat(uiLocale(), {timeStyle: "short", timeZone});
   const fullDay = day => fullDayFormat.format(new Date(day + "T00:00:00Z"));
@@ -1064,17 +1087,7 @@ function BatteryTimeline({items, revision, openBattery, canEdit, onDelete}) {
   const detail = selectedDay && byBattery.get(selectedDay.code)?.get(selectedDay.day);
 
   return <section className="card battery-overview" aria-labelledby="battery-timeline-heading">
-    <div className="battery-overview-header">
-      <h2 id="battery-timeline-heading">Časová os batérií</h2>
-      <div className="battery-overview-period">
-        <button type="button" className="icon-button" aria-label="Predchádzajúcich 7 dní" onClick={() => setEnd(shiftBatteryDay(end, -7))}><ChevronLeft size={18} /></button>
-        <span>{periodFormat.formatRange(new Date(days[0]), new Date(end))}</span>
-        <button type="button" className="icon-button" aria-label="Nasledujúcich 7 dní" disabled={end >= today} onClick={() => {
-          const next = shiftBatteryDay(end, 7);
-          setEnd(next > today ? today : next);
-        }}><ChevronRight size={18} /></button>
-      </div>
-    </div>
+    <h2 className="sr-only" id="battery-timeline-heading">Časová os batérií</h2>
     {!current ? <p className="muted" role="status">Načítava sa…</p> :
       current.error ? <p className="error" role="alert">{current.error}</p> :
       !byBattery.size ? <p className="muted">V tomto období nie sú žiadne záznamy pre zobrazené batérie.</p> : <>
@@ -1116,11 +1129,13 @@ function BatteryTimeline({items, revision, openBattery, canEdit, onDelete}) {
   </section>;
 }
 
-function Batteries({staff, initialCode, openScanner}) {
+function Batteries({staff, initialCode}) {
+  const currentDay = today();
   const [items, setItems] = useState([]);
   const [selected, setSelected] = useState(initialCode || null);
   const [events, setEvents] = useState([]);
   const [view, setView] = useState("cards");
+  const [end, setEnd] = useState(currentDay);
   const [create, setCreate] = useState(false);
   const [action, setAction] = useState(null);
   const [error, setError] = useState("");
@@ -1138,8 +1153,7 @@ function Batteries({staff, initialCode, openScanner}) {
     return () => {current = false;};
   }, [selected]);
   const battery = items.find(item => item.code === selected);
-  const visibleItems = items;
-  function openBattery(code) {setSelected(code); setAction(null);}
+  function openBattery(code, initialAction = null) {setSelected(code); setAction(initialAction);}
   async function deleteEvent(event) {
     if (!window.confirm("Odstrániť tento záznam z histórie batérie?")) return;
     await api("batteries/" + encodeURIComponent(event.code) + "/events/" + event.id, "DELETE");
@@ -1147,23 +1161,41 @@ function Batteries({staff, initialCode, openScanner}) {
     await load();
   }
   return <>
-    <div className="battery-toolbar page-controls"><div className="battery-view-toggle" role="group" aria-label="Zobrazenie batérií">
-      <button type="button" aria-pressed={view === "cards"} className={view === "cards" ? "selected" : ""} onClick={()=>setView("cards")}>Karty</button>
-      <button type="button" aria-pressed={view === "timeline"} className={view === "timeline" ? "selected" : ""} onClick={()=>setView("timeline")}>Časová os</button>
-    </div>{staff && <button className="primary" onClick={() => setCreate(true)}><Plus size={18} />Batéria</button>}</div>
+    <PageToolbar><div className="page-toolbar-row">
+      <div className="segmented" role="group" aria-label="Zobrazenie batérií">
+        <button type="button" aria-pressed={view === "cards"} onClick={()=>setView("cards")}>Karty</button>
+        <button type="button" aria-pressed={view === "timeline"} onClick={()=>{if (view !== "timeline") setEnd(currentDay);setView("timeline");}}>Časová os</button>
+      </div>
+      {view === "timeline" && items.length > 0 && <div className="period-control">
+        <button type="button" className="icon-button" aria-label="Predchádzajúcich 7 dní" onClick={() => setEnd(shiftBatteryDay(end, -7))}><ChevronLeft size={18} /></button>
+        <span aria-live="polite">{new Intl.DateTimeFormat(uiLocale(), {dateStyle: "medium", timeZone: "UTC"})
+          .formatRange(new Date(shiftBatteryDay(end, -6)), new Date(end))}</span>
+        <button type="button" className="icon-button" aria-label="Nasledujúcich 7 dní" disabled={end >= currentDay} onClick={() => {
+          const next = shiftBatteryDay(end, 7);
+          setEnd(next > currentDay ? currentDay : next);
+        }}><ChevronRight size={18} /></button>
+      </div>}
+      {staff && <button className="primary page-primary" onClick={() => setCreate(true)}><Plus size={18} />Pridať batériu</button>}
+    </div></PageToolbar>
     {error && <p className="error" role="alert">{error}</p>}
-    {view === "timeline" && items.length > 0 && <BatteryTimeline items={visibleItems} revision={revision} openBattery={openBattery} canEdit={staff} onDelete={deleteEvent} />}
-    {view === "cards" && <div className="equipment-grid">{visibleItems.map(b =>
-      <button className={"card equipment-card battery-state-card state-"+(b.status||"unknown")} key={b.code} onClick={() => openBattery(b.code)}><Battery size={25} /><strong>{b.code}</strong><span className="muted">{b.label}</span>
-        <span className={"badge battery-state-badge state-"+(b.status||"unknown")}>{batteryStateLabels[b.status] || "Neznámy stav"}</span>
-        <span className="meta">{b.status_at ? "Stav k " + date(b.status_at) : "Stav zatiaľ nebol určený"}</span>
-        <span className="meta">{b.charges} evidovaných nabití</span>
-      </button>)}</div>}
+    {view === "timeline" && items.length > 0 && <BatteryTimeline items={items} revision={revision} end={end} openBattery={openBattery} canEdit={staff} onDelete={deleteEvent} />}
+    {view === "cards" && <div className="equipment-grid">{items.map(b =>
+      <article className={"card battery-state-card state-"+(b.status||"unknown")} key={b.code}>
+        <div className="battery-card-heading">
+          <button className="text-button" aria-haspopup="dialog" onClick={() => openBattery(b.code)}><Battery size={17} />{b.code}</button>
+          <span className={"badge battery-state-badge state-"+(b.status||"unknown")}>{batteryStateLabels[b.status] || "Neznámy stav"}</span>
+        </div>
+        <div className="battery-card-details">
+          <span className="battery-card-label muted">{b.label}</span>
+          {!["stored", "damaged", "retired"].includes(b.status) && <button className="text-button" aria-haspopup="dialog" onClick={() => openBattery(b.code, "used")}>Zapísať použitie</button>}
+        </div>
+      </article>)}</div>}
     {items.length === 0 && <Empty icon={Battery}>Zatiaľ žiadne batérie.</Empty>}
     {selected && <Modal title={battery ? battery.code : "Batéria"} close={() => {setSelected(null); setAction(null);}}>
       {battery ? <>
         <p className="muted">{battery.label}</p><p><span className={"badge battery-state-badge state-"+(battery.status||"unknown")}>{batteryStateLabels[battery.status] || "Neznámy stav"}</span></p>
         <p className="meta">{battery.status_at ? "Aktuálny stav od " + date(battery.status_at) : "Batéria zatiaľ nemá zaznamenaný aktuálny stav."}</p>
+        <p className="meta">{battery.charges} evidovaných nabití</p>
         <BatteryActionPicker action={action} status={battery.status} onAction={setAction}/>
         {action && <Form label={"Zapísať · " + batteryLabels[action]} submit={async data => {
           await api("batteries/" + battery.code + "/events", "POST", {action, note: data.note});
@@ -1189,7 +1221,7 @@ function DrillLibrary() {
   async function load() {setItems(await api("drills"));}
   useEffect(() => {load().catch(e => setError(e.message));}, []);
   return <>
-    <div className="toolbar page-controls"><label className="search"><Search size={18} /><input aria-label="Hľadať cvičenie" placeholder="Hľadať cvičenie…" value={query} onChange={e => setQuery(e.target.value)} /></label></div>
+    <PageToolbar><div className="page-toolbar-row"><label className="search"><Search size={17} /><input type="search" aria-label="Hľadať cvičenie" placeholder="Hľadať cvičenie…" value={query} onChange={e => setQuery(e.target.value)} /></label></div></PageToolbar>
     {error && <p className="error" role="alert">{error}</p>}
     <div className="drill-grid">{items.filter(item => (item.title + " " + item.objective + " " + item.equipment).toLowerCase().includes(query.toLowerCase())).map(item => <article className="card drill-card" key={item.id}>
       <div className="toolbar"><BookOpen /><strong className="grow">{item.title}</strong><span className="badge">{item.duration_minutes} min</span></div>
@@ -1209,7 +1241,7 @@ function PlayerDevelopmentPage() {
   async function open(member) {setSelected(member); setDevelopment(await api("members/" + member.id + "/development"));}
   useEffect(() => {loadMembers().catch(e => setError(e.message));}, []);
   return <>
-    <div className="toolbar page-controls"><label className="search"><Search size={18} /><input aria-label="Hľadať hráča" placeholder="Hľadať hráča…" value={query} onChange={e => setQuery(e.target.value)} /></label></div>
+    <PageToolbar><div className="page-toolbar-row"><label className="search"><Search size={17} /><input type="search" aria-label="Hľadať hráča" placeholder="Hľadať hráča…" value={query} onChange={e => setQuery(e.target.value)} /></label></div></PageToolbar>
     {error && <p className="error" role="alert">{error}</p>}
     <div className="card flush"><ul className="people-list">{members.filter(m => m.name.toLowerCase().includes(query.toLowerCase())).map(member => <li key={member.id}>
       <button className="person-link" onClick={() => open(member)}><Avatar name={member.name} id={member.id} version={member.avatar_version} /><span className="grow"><strong>{member.name}</strong><span className="meta">{clubRoleLabel(member.roles)}</span>{!member.active && <span className="meta">Neaktívny</span>}</span><ChevronRight size={18} /></button>
@@ -1365,7 +1397,7 @@ function TeamSheet({trainings}) {
   }, [eventId]);
   const event = events.find(item => String(item.id) === eventId);
   return <>
-    <section className="card lineup-picker page-controls"><label>Zostava<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="general">Základná zostava tímu</option>{events.map(item => <option key={item.id} value={item.id}>{date(item.starts_at)} · {item.title}</option>)}</select></label></section>
+    <PageToolbar><div className="page-toolbar-row"><label className="toolbar-select">Zostava<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="general">Základná zostava tímu</option>{events.map(item => <option key={item.id} value={item.id}>{date(item.starts_at)} · {item.title}</option>)}</select></label></div></PageToolbar>
     {error && <p className="error" role="alert">{error}</p>}
     {eventId === "general" && <div className="notice">Základná zostava priebežne vyjadruje, s kým tréner počíta a na akej pozícii.</div>}
     {event && source === "general" && <div className="notice">Pre túto udalosť zatiaľ nie je uložená samostatná zostava; zobrazuje sa základná zostava tímu.</div>}
@@ -1396,21 +1428,22 @@ function LineupPlanner({trainings}) {
   }, [eventId]);
   const event = events.find(item=>String(item.id)===eventId);
   return <>
-    <section className="card lineup-picker page-controls">
-      <h2>Akú zostavu upravuješ?</h2>
+    <PageToolbar><div className="page-toolbar-row">
       <div className="segmented lineup-mode-switch">
         <button type="button" className={eventId === "general" ? "selected" : ""} aria-pressed={eventId === "general"} onClick={() => {setEventId("general");setError("");}}>Základná zostava tímu</button>
         <button type="button" className={eventId !== "general" ? "selected" : ""} aria-pressed={eventId !== "general"} onClick={chooseEventMode}>Zostava na udalosť</button>
       </div>
-      {eventId !== "general" && <label>Udalosť<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="">Vyber tréning alebo zápas</option>{events.map(event => <option key={event.id} value={event.id}>{date(event.starts_at)} · {event.title}</option>)}</select></label>}
-      {eventId === "general" && <p className="muted small">Toto je priebežná zostava tímu. Udalostná zostava sa upravuje samostatne.</p>}
-    </section>
+      {eventId !== "general" && <label className="toolbar-select">Udalosť<select value={eventId} onChange={e => {setEventId(e.target.value); setError("");}}><option value="">Vyber tréning alebo zápas</option>{events.map(event => <option key={event.id} value={event.id}>{date(event.starts_at)} · {event.title}</option>)}</select></label>}
+      {eventId && <div className="page-primary"><Action className="primary" run={async () => {
+        await api(eventId === "general" ? "lineup/general" : "trainings/" + eventId + "/lineup", "PUT", {players});
+        setSource(eventId === "general" ? "general" : "event");
+      }}>Uložiť zostavu</Action></div>}
+    </div></PageToolbar>
     {error && <p className="error" role="alert">{error}</p>}
     {eventId !== "general" && source === "general" && <div className="notice">Upravuješ zostavu na konkrétnu udalosť. Začínaš zo základnej zostavy; zmeny sa uložia iba pre túto udalosť.</div>}
     {eventId && <>
       <div className="lineup-context"><strong>{event?.title || "Základná zostava tímu"}</strong>{event&&<span className="meta">{date(event.starts_at)}</span>}</div>
       <LineupDisplay players={players} roster={roster} editable onChange={setPlayers}/>
-      <div className="toolbar end section-space"><Action className="primary" run={async () => {await api(eventId === "general" ? "lineup/general" : "trainings/" + eventId + "/lineup", "PUT", {players}); setSource(eventId === "general" ? "general" : "event");}}>Uložiť zostavu</Action></div>
     </>}
   </>;
 }
@@ -1423,7 +1456,7 @@ function Documents({staff}) {
   async function load() {setItems(await api("documents"));}
   useEffect(() => {load().catch(error => setError(error.message));}, []);
   return <>
-    {staff && <div className="toolbar end page-controls"><button className="primary" onClick={() => {setFile(null); setCreate(true);}}><Plus size={18} />Dokument</button></div>}
+    {staff && <PageToolbar><div className="page-toolbar-row"><button className="primary page-primary" onClick={() => {setFile(null); setCreate(true);}}><Plus size={18} />Dokument</button></div></PageToolbar>}
     {error && <p className="error" role="alert">{error}</p>}
     <div className="card flush"><ul className="people-list">{items.map(item => <li key={item.id}><FileText /><div className="grow"><strong>{item.title}</strong><span className="meta">PDF · {date(item.created_at)}</span></div>
       <a className="icon-button" href={new URL("api/documents/" + item.id + "/download", base)} aria-label={"Stiahnuť " + item.title}><Download size={19} /></a>
@@ -1533,11 +1566,14 @@ function ClubScanner({user,initialEvent,refresh}) {
     finally{if(mounted.current)setBusy(false);locked.current=false;}
   }
   return <>
+    {!running && <PageToolbar><div className="page-toolbar-row">
+      <button className="primary page-primary" disabled={busy} onClick={()=>{locked.current=false;setError("");setRunning(true);}}><ScanLine size={18}/>Otvoriť kameru</button>
+    </div></PageToolbar>}
     <section className="card scanner-page-card">
-      {running?<Modal title="Skenovať kódy" close={()=>setRunning(false)}>
+      {running && <Modal title="Skenovať kódy" close={()=>setRunning(false)}>
         <div className="scan-camera-stage"><CameraScanner running={running} onDecode={decode} onError={message=>{setRunning(false);setError(message);}} /></div>
         <button className="primary scan-stop-modal" onClick={()=>setRunning(false)}>Zastaviť skener</button>
-      </Modal>:<button className="primary scan-open-camera" disabled={busy} onClick={()=>{locked.current=false;setError("");setRunning(true);}}><ScanLine size={20}/>Otvoriť kameru</button>}
+      </Modal>}
       <details className="scan-manual"><summary>Zadať kód ručne alebo cez USB skener</summary>
         <Form label={busy?"Spracúva sa…":"Spracovať kód"} submit={async()=>{if(busy)return;locked.current=false;await decode(manual);}}>
           <label className="section-space">Kód<input value={manual} onChange={event=>setManual(event.target.value)} placeholder="LF-B001" maxLength="2048" autoComplete="off" autoCapitalize="none" spellCheck="false" required disabled={busy}/></label>
@@ -1690,7 +1726,13 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
   useEffect(() => {api("me/attendance").then(setAttendance).catch(error => setError(error.message));}, []);
   const attended = attendance.filter(row => row.attended).length;
   return <>
-    {(user.roles||[]).includes("player") && <button className="card qr-profile-button" onClick={openCard}><QrCode size={25} /><span>Môj členský QR kód</span><ChevronRight /></button>}
+    <PageToolbar><div className="page-toolbar-row">
+      {(user.roles||[]).includes("player") && <button onClick={openCard}><QrCode size={18} />Môj členský QR kód</button>}
+      <div className="actions page-primary">
+        {user.role !== "superadmin" && <button onClick={() => setEdit("password")}>Zmeniť heslo</button>}
+        <button className="primary" onClick={() => setEdit("profile")}><Pencil size={16} />Upraviť profil</button>
+      </div>
+    </div></PageToolbar>
     <section className="card profile-card">
       <button type="button" className="profile-avatar-edit" aria-label={user.avatar_version ? "Zmeniť profilovú fotku" : "Nahrať profilovú fotku"}
         aria-haspopup="dialog" onClick={() => setEdit("avatar")}>
@@ -1698,8 +1740,6 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
         <span className="profile-avatar-edit-icon" aria-hidden="true"><Pencil size={13} /></span>
       </button>
       <h2>{user.name}</h2><p className="muted">{user.email || "admin"}</p><span className="badge">{user.role === "superadmin" ? "Administrátor" : clubRoleLabel(user.roles)}</span>
-      <div className="actions section-space"><button onClick={() => setEdit("profile")}><Pencil size={16} />Upraviť profil</button>
-        {user.role !== "superadmin" && <button onClick={() => setEdit("password")}>Zmeniť heslo</button>}</div>
     </section>
     {saved && <p className="success" role="status">{saved}</p>}
     {error && <p className="error" role="alert">{error}</p>}
@@ -1774,7 +1814,7 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
   const waiting = trainings.filter(t => !t.cancelled && past(t) && t.counts?.attendance_pending > 0);
   const notice = announcements.find(item => item.pinned) || announcements[0];
   return <>
-    <div className="welcome"><div><h1>Ahoj, {user.name.split(" ")[0]}.</h1></div>
+    <div className="welcome"><h2>Ahoj, {user.name.split(" ")[0]}.</h2>
       <span className="welcome-date">{new Date().toLocaleDateString(uiLocale(), {weekday: "long", day: "numeric", month: "long", timeZone})}</span>
     </div>
     <div className="home-grid">
@@ -1824,6 +1864,7 @@ function App() {
   const loginPromotionShown = useRef(null);
   const [user, setUser] = useState(undefined);
   const contentRef = useRef(null);
+  const [toolbarTarget, setToolbarTarget] = useState(null);
   const [page, setPage] = useState(() => hash().has("battery") ? "equipment" : hash().get("page") || "home");
   const [menu, setMenu] = useState(false);
   const [route, setRoute] = useState(location.hash);
@@ -1849,7 +1890,7 @@ function App() {
   const visibleNavigation = navigation.filter(([key]) => user?.menu_access?.includes(key) && (key !== "team" || user?.role !== "superadmin") && (key !== "messages" || !superadmin));
   const allowedPages = [...visibleNavigation.map(([key]) => key), ...(user?.menu_access?.includes("scanner") ? ["scanner"] : []), "profile"];
   const currentPage = allowedPages.includes(page) ? page : "home";
-  const title = currentPage === "profile" ? "Profil a nastavenia" : currentPage === "scanner" ? "Skenovať" : visibleNavigation.find(([key]) => key === currentPage)?.[1];
+  const title = currentPage === "profile" ? "Profil a nastavenia" : currentPage === "scanner" ? "Skenovať" : navigation.find(([key]) => key === currentPage)?.[1];
   useEffect(() => {
     document.documentElement.lang = language;
     translatePage(document.body, language);
@@ -1938,7 +1979,7 @@ function App() {
     if (menu) history.replaceState({}, "", target); else if (next !== page) history.pushState({}, "", target);
     setMenu(false); setNotifications(false); setTrainingId(null); setPage(next); setActiveBattery(null);
     if (next !== "messages") setContact(null);
-    contentRef.current?.scrollTo({top: 0});
+    contentRef.current?.scrollTo({top: 0, left: 0});
     window.scrollTo({top: 0});
   }
   function openScanner(event=null) {setScanEvent(event);setScanSession(value=>value+1);setTrainingId(null);navigate("scanner");}
@@ -1954,7 +1995,7 @@ function App() {
     loginPromotionShown.current = null;
   }
   useEffect(() => {loadUser();}, []);
-  useEffect(() => {contentRef.current?.scrollTo({top: 0});}, [currentPage]);
+  useEffect(() => {contentRef.current?.scrollTo({top: 0, left: 0});}, [currentPage]);
   useEffect(() => {
     const onNavigation = () => {
       setRoute(location.hash);
@@ -1999,21 +2040,24 @@ function App() {
       <a className={user && currentPage !== "home" ? "brand desktop-brand" : "brand"} href="#page=home" onClick={event => {event.preventDefault(); if (user) navigate("home");}}>
         <span className="brand-symbol" aria-hidden="true"><Drone size={24} /></span><span><strong>Drone Soccer Hub</strong><small>LF TUKE</small></span>
       </a>
-      {user && currentPage !== "home" && <h1 className="mobile-section-title">{title}</h1>}
+      {user && <h1 id="page-title" className={"topbar-title" + (currentPage === "home" ? " home-title" : "")}>{title}</h1>}
       {user && <button className="icon-button scan-shortcut" aria-label="Skenovať kód" onClick={()=>openScanner()}><ScanLine size={22} /></button>}
       {(user?.roles||[]).includes("player") && <button className="icon-button" aria-label="Môj členský QR kód" onClick={()=>setCardMember({self:true})}><QrCode size={22} /></button>}
       {user && <button className="icon-button notification-button" aria-label={"Oznámenia" + (unread + unreadNotices ? " (" + (unread + unreadNotices) + ")" : "")} onClick={() => setNotifications(true)}><Bell size={22} />{unread + unreadNotices > 0 && <i />}</button>}
     </header>
     {user && <aside className="sidebar">{menuContent}</aside>}
     {user && menu && <Drawer close={closeMenu}>{menuContent}</Drawer>}
-    <main ref={contentRef} className={user ? "content " + currentPage + "-page" : "content"}>
+    <div className="workspace">
+    {user && <div ref={setToolbarTarget} className="page-toolbar" />}
+    <ToolbarTarget.Provider value={toolbarTarget}>
+    <main ref={contentRef} tabIndex={user ? 0 : undefined} aria-labelledby={user ? "page-title" : undefined}
+      className={user ? "content " + currentPage + "-page" : "content"}>
     {trialBannerEnabled&&<aside className="development-banner" aria-label="Aplikácia vo vývoji">
         <Construction size={22} aria-hidden="true" />
         <div><strong>Aplikácia je v skúšobnej prevádzke</strong><p>Nie všetky funkcie sú zatiaľ dostupné. Funkcie aj vzhľad aplikácie priebežne dopĺňame a upravujeme.</p></div>
       </aside>}
       {error && <div className="error-banner" role="alert">{error}<Action run={refresh}>Skúsiť znova</Action></div>}
       {user === undefined ? <Empty>Načítava sa…</Empty> : !user ? <Login onLogin={loadUser} /> : <>
-        {currentPage !== "home" && <h1 className="desktop-section-title">{title}</h1>}
         {loading ? <Empty>Načítava sa…</Empty> : <>
           {currentPage === "home" && <>
             {!installation.installed && user.pwa_show_card !== false && !installHidden && <div className="install-promotion">
@@ -2021,12 +2065,12 @@ function App() {
               <button className="icon-button" aria-label="Skryť kartu teraz" onClick={() => setInstallHidden(true)}><X size={18} /></button>
               <Action className="text-button install-opt-out" run={stopInstallPromotions}>Už nezobrazovať</Action>
             </div>}
-            {staff && user.menu_access?.includes("calendar") && <div className="toolbar end home-action"><button className="primary" onClick={() => setCreateTraining(true)}><Plus size={18} />Naplánovať udalosť</button></div>}
+            {staff && user.menu_access?.includes("calendar") && <PageToolbar><div className="page-toolbar-row"><button className="primary page-primary" onClick={() => setCreateTraining(true)}><Plus size={18} />Naplánovať udalosť</button></div></PageToolbar>}
             <Home user={user} {...data} refresh={refresh} navigate={navigate} openTraining={setTrainingId} />
           </>}
           {currentPage === "calendar" && <Calendar trainings={data.trainings} staff={staff} places={data.places} refresh={refresh} openTraining={setTrainingId} />}
           {currentPage === "scanner" && <ClubScanner key={user.id+":"+(scanEvent?.id || "general")+":"+scanSession} user={user} initialEvent={scanEvent} refresh={refresh} />}
-          {currentPage === "attendance" && staff && <AttendanceOverview openScanner={openScanner} />}
+          {currentPage === "attendance" && staff && <AttendanceOverview openScanner={user.menu_access?.includes("scanner") ? openScanner : undefined} />}
           {currentPage === "messages" && <Messages key={user.id + ":" + contact + ":" + route} user={user} conversations={data.conversations} refresh={refresh} initialContact={contact} />}
           {currentPage === "announcements" && <Bulletin items={data.announcements} staff={staff} refresh={refresh} />}
           {currentPage === "members" && <Members key="members" user={user} userId={user.id} staff={staff} superadmin={superadmin} onTrialBanner={setTrialBannerEnabled} onMessage={messageMember} onCard={setCardMember} />}
@@ -2034,13 +2078,15 @@ function App() {
           {currentPage === "development" && staff && <PlayerDevelopmentPage />}
           {currentPage === "lineups" && staff && <LineupPlanner trainings={data.trainings} />}
           {currentPage === "drills" && staff && <DrillLibrary />}
-          {currentPage === "equipment" && <Batteries key={user.id + ":" + activeBattery} staff={staff} initialCode={activeBattery} openScanner={openScanner} />}
+          {currentPage === "equipment" && <Batteries key={user.id + ":" + activeBattery} staff={staff} initialCode={activeBattery} />}
           {currentPage === "documents" && <Documents staff={staff} />}
           {currentPage === "profile" && <Profile user={user} reloadUser={loadUser} installation={installation} install={install} saveInstallPreferences={saveInstallPreferences} openCard={()=>setCardMember({self:true})} languagePreference={languagePreference} onLanguageChange={changeLanguagePreference} />}
         </>}
       </>}
     </main>
+    </ToolbarTarget.Provider>
     <footer className="site-footer">DRONE SOCCER HUB LF © 2026 Zoltán Szőke</footer>
+    </div>
     {user && installPopup && user.pwa_show_popup !== false && !installation.installed && <Modal title="Maj klub vždy poruke" close={() => setInstallPopup(false)}>
       <InstallPanel installation={installation} install={install} />
       <div className="install-popup-actions">
