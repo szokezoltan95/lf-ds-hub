@@ -1442,7 +1442,10 @@ function EquipmentActivityTimeline({items, revision, end, openBattery, openAsset
       api("batteries/timeline?" + new URLSearchParams({end})),
       ...items.filter(item => item.kind !== "battery").map(item => api("equipment/assets/" + encodeURIComponent(item.code) + "/events")),
     ]).then(([batteryEvents, ...assetEvents]) => {
-      const events = [...batteryEvents.map(event => ({...event, kind: "battery"})), ...assetEvents.flat().map(event => ({...event, kind: "asset"}))];
+      const events = [
+        ...batteryEvents.map(event => ({...event, kind: "battery"})),
+        ...assetEvents.flat().map(event => ({...event, kind: "asset"})),
+      ];
       if (active) setResult({end, revision, events});
     }).catch(error => {
       if (active) setResult({end, revision, error: error.message});
@@ -1476,7 +1479,7 @@ function EquipmentActivityTimeline({items, revision, end, openBattery, openAsset
             <thead><tr><th scope="col">Zariadenie</th>{days.map(day =>
               <th key={day} scope="col"><time dateTime={day}>{dayFormat(day)}</time></th>)}</tr></thead>
             <tbody>{items.filter(item => byItem.has(item.code)).map(item =>
-              <tr key={item.code}><th scope="row"><div className="battery-timeline-identity"><span className="battery-timeline-code">{item.code}</span><span className={"badge "+(item.kind === "battery" ? "battery-state-badge" : "equipment-status-badge")+" state-"+(item.status||"unknown")}>{itemLabel(item)}</span></div></th>{days.map(day => {
+              <tr key={item.code}><th scope="row"><div className="battery-timeline-identity"><span className="battery-timeline-code">{item.code}</span><span className={"badge " + (item.kind === "battery" ? "battery-state-badge" : "equipment-status-badge") + " state-" + (item.status || "unknown")}>{itemLabel(item)}</span></div></th>{days.map(day => {
                 const events = byItem.get(item.code).get(day);
                 if (!events) return <td key={day}><span className="muted" aria-hidden="true">–</span><span className="sr-only">Bez záznamu</span></td>;
                 const counts = events.reduce((totals,event)=>({...totals,[event.action]:(totals[event.action]||0)+1}),{});
@@ -2098,9 +2101,6 @@ function ClubScanner({user,initialEvent,refresh}) {
   const [saved,setSaved]=useState("");
   const [toast,setToast]=useState("");
   const [pendingMember,setPendingMember]=useState(null);
-Warning: truncated output (original token count: 15915)
-Total output lines: 700
-
   const [newPrivateEvent,setNewPrivateEvent]=useState(false);
   const [action,setAction]=useState("used");
   const [requestId,setRequestId]=useState(null);
@@ -2439,7 +2439,41 @@ function Home({user, trainings, announcements, conversations, refresh, navigate,
   const next = trainings.filter(upcoming);
   const unread = conversations.reduce((sum, row) => sum + row.unread, 0);
   const attendanceWaiting = trainings.find(t => !t.cancelled && past(t) && t.counts?.attendance_pending > 0);
-  const revised = next.find(t => mayRespond(user,t) && t.schedule_revision > 0 && !t.change_res…915 tokens truncated…,change);return()=>query.removeEventListener("change",change);},[]);
+  const revised = next.find(t => mayRespond(user,t) && t.schedule_revision > 0 && !t.change_response);
+  const unanswered = canRespond ? next.filter(t => mayRespond(user,t) && (!t.response || (t.schedule_revision > 0 && !t.change_response))) : [];
+  const notice = announcements.find(item => item.pinned) || announcements[0];
+  const unreadNotice = announcements.find(item => !item.is_read);
+  const availableWidgets = [
+    ...(can("calendar.events.read") ? ["event", "schedule"] : []),
+    ...(canRespond ? ["rsvp"] : []), ...(can("attendance.records.own") ? ["attendance"] : []),
+    ...(can("attendance.records.read") ? ["followup", "team_attendance"] : []),
+    ...(can("calendar.rsvp.summary") ? ["rsvp_summary"] : []),
+    ...(can("announcements.notices.read") ? ["announcements"] : []),
+    ...(can("messages.chat.read") ? ["messages"] : []),
+    ...(user.menu_access?.includes("members") && user.roles?.some(role => ["club_leader", "deputy_leader"].includes(role)) ? ["role_requests"] : []),
+    ...(can("equipment.assets.read") ? ["battery_status"] : []), ...(can("equipment.assets.history") ? ["battery_activity"] : []),
+    ...(can("members.accounts.read") && can("members.accounts.invite") ? ["member_invites"] : []),
+    ...(user.menu_access?.some(key => key !== "home") ? ["quick_links"] : []),
+  ];
+  const defaults = staff
+    ? [["event","both"],["followup","both"],["announcements","both"],["battery_status","both"],["quick_links","both"],["rsvp_summary","desktop"],["team_attendance","desktop"],["messages","desktop"],["battery_activity","desktop"],["member_invites","desktop"],["role_requests","desktop"]]
+    : [["event","both"],["rsvp","both"],["announcements","both"],["quick_links","both"],["battery_status","mobile"],["messages","desktop"],["attendance","desktop"]];
+  const saved = user.dashboard_preferences || {};
+  const rawWidgets = Array.isArray(saved.widgets) ? saved.widgets : defaults.map(([id,display]) => ({id,display}));
+  const widgets = rawWidgets.map(item => typeof item === "string" ? {id:item,display:defaults.find(([id])=>id===item)?.[1]||"both"} : item)
+    .filter((item,index,list) => item && availableWidgets.includes(item.id) && list.findIndex(other => (typeof other === "string" ? other : other.id) === item.id) === index);
+  const theme = saved.theme || "blue";
+  const columns = [1,2,3,4].includes(saved.columns) ? saved.columns : 2;
+  const homeColor = theme.startsWith("#") ? theme : ({blue:"#41b6e6",sky:"#7fc8ed",mint:"#83cbb4",coral:"#e8a28c"}[theme] || "#41b6e6");
+  const defaultLinks = ["calendar",...(has("messages")? ["messages"]:[]),...(has("announcements")?["announcements"]:[]),...(canRespond?["member_qr"]:[]),...(has("scanner")?["scanner"]:[])];
+  const availableLinks = Object.keys(dashboardLinkInfo).filter(key => key === "member_qr" ? can("profile.card.own") : has(key));
+  const quickLinks = (Array.isArray(saved.quick_links) ? saved.quick_links : defaultLinks).filter(key => availableLinks.includes(key));
+  const [editOpen, setEditOpen] = useState(false), [draftWidgets, setDraftWidgets] = useState(widgets), [draftLinks, setDraftLinks] = useState(quickLinks), [draftTheme, setDraftTheme] = useState(theme), [draftColumns, setDraftColumns] = useState(columns);
+  const [dashboardData, setDashboardData] = useState({attendance:[],batteries:[],batteryActivity:[],members:[],teamAttendance:null});
+  const [dataLoaded, setDataLoaded] = useState({});
+  const [saveError, setSaveError] = useState(""), [saving, setSaving] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia("(min-width: 780px)").matches);
+  useEffect(() => {const query=window.matchMedia("(min-width: 780px)"),change=event=>setIsDesktop(event.matches);query.addEventListener("change",change);return()=>query.removeEventListener("change",change);},[]);
   const visibleWidgetIds=widgets.filter(item=>item.display==="both"||(isDesktop?item.display==="desktop":item.display==="mobile")).map(item=>item.id);
   useEffect(() => {
     let current = true;
