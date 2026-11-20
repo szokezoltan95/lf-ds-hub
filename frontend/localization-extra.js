@@ -384,3 +384,22 @@ Object.assign(ukrainianExtra, {
   "Vyber platnú fotku vo formáte JPG, PNG alebo WebP.": "Виберіть дійсне фото у форматі JPG, PNG або WebP.",
   "Fotku sa nepodarilo nahrať.": "Не вдалося завантажити фото."
 });
+
+Object.assign(englishExtra, {
+  "Reakcie": "Reactions", "Pridať reakciu": "Add reaction", "Vybrať reakciu": "Choose a reaction",
+  "Zobraziť reakciu": "View who reacted", "Žiadne reakcie.": "No reactions.",
+  "Na vlastnú správu nemôžeš reagovať.": "You can't react to your own message.",
+  "Zoznam reakcií vidí iba autor správy.": "Only the sender can see who reacted.",
+  "Nová možnosť": "New option", "Uložiť možnosť": "Save option",
+  "Táto správa nie je anketa.": "This message isn't a poll.",
+  "Táto možnosť už v ankete je.": "This option is already in the poll."
+});
+Object.assign(ukrainianExtra, {
+  "Reakcie": "Реакції", "Pridať reakciu": "Додати реакцію", "Vybrať reakciu": "Вибрати реакцію",
+  "Zobraziť reakciu": "Переглянути, хто відреагував", "Žiadne reakcie.": "Реакцій немає.",
+  "Na vlastnú správu nemôžeš reagovať.": "Не можна реагувати на власне повідомлення.",
+  "Zoznam reakcií vidí iba autor správy.": "Лише автор повідомлення бачить, хто відреагував.",
+  "Nová možnosť": "Новий варіант", "Uložiť možnosť": "Зберегти варіант",
+  "Táto správa nie je anketa.": "Це повідомлення не є опитуванням.",
+  "Táto možnosť už v ankete je.": "Такий варіант уже є в опитуванні."
+});

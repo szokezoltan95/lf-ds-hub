@@ -2,7 +2,7 @@ import React, {useEffect, useRef, useState} from "react";
 import {createRoot} from "react-dom/client";
 import {Drone, Menu, X, House, CalendarDays, MessageCircle, Megaphone, Users, Battery, ShieldCheck, Construction, BookOpen, Timer,
   LogOut, Bell, Plus, ChevronLeft, ChevronRight, MapPin, Clock, Check, CircleHelp,
-  Search, ScanLine, QrCode, ClipboardCheck, Pin, FileText, Download, ArrowUpRight, Settings2, Send, CheckCheck, Pencil} from "lucide-react";
+  Search, ScanLine, QrCode, ClipboardCheck, Pin, FileText, Download, ArrowUpRight, Settings2, Send, CheckCheck, Pencil, SmilePlus} from "lucide-react";
 import "@fontsource/dm-sans/latin-400.css";
 import "@fontsource/dm-sans/latin-ext-400.css";
 import "@fontsource/dm-sans/latin-600.css";
@@ -732,14 +732,20 @@ function GroupEditor({contacts, group, user, close, done}) {
 
 const reactionEmoji = ["👍", "❤️", "😂", "😮", "😢", "🎉"];
 
-function MessageInteractions({item, change}) {
+function MessageInteractions({item, own, change}) {
   const [picker, setPicker] = useState(false);
+  const [reactors, setReactors] = useState(null);
+  const [addingOption, setAddingOption] = useState(false);
   const reactions = item.reactions || [];
   const vote = item.poll_results?.find(result => result.mine)?.choice;
   const total = item.poll_results?.reduce((sum, result) => sum + result.count, 0) || 0;
   async function react(emoji) {
     await change(item.id, "reaction", {emoji, active: !reactions.some(row => row.emoji === emoji && row.mine)});
     setPicker(false);
+  }
+  async function showReactors(emoji) {
+    const people = await api("messages/" + item.id + "/reactions?" + new URLSearchParams({emoji}));
+    setReactors({emoji, people});
   }
   return <>
     {item.poll_options && <div className="message-poll">
@@ -753,17 +759,33 @@ function MessageInteractions({item, change}) {
         </Action>;
       })}
       <small className="poll-total"><span>Počet hlasov</span> · {total}</small>
+      <button type="button" className="text-button poll-add-option" aria-expanded={addingOption}
+        onClick={() => setAddingOption(value => !value)}><Plus size={14} />Pridať možnosť</button>
+      {addingOption && <Form label="Uložiť možnosť" submit={async ({option}) => {
+        await change(item.id, "poll-options", {option}, "POST");
+        setAddingOption(false);
+      }}>
+        <label>Nová možnosť<input name="option" required maxLength={120} autoFocus /></label>
+      </Form>}
     </div>}
-    <div className="message-reactions">
-      {(reactions.some(row => row.emoji === "👍") ? reactions : [{emoji:"👍", count:0, mine:false}, ...reactions]).map(({emoji, count, mine}) =>
-        <Action key={emoji} className="reaction-button" pressed={mine} run={() => react(emoji)}>
-          <span className="sr-only">Reakcia</span>{emoji}{count > 0 && <span>{count}</span>}
+    {(!own || reactions.length > 0) && <div className="message-reactions">
+      {reactions.map(({emoji, count, mine}) =>
+        <Action key={emoji} className="reaction-button" pressed={own ? undefined : mine}
+          run={() => own ? showReactors(emoji) : react(emoji)}>
+          <span className="sr-only">{own ? "Zobraziť reakciu" : "Reakcia"}</span>{emoji}<span>{count}</span>
         </Action>)}
-      <button type="button" className="reaction-button" aria-expanded={picker} aria-label="Ďalšie reakcie" onClick={() => setPicker(!picker)}><Plus size={14} /></button>
-      {picker && <div className="reaction-picker">
-        {reactionEmoji.map(emoji => <Action key={emoji} className="reaction-button" run={() => react(emoji)}>{emoji}</Action>)}
+      {!own && <button type="button" className="reaction-button reaction-trigger" aria-expanded={picker} aria-label="Pridať reakciu"
+        onClick={() => setPicker(value => !value)}><SmilePlus size={15} /></button>}
+      {!own && picker && <div className="reaction-picker" role="group" aria-label="Vybrať reakciu">
+        {reactionEmoji.map(emoji => <Action key={emoji} className="reaction-button"
+          pressed={reactions.some(row => row.emoji === emoji && row.mine)} run={() => react(emoji)}>{emoji}</Action>)}
       </div>}
-    </div>
+    </div>}
+    {reactors && <Modal title={localizeText("Reakcie", activeLanguage) + " " + reactors.emoji} close={() => setReactors(null)}>
+      {reactors.people.length ? <ul className="people-list">{reactors.people.map(person =>
+        <li key={person.id}><Avatar name={person.name} id={person.id} version={person.avatar_version} /><strong>{person.name}</strong></li>
+      )}</ul> : <p className="muted">Žiadne reakcie.</p>}
+    </Modal>}
   </>;
 }
 
@@ -870,9 +892,9 @@ function Messages({user, conversations, refresh, initialContact}) {
     return () => {current = false; clearInterval(timer);};
   }, [selectedKey]);
 
-  async function changeInteraction(id, kind, data) {
+  async function changeInteraction(id, kind, data, method = "PUT") {
     const key = selectedKey;
-    const result = await api("messages/" + id + "/" + kind, "PUT", data);
+    const result = await api("messages/" + id + "/" + kind, method, data);
     if (activeKey.current === key) {
       setMessages(rows => rows.map(row => row.id === id ? {...row, ...result} : row));
     }
@@ -919,7 +941,7 @@ function Messages({user, conversations, refresh, initialContact}) {
     <section className="conversation-pane">
       {selected ? <>
         <div className="chat-head">
-          <button className="icon-button chat-back" aria-label="Späť na konverzácie" onClick={() => setSelected(null)}><ChevronLeft /></button>
+          <button className="icon-button chat-back" aria-label="Späť na konverzácie" onClick={() => {setSelected(null); setPollOpen(false);}}><ChevronLeft /></button>
           {selected.type === "group" ? <span className="avatar group-avatar"><Users size={19} /></span> : <Avatar name={activeConversation?.name || person?.name || "Kontakt"} id={selected.id} version={person ? person.avatar_version : activeConversation?.avatar_version} />}
           <span className="grow"><strong>{activeConversation?.name || person?.name || "Konverzácia"}</strong>
             {selected.type === "private" && <span className="meta">{clubRoleLabel(activeConversation?.roles || person?.roles)}</span>}
@@ -941,7 +963,7 @@ function Messages({user, conversations, refresh, initialContact}) {
               <strong>{[item.sender, clubRoleLabel(item.sender_roles)].filter(Boolean).join(" · ")}</strong>
             </div>}
             {!item.poll_options && <p>{item.body}</p>}
-            <MessageInteractions item={item} change={changeInteraction} />
+            <MessageInteractions item={item} own={item.sender_id === user.id} change={changeInteraction} />
             <span>{date(item.created_at)}{selected.type === "private" && item.sender_id === user.id && item.read_at && <CheckCheck size={13} />}</span>
           </div>) : <p className="muted small">Tu sa začína vaša konverzácia.</p>}
         </div>
@@ -950,11 +972,11 @@ function Messages({user, conversations, refresh, initialContact}) {
           <Form key={selectedKey} label={<><Send size={18} /><span className="sr-only">Odoslať správu</span></>} reset submit={data => send({body: data.body})}>
             <label className="sr-only" htmlFor="message-body">Správa</label><textarea id="message-body" name="body" rows="1" maxLength="4000" placeholder="Napíš správu…" required />
           </Form>
-          {pollOpen && <PollComposer close={() => setPollOpen(false)} send={send} />}
         </div> :
           <p className="notice">Do tejto konverzácie už nemožno posielať správy.</p>}
       </> : <Empty icon={MessageCircle}>Vyber konverzáciu alebo vytvor novú správu.</Empty>}
     </section>
+    {canSend && pollOpen && <PollComposer close={() => setPollOpen(false)} send={send} />}
     {newMessage && <Modal title="Nová správa" close={() => setNewMessage(false)}>
       <label className="search"><Search size={18} /><input type="search" aria-label="Hľadať adresáta" value={recipientQuery} placeholder="Hľadať člena alebo trénera…" onChange={event => setRecipientQuery(event.target.value)} /></label>
       {user.role === "coach" && <button className="button section-space" onClick={() => {setNewMessage(false); setGroupEditor({});}}><Users size={18} />Vytvoriť skupinu</button>}
@@ -1658,17 +1680,15 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
   const attended = attendance.filter(row => row.attended).length;
   return <>
     {(user.roles||[]).includes("player") && <button className="card qr-profile-button" onClick={openCard}><QrCode size={25} /><span>Môj členský QR kód</span><ChevronRight /></button>}
-    <section className="card profile-card"><Avatar name={user.name} id={user.id} version={user.avatar_version} /><h2>{user.name}</h2><p className="muted">{user.email || "admin"}</p><span className="badge">{user.role === "superadmin" ? "Administrátor" : clubRoleLabel(user.roles)}</span>
+    <section className="card profile-card">
+      <button type="button" className="profile-avatar-edit" aria-label={user.avatar_version ? "Zmeniť profilovú fotku" : "Nahrať profilovú fotku"}
+        aria-haspopup="dialog" onClick={() => setEdit("avatar")}>
+        <Avatar name={user.name} id={user.id} version={user.avatar_version} />
+        <span className="profile-avatar-edit-icon" aria-hidden="true"><Pencil size={13} /></span>
+      </button>
+      <h2>{user.name}</h2><p className="muted">{user.email || "admin"}</p><span className="badge">{user.role === "superadmin" ? "Administrátor" : clubRoleLabel(user.roles)}</span>
       <div className="actions section-space"><button onClick={() => setEdit("profile")}><Pencil size={16} />Upraviť profil</button>
         {user.role !== "superadmin" && <button onClick={() => setEdit("password")}>Zmeniť heslo</button>}</div>
-      <div className="actions profile-photo-actions">
-        <button type="button" onClick={() => setEdit("avatar")}>{user.avatar_version ? "Zmeniť profilovú fotku" : "Nahrať profilovú fotku"}</button>
-        {user.avatar_version && <Action className="text-button danger" run={async () => {
-          await api("me/avatar", "DELETE");
-          await reloadUser();
-          setSaved("Profilová fotka bola odstránená.");
-        }}>Odstrániť fotku</Action>}
-      </div>
     </section>
     {saved && <p className="success" role="status">{saved}</p>}
     {error && <p className="error" role="alert">{error}</p>}
@@ -1709,6 +1729,12 @@ function Profile({user, reloadUser, installation, install, saveInstallPreference
         setSaved("Profilová fotka bola uložená.");
         setEdit(null);
       }}><label>Vybrať fotku<input name="photo" type="file" accept="image/jpeg,image/png,image/webp" required /></label></Form>
+      {user.avatar_version && <Action className="text-button danger" run={async () => {
+        await api("me/avatar", "DELETE");
+        await reloadUser();
+        setSaved("Profilová fotka bola odstránená.");
+        setEdit(null);
+      }}>Odstrániť fotku</Action>}
     </Modal>}
     {edit && edit !== "avatar" && <Modal title={edit === "profile" ? "Upraviť profil" : "Zmeniť heslo"} close={() => setEdit(null)}>
       <Form label="Uložiť" submit={async data => {

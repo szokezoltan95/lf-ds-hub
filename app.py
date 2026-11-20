@@ -1743,8 +1743,11 @@ def enrich_messages(conn, user, rows):
         row["reactions"] = []
         row["poll_results"] = []
     reactions = conn.execute(
-        """SELECT message_id, emoji, count(*) AS count, bool_or(member_id=%s) AS mine
-        FROM message_reactions WHERE message_id=ANY(%s) GROUP BY message_id,emoji ORDER BY emoji""",
+        """SELECT r.message_id, r.emoji, count(*) AS count, bool_or(r.member_id=%s) AS mine
+        FROM message_reactions r JOIN messages p ON p.id=r.message_id
+        JOIN members m ON m.id=r.member_id
+        WHERE r.message_id=ANY(%s) AND r.member_id<>p.sender_id AND m.role IN ('member','coach')
+        GROUP BY r.message_id,r.emoji ORDER BY r.emoji""",
         (user["id"], list(by_id)),
     ).fetchall()
     votes = conn.execute(
@@ -1759,14 +1762,14 @@ def enrich_messages(conn, user, rows):
     return rows
 
 
-def interactive_message(conn, message_id, user):
+def interactive_message(conn, message_id, user, *, edit_options=False):
+    lock = "FOR NO KEY UPDATE OF p" if edit_options else "FOR KEY SHARE OF p"
     row = conn.execute(
         """SELECT p.id,p.sender_id,p.recipient_id,p.group_id,p.poll_options
         FROM messages p JOIN members s ON s.id=p.sender_id
         LEFT JOIN members r ON r.id=p.recipient_id
         WHERE p.id=%s AND s.role IN ('member','coach')
-        AND (p.group_id IS NOT NULL OR (r.role IN ('member','coach') AND %s IN (p.sender_id,p.recipient_id)))
-        FOR KEY SHARE OF p""",
+        AND (p.group_id IS NOT NULL OR (r.role IN ('member','coach') AND %s IN (p.sender_id,p.recipient_id))) """ + lock,
         (message_id, user["id"]),
     ).fetchone()
     if not row:
@@ -1776,8 +1779,11 @@ def interactive_message(conn, message_id, user):
     return row
 
 
+ReactionEmoji = Literal["👍", "❤️", "😂", "😮", "😢", "🎉"]
+
+
 class MessageReaction(BaseModel):
-    emoji: Literal["👍", "❤️", "😂", "😮", "😢", "🎉"]
+    emoji: ReactionEmoji
     active: bool
 
 
@@ -1788,6 +1794,8 @@ class PollVote(BaseModel):
 @api.put("/messages/{message_id}/reaction")
 def update_reaction(message_id: int, data: MessageReaction, conn: DB, user: ChatUser):
     row = interactive_message(conn, message_id, user)
+    if row["sender_id"] == user["id"] and data.active:
+        raise HTTPException(403, "Na vlastnú správu nemôžeš reagovať.")
     values = (message_id, user["id"], data.emoji)
     if data.active:
         conn.execute(
@@ -1796,6 +1804,37 @@ def update_reaction(message_id: int, data: MessageReaction, conn: DB, user: Chat
         )
     else:
         conn.execute("DELETE FROM message_reactions WHERE message_id=%s AND member_id=%s AND emoji=%s", values)
+    return enrich_messages(conn, user, [row])[0]
+
+
+@api.get("/messages/{message_id}/reactions")
+def message_reactors(message_id: int, emoji: ReactionEmoji, conn: DB, user: ChatUser):
+    row = interactive_message(conn, message_id, user)
+    if row["sender_id"] != user["id"]:
+        raise HTTPException(403, "Zoznam reakcií vidí iba autor správy.")
+    return conn.execute(
+        """SELECT m.id,m.name,m.avatar_version FROM message_reactions r JOIN members m ON m.id=r.member_id
+        WHERE r.message_id=%s AND r.emoji=%s AND r.member_id<>%s AND m.role IN ('member','coach')
+        ORDER BY lower(m.name),m.id""",
+        (message_id, emoji, user["id"]),
+    ).fetchall()
+
+
+class AddedPollOption(BaseModel):
+    option: Short
+
+
+@api.post("/messages/{message_id}/poll-options")
+def add_poll_option(message_id: int, data: AddedPollOption, conn: DB, user: ChatUser):
+    row = interactive_message(conn, message_id, user, edit_options=True)
+    options = row["poll_options"]
+    if options is None:
+        raise HTTPException(422, "Táto správa nie je anketa.")
+    if any(option.casefold() == data.option.casefold() for option in options):
+        raise HTTPException(409, "Táto možnosť už v ankete je.")
+    # Append only so existing votes keep pointing to the same options.
+    options.append(data.option)
+    conn.execute("UPDATE messages SET poll_options=%s WHERE id=%s", (Jsonb(options), message_id))
     return enrich_messages(conn, user, [row])[0]
 
 
