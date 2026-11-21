@@ -1,0 +1,452 @@
+[
+  {
+    "key": "preflight",
+    "title": "Predletová kontrola",
+    "objective": "Zachytiť nesprávnu prípravu pred vzletom.",
+    "duration_minutes": 5,
+    "difficulty": "basic",
+    "equipment": "Dron, ovládač, batéria, klubový kontrolný zoznam",
+    "details": {
+      "category": "Prevádzka",
+      "participants": "1 pilot",
+      "procedure": "Vypnutý dron prezrieť, skontrolovať ochrannú klietku a upevnenie batérie. Podľa klubového postupu overiť ovládač a voľnú arénu.",
+      "success": "Pilot samostatne prejde zoznam a označí zámerne vloženú chybu, napríklad neupevnenú batériu.",
+      "variants": "Najprv podľa zoznamu, potom samostatne s kontrolou trénera."
+    }
+  },
+  {
+    "key": "battery-turnaround",
+    "title": "Výmena a evidencia batérie",
+    "objective": "Pripraviť dron na ďalší let a zaevidovať použitie batérie.",
+    "duration_minutes": 5,
+    "difficulty": "basic",
+    "equipment": "Dron, označené batérie, Hub",
+    "details": {
+      "category": "Prevádzka",
+      "participants": "1–2 piloti",
+      "procedure": "Po pristátí odzbrojiť a odpojiť dron. Podľa klubového postupu odložiť použitú batériu, zapísať jej použitie a pripraviť ďalšiu.",
+      "success": "Pri dvoch výmenách sú správne zaznamenané oba kódy a pilot overí upevnenie batérie.",
+      "variants": "Vo dvojici rozdeliť výmenu a evidenciu, potom si úlohy vymeniť."
+    }
+  },
+  {
+    "key": "stop-call",
+    "title": "Prerušenie letu na povel",
+    "objective": "Nacvičiť koordinované ukončenie letu.",
+    "duration_minutes": 5,
+    "difficulty": "basic",
+    "equipment": "Dron, vyznačená zóna pristátia",
+    "details": {
+      "category": "Prevádzka",
+      "participants": "1 pilot + tréner",
+      "procedure": "Začať pomalým letom v aréne. Po dohodnutom povele ukončiť manéver, pristáť do voľnej zóny a odzbrojiť dron.",
+      "success": "V troch pokusoch pilot po povele bezpečne ukončí let a zostane mimo arény do potvrdenia trénera.",
+      "variants": "Najprv ohlásiť povel vopred, potom ho dať v rôznych fázach cvičenia."
+    }
+  },
+  {
+    "key": "round-turnaround",
+    "title": "Príprava na ďalšie kolo",
+    "objective": "Rozdeliť kontrolu vybavenia a prípravu zostavy medzi hráčov.",
+    "duration_minutes": 8,
+    "difficulty": "intermediate",
+    "equipment": "Drony, batérie, zostava, kontrolný zoznam",
+    "details": {
+      "category": "Prevádzka",
+      "participants": "2–5 pilotov",
+      "procedure": "Určiť zodpovedných za drony, batérie a zostavu. Po simulovanom kole nahlásiť stav a potvrdiť pripravenosť každého pilota.",
+      "success": "Tím absolvuje dve prípravy bez preskočenia kontrolného kroku.",
+      "variants": "V druhom kole vymeniť zodpovednosti."
+    }
+  },
+  {
+    "key": "takeoff-landing",
+    "title": "Vzlet a pristátie na značku",
+    "objective": "Plynulo vzlietnuť, ustáliť let a presne pristáť.",
+    "duration_minutes": 6,
+    "difficulty": "basic",
+    "equipment": "Dron, páska na podlahu",
+    "details": {
+      "category": "Pilotáž",
+      "participants": "1 pilot",
+      "procedure": "Vzlietnuť zo značky, podržať dron niekoľko sekúnd v dohodnutej výške a pomaly pristáť do zóny.",
+      "success": "Tri z piatich pristátí skončia v zóne bez prevrátenia.",
+      "variants": "Začať s väčšou zónou a postupne ju zmenšovať."
+    }
+  },
+  {
+    "key": "hover",
+    "title": "Visenie v zóne",
+    "objective": "Udržať výšku a polohu malými korekciami.",
+    "duration_minutes": 6,
+    "difficulty": "basic",
+    "equipment": "Dron, vyznačený štvorec",
+    "details": {
+      "category": "Pilotáž",
+      "participants": "1 pilot",
+      "procedure": "Vzlietnuť nad stred zóny, držať rovnaký smer dronu a korigovať odchýlky krátkymi pohybmi páčok.",
+      "success": "V troch pokusoch dron zostane nad zónou aspoň 10 sekúnd.",
+      "variants": "Zmenšiť zónu alebo pred opakovaním zmeniť orientáciu."
+    }
+  },
+  {
+    "key": "stop-line",
+    "title": "Rozbeh a zastavenie",
+    "objective": "Odhadnúť miesto, kde treba začať brzdiť.",
+    "duration_minutes": 6,
+    "difficulty": "basic",
+    "equipment": "Dron, dve čiary na podlahe",
+    "details": {
+      "category": "Pilotáž",
+      "participants": "1 pilot",
+      "procedure": "Od štartovej čiary pomaly zrýchliť, pred cieľovou čiarou začať brzdiť a prejsť do visenia.",
+      "success": "Štyri z piatich pokusov skončia stabilným visením pred čiarou.",
+      "variants": "Meniť vzdialenosť medzi čiarami alebo nájazdovú rýchlosť."
+    }
+  },
+  {
+    "key": "square",
+    "title": "Štvorec so zastavením",
+    "objective": "Oddeliť pohyb vpred, vzad a do strán.",
+    "duration_minutes": 8,
+    "difficulty": "basic",
+    "equipment": "Dron, štyri značky",
+    "details": {
+      "category": "Pilotáž",
+      "participants": "1 pilot",
+      "procedure": "Preletieť rohy v poradí, v každom krátko zastaviť. Orientáciu dronu držať rovnakú.",
+      "success": "Zvládnuť dve kolá v opačných smeroch so zastavením vo všetkých rohoch.",
+      "variants": "Plynulý štvorec bez zastavenia skúsiť až po zvládnutí základnej verzie."
+    }
+  },
+  {
+    "key": "altitude-call",
+    "title": "Zmena výšky na povel",
+    "objective": "Meniť výšku bez výrazného posunu do strán.",
+    "duration_minutes": 6,
+    "difficulty": "basic",
+    "equipment": "Dron, dve vizuálne výškové referencie mimo letovej dráhy",
+    "details": {
+      "category": "Pilotáž",
+      "participants": "1 pilot + tréner",
+      "procedure": "Z visenia plynulo prejsť do nižšej alebo vyššej úrovne podľa pokynu trénera a stabilizovať sa.",
+      "success": "V štyroch z piatich zmien dron udrží dohodnutú zónu a po zmene stabilne visí.",
+      "variants": "Pridať krátky vodorovný presun medzi zmenami výšky."
+    }
+  },
+  {
+    "key": "yaw-hold",
+    "title": "Visenie po otočení",
+    "objective": "Udržať polohu pri zmene orientácie dronu.",
+    "duration_minutes": 8,
+    "difficulty": "basic",
+    "equipment": "Dron, stredová značka",
+    "details": {
+      "category": "Orientácia a presnosť",
+      "participants": "1 pilot",
+      "procedure": "Nad značkou otočiť dron o 90°, zastaviť otáčanie a obnoviť visenie. Opakovať v oboch smeroch.",
+      "success": "Dosiahnuť štyri stabilné zastavenia po otočení.",
+      "variants": "Po zvládnutí 90° skúsiť 180° alebo krátky presun v novej orientácii."
+    }
+  },
+  {
+    "key": "slalom",
+    "title": "Slalom",
+    "objective": "Plynulo meniť smer letu a udržať odstup od značiek.",
+    "duration_minutes": 8,
+    "difficulty": "basic",
+    "equipment": "Dron, tri až päť mäkkých značiek",
+    "details": {
+      "category": "Orientácia a presnosť",
+      "participants": "1 pilot",
+      "procedure": "Preletieť pomedzi značky striedavo zľava a sprava. Pri návrate začať z opačnej strany.",
+      "success": "Dva čisté prejazdy bez vynechania značky alebo dotyku.",
+      "variants": "Začať s tromi značkami ďalej od seba, potom pridať ďalšie."
+    }
+  },
+  {
+    "key": "figure-eight",
+    "title": "Osmička",
+    "objective": "Nadviazať ľavú a pravú zákrutu v jednej trase.",
+    "duration_minutes": 8,
+    "difficulty": "intermediate",
+    "equipment": "Dron, dve značky",
+    "details": {
+      "category": "Orientácia a presnosť",
+      "participants": "1 pilot",
+      "procedure": "Obletieť prvú značku z jednej strany, v strede prejsť na druhú a obletieť ju opačným smerom.",
+      "success": "Dve po sebe idúce osmičky s čistým prejazdom stredom a bez dotyku.",
+      "variants": "Meniť smer začiatku alebo zmenšiť rozostup značiek."
+    }
+  },
+  {
+    "key": "side-nose-in",
+    "title": "Presuny bokom a čelom k pilotovi",
+    "objective": "Preniesť ovládanie na rôzne orientácie dronu.",
+    "duration_minutes": 8,
+    "difficulty": "intermediate",
+    "equipment": "Dron, široká vyznačená zóna, dve značky",
+    "details": {
+      "category": "Orientácia a presnosť",
+      "participants": "1 pilot",
+      "procedure": "Začať bokom k pilotovi, presunúť dron medzi blízkymi značkami a zastaviť. Po zvládnutí zopakovať čelom k pilotovi.",
+      "success": "Dva kontrolované presuny tam aj späť v každej precvičovanej orientácii.",
+      "variants": "Najprv iba visenie bokom, potom presuny na krátku vzdialenosť."
+    }
+  },
+  {
+    "key": "zone-recovery",
+    "title": "Návrat do stabilného letu",
+    "objective": "Po odchýlke ustáliť dron a znovu nájsť orientáciu.",
+    "duration_minutes": 7,
+    "difficulty": "intermediate",
+    "equipment": "Dron, dve veľké podlahové zóny",
+    "details": {
+      "category": "Orientácia a presnosť",
+      "participants": "1 pilot + tréner",
+      "procedure": "Z kontrolovaného pomalého letu na povel prerušiť manéver, ustáliť polohu a vrátiť sa do označenej zóny.",
+      "success": "Štyri z piatich návratov bez dotyku siete alebo podlahy.",
+      "variants": "Meniť miesto povelu a počiatočnú orientáciu. Odchýlku vytvárať len kontrolovaným letom."
+    }
+  },
+  {
+    "key": "straight-gate",
+    "title": "Prelet bránkou spredu",
+    "objective": "Spojiť odhad výšky a smeru do čistého preletu.",
+    "duration_minutes": 8,
+    "difficulty": "basic",
+    "equipment": "Dron, bránka, značka východiskovej zóny",
+    "details": {
+      "category": "Bránka a útok",
+      "participants": "1 pilot",
+      "procedure": "Z východiskovej zóny ustáliť výšku, zarovnať sa na stred bránky, preletieť a za bránkou spomaliť.",
+      "success": "Tri čisté prelety z piatich pokusov s kontrolovaným zastavením.",
+      "variants": "Začať bližšie k bránke, potom postupne zväčšiť vzdialenosť."
+    }
+  },
+  {
+    "key": "angled-gate",
+    "title": "Nájazd na bránku z uhla",
+    "objective": "Vytvoriť si priestor na zarovnanie pred bránkou.",
+    "duration_minutes": 8,
+    "difficulty": "intermediate",
+    "equipment": "Dron, bránka, dve bočné značky",
+    "details": {
+      "category": "Bránka a útok",
+      "participants": "1 pilot",
+      "procedure": "Striedať štart zľava a sprava. Výšku a smer upraviť ešte pred vstupom do bránky.",
+      "success": "Z každej strany dosiahnuť tri čisté prelety z piatich pokusov.",
+      "variants": "Najprv mierny uhol, potom väčšie bočné odsadenie."
+    }
+  },
+  {
+    "key": "gate-exit",
+    "title": "Prelet bránkou a návrat",
+    "objective": "Kontrolovane opustiť priestor bránky a pripraviť sa na ďalšiu akciu.",
+    "duration_minutes": 8,
+    "difficulty": "intermediate",
+    "equipment": "Dron, bránka, návratová zóna",
+    "details": {
+      "category": "Bránka a útok",
+      "participants": "1 pilot",
+      "procedure": "Po čistom prelete pokračovať mimo bezprostredného priestoru bránky, otočiť sa v dohodnutej zóne a vrátiť sa určenou trasou.",
+      "success": "Tri celé cykly bez dotyku a s návratom cez dohodnutú zónu.",
+      "variants": "Meniť stranu návratu na signál trénera."
+    }
+  },
+  {
+    "key": "aborted-approach",
+    "title": "Prerušený a opakovaný nájazd",
+    "objective": "Včas rozpoznať zlý nájazd a skúsiť ho znova.",
+    "duration_minutes": 8,
+    "difficulty": "intermediate",
+    "equipment": "Dron, bránka, bočná odchodová zóna",
+    "details": {
+      "category": "Bránka a útok",
+      "participants": "1 pilot + tréner",
+      "procedure": "Na povel pred bránkou odbočiť do voľnej zóny, ustáliť dron a pripraviť nový nájazd.",
+      "success": "V troch situáciách pilot preruší nájazd pred bránkou a následne čisto preletí.",
+      "variants": "Povel nahradiť vlastným rozhodnutím pilota pri zlom zarovnaní."
+    }
+  },
+  {
+    "key": "shadow",
+    "title": "Zrkadlo vo dvojici",
+    "objective": "Sledovať vlastný dron aj pohyb spoluhráča pri zachovaní odstupu.",
+    "duration_minutes": 8,
+    "difficulty": "basic",
+    "equipment": "Dva drony, dve paralelné letové zóny",
+    "details": {
+      "category": "Obrana a spolupráca",
+      "participants": "2 piloti",
+      "procedure": "Vedúci dron sa pomaly posúva a zastavuje. Druhý kopíruje pohyb vo vedľajšej zóne. Po sérii si vymeniť úlohy.",
+      "success": "Obaja dvakrát dokončia trasu vo svojich zónach bez dotyku.",
+      "variants": "Pridať jednu dohodnutú zmenu výšky."
+    }
+  },
+  {
+    "key": "zone-defense",
+    "title": "Držanie obrannej zóny",
+    "objective": "Reagovať na nájazd a nestratiť pridelený priestor.",
+    "duration_minutes": 8,
+    "difficulty": "intermediate",
+    "equipment": "Dva drony, bránka, vyznačená obranná zóna",
+    "details": {
+      "category": "Obrana a spolupráca",
+      "participants": "2 piloti",
+      "procedure": "Útočník pomaly mení stranu nájazdu. Obranca sa presúva v zóne a po akcii sa vráti na východiskovú pozíciu. Začať bez kontaktu.",
+      "success": "V štyroch z piatich nájazdov obranca zareaguje zo svojej zóny a vráti sa do nej.",
+      "variants": "Po zvládnutí pomalých nájazdov meniť tempo a výšku."
+    }
+  },
+  {
+    "key": "cover-swap",
+    "title": "Krytie a výmena pozícií",
+    "objective": "Udržať krytý priestor pri presune jedného obrancu.",
+    "duration_minutes": 10,
+    "difficulty": "intermediate",
+    "equipment": "Tri drony, bránka, dve obranné zóny",
+    "details": {
+      "category": "Obrana a spolupráca",
+      "participants": "3 piloti",
+      "procedure": "Útočník strieda strany. Prvý obranca ohlási reakciu, druhý preberie uvoľnený priestor. Po nájazde obnoviť rozostavenie.",
+      "success": "Pri štyroch z piatich výmen je krytie potvrdené a obaja obrancovia sa nepresunú do rovnakej zóny.",
+      "variants": "Začať s ohláseným smerom a neskôr ho nechať na útočníka."
+    }
+  },
+  {
+    "key": "short-calls",
+    "title": "Krátke tímové povely",
+    "objective": "Oznámiť zámer skôr, ako spoluhráč začne vlastný presun.",
+    "duration_minutes": 8,
+    "difficulty": "intermediate",
+    "equipment": "Dva až tri drony, dve zóny",
+    "details": {
+      "category": "Obrana a spolupráca",
+      "participants": "2–3 piloti",
+      "procedure": "Dohodnúť povely „idem“, „kryjem“ a „späť“. Simulovať presun a vyžadovať potvrdenie od spoluhráča.",
+      "success": "Pri štyroch z piatich situácií zaznie včasný a zrozumiteľný povel aj potvrdenie.",
+      "variants": "Začať bez letu a potom pridať drony a zmenu situácie."
+    }
+  },
+  {
+    "key": "one-on-one",
+    "title": "Jeden proti jednému",
+    "objective": "Vyskúšať výber nájazdu proti pohybujúcemu sa obrancovi.",
+    "duration_minutes": 10,
+    "difficulty": "intermediate",
+    "equipment": "Dva drony, bránka, vyznačené zóny",
+    "details": {
+      "category": "Herné situácie",
+      "participants": "2 piloti",
+      "procedure": "Odštartovať z určených pozícií. Ukončiť pokus po prelete, prerušení nájazdu alebo uplynutí dohodnutého času. Piloti si vymenia úlohy.",
+      "success": "Po piatich pokusoch každý hráč uvedie, ktorý pohyb súpera ovplyvnil jeho rozhodnutie.",
+      "variants": "Začať s obrancom obmedzeným na jednu zónu."
+    }
+  },
+  {
+    "key": "two-on-one",
+    "title": "Dvaja proti jednému",
+    "objective": "Rozdeliť nájazd a podporu pri početnej prevahe.",
+    "duration_minutes": 12,
+    "difficulty": "advanced",
+    "equipment": "Tri drony, bránka, vyznačené štartové zóny",
+    "details": {
+      "category": "Herné situácie",
+      "participants": "3 piloti",
+      "procedure": "Určiť pilota, ktorého prelet sa v cvičení počíta. Druhý tvorí podporu z iného priestoru a obranca reaguje na akciu. Po sérii vymeniť úlohy.",
+      "success": "V štyroch z piatich pokusov sa útočníci dohodnú na nájazde a nevletia do rovnakej trasy.",
+      "variants": "Najprv nacvičiť dráhy bez pohyblivého obrancu."
+    }
+  },
+  {
+    "key": "starting-formation",
+    "title": "Štart a rozostavenie tímu",
+    "objective": "Opakovateľne zaujať dohodnuté pozície.",
+    "duration_minutes": 8,
+    "difficulty": "intermediate",
+    "equipment": "Drony, bránky, vyznačené zóny",
+    "details": {
+      "category": "Herné situácie",
+      "participants": "3–5 pilotov",
+      "procedure": "Pred štartom potvrdiť úlohy. Na signál vzlietnuť a obsadiť pridelené zóny. Zastaviť cvičenie a stručne vyhodnotiť rozostavenie.",
+      "success": "Tri po sebe idúce štarty bez zámeny zóny alebo prekríženia dohodnutých trás.",
+      "variants": "Najprv menšia zostava, potom celá dostupná zostava."
+    }
+  },
+  {
+    "key": "defensive-transition",
+    "title": "Návrat do obrany",
+    "objective": "Po ukončení útoku rýchlo obnoviť rozdelenie priestoru.",
+    "duration_minutes": 10,
+    "difficulty": "advanced",
+    "equipment": "Drony, bránky, zóny, stopky",
+    "details": {
+      "category": "Herné situácie",
+      "participants": "3–5 pilotov",
+      "procedure": "Z rozostaveného útoku dať nečakaný signál na zmenu. Hráči ohlásia presun a obsadia dohodnuté obranné pozície.",
+      "success": "V štyroch z piatich opakovaní je obsadená každá dohodnutá zóna v čase určenom trénerom.",
+      "variants": "Začať bez súpera, neskôr pridať riadený nájazd."
+    }
+  },
+  {
+    "key": "mini-game",
+    "title": "Modelový zápas s jedným cieľom",
+    "objective": "Preniesť vybranú zručnosť z cvičenia do hry.",
+    "duration_minutes": 15,
+    "difficulty": "advanced",
+    "equipment": "Drony, bránky, časomiera, záznamový hárok",
+    "details": {
+      "category": "Herné situácie",
+      "participants": "Dve zostavy podľa účasti",
+      "procedure": "Dohodnúť jedno pozorovateľné správanie, napríklad návrat do zóny po strate útoku. Odohrať krátke kolá a medzi nimi prebrať konkrétnu situáciu.",
+      "success": "Tréner po každom kole zapíše počet úspešných reakcií z celkového počtu príležitostí.",
+      "variants": "Zmenšiť zostavy podľa účasti alebo hrať s jednou obmedzenou hernou situáciou."
+    }
+  },
+  {
+    "key": "baseline",
+    "title": "Vstupný test pilotáže",
+    "objective": "Zaznamenať východiskovú úroveň hráča.",
+    "duration_minutes": 12,
+    "difficulty": "basic",
+    "equipment": "Dron, vyznačená zóna a čiara, stopky",
+    "details": {
+      "category": "Hodnotenie",
+      "participants": "1 pilot + tréner",
+      "procedure": "V rovnakom poradí zaradiť vzlet a pristátie, visenie a zastavenie pred čiarou. Použiť rovnaké rozloženie a počet pokusov aj pri opakovaní.",
+      "success": "Zaznamenať čisté pristátia z piatich pokusov, čas visenia v zóne a úspešné zastavenia z piatich pokusov.",
+      "variants": "Pri ďalšom meraní zachovať rovnaké podmienky na porovnanie."
+    }
+  },
+  {
+    "key": "gate-test",
+    "title": "Test presnosti preletu",
+    "objective": "Porovnať úspešnosť z priameho a šikmého nájazdu.",
+    "duration_minutes": 10,
+    "difficulty": "intermediate",
+    "equipment": "Dron, bránka, tri štartové značky",
+    "details": {
+      "category": "Hodnotenie",
+      "participants": "1 pilot + tréner",
+      "procedure": "Odoletieť päť pokusov spredu a po päť zľava a sprava. Po každom pokuse sa vrátiť do štartu.",
+      "success": "Osobitne zapísať čisté prelety z piatich pokusov pre každý smer.",
+      "variants": "Pri opakovanom meraní zachovať polohu štartov a výšku bránky."
+    }
+  },
+  {
+    "key": "video-review",
+    "title": "Rozbor jednej situácie",
+    "objective": "Preložiť pozorovanie zo zápasu do konkrétneho tréningového cieľa.",
+    "duration_minutes": 8,
+    "difficulty": "intermediate",
+    "equipment": "Krátky klubový videozáznam alebo nákres arény",
+    "details": {
+      "category": "Hodnotenie",
+      "participants": "Tím + tréner",
+      "procedure": "Prerušiť ukážku pred rozhodnutím, pomenovať pozície a zámery hráčov, potom porovnať očakávaný a skutočný pohyb.",
+      "success": "Tím navrhne jednu zmenu a spôsob, ako ju pri ďalšom tréningu vyhodnotí.",
+      "variants": "Rovnakú situáciu následne zopakovať v aréne."
+    }
+  }
+]

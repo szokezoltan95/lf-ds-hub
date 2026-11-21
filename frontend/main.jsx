@@ -558,7 +558,13 @@ function TrainingWorkspace({training}) {
           <label>Pokyny<textarea rows="2" value={block.notes || ""} maxLength="1000" onChange={e => changed("plan", draft.plan.map((item, i) => i === index ? {...item, notes: e.target.value} : item))} /></label>
         </div>)}
         <button className="button" onClick={() => changed("plan", [...(draft.plan || []), {title: "", duration_minutes: 10, notes: ""}])}><Plus size={16} />Pridať blok</button>
-        {drills.length > 0 && <label>Pridať z knižnice cvičení<select value="" onChange={e => {const drill = drills.find(item => String(item.id) === e.target.value); if (drill) changed("plan", [...draft.plan, {title: drill.title, duration_minutes: drill.duration_minutes, notes: drill.objective}]);}}><option value="">Vybrať cvičenie</option>{drills.map(drill => <option key={drill.id} value={drill.id}>{drill.title} · {drill.duration_minutes} min</option>)}</select></label>}
+        {drills.length > 0 && <label>Pridať z knižnice cvičení<select value="" onChange={e => {
+          const drill = drills.find(item => String(item.id) === e.target.value);
+          if (!drill) return;
+          const {procedure, success} = drill.details || {};
+          const notes = [drill.objective, procedure, success && "Kritérium: " + success].filter(Boolean).join("\n\n");
+          changed("plan", [...draft.plan, {title: drill.title, duration_minutes: drill.duration_minutes, notes}]);
+        }}><option value="">Vybrať cvičenie</option>{drills.map(drill => <option key={drill.id} value={drill.id}>{drill.title} · {drill.duration_minutes} min</option>)}</select></label>}
         </>}
         {can("drills.library.create") && <Form label="Pridať cvičenie do knižnice" reset submit={async form => {await api("drills", "POST", {...form, duration_minutes: Number(form.duration_minutes), difficulty: "basic"}); await load();}}>
           <details><summary>Nové cvičenie</summary><label>Názov<input name="title" maxLength="120" required /></label><label>Cieľ<input name="objective" maxLength="1000" /></label><label>Trvanie v minútach<input name="duration_minutes" type="number" min="1" max="240" defaultValue="10" /></label><label>Pomôcky<input name="equipment" maxLength="1000" /></label></details>
@@ -1713,20 +1719,51 @@ function Batteries({initialCode}) {
   </>;
 }
 
+const drillDifficultyLabels = {basic: "Začiatočník", intermediate: "Mierne pokročilý", advanced: "Pokročilý"};
+
 function DrillLibrary() {
   const [items, setItems] = useState([]);
   const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("");
+  const [difficulty, setDifficulty] = useState("");
   const [error, setError] = useState("");
   async function load() {setItems(await api("drills"));}
   useEffect(() => {load().catch(e => setError(e.message));}, []);
+  const categories = [...new Set(items.map(item => item.details?.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, "sk"));
+  const search = query.trim().toLocaleLowerCase("sk");
+  const visible = items.filter(item => {
+    const area = item.details?.category;
+    const matchesQuery = [item.title, item.objective, item.equipment, area].join(" ").toLocaleLowerCase("sk").includes(search);
+    return matchesQuery && (!category || category === area) && (!difficulty || difficulty === item.difficulty);
+  });
   return <>
-    <PageToolbar><div className="page-toolbar-row"><label className="search"><Search size={17} /><input type="search" aria-label="Hľadať cvičenie" placeholder="Hľadať cvičenie…" value={query} onChange={e => setQuery(e.target.value)} /></label></div></PageToolbar>
+    <PageToolbar><div className="page-toolbar-row">
+      <label className="search"><Search size={17} /><input type="search" aria-label="Hľadať cvičenie" placeholder="Hľadať cvičenie…" value={query} onChange={e => setQuery(e.target.value)} /></label>
+      <select aria-label="Oblasť cvičenia" value={category} onChange={e => setCategory(e.target.value)}>
+        <option value="">Všetky oblasti</option>{categories.map(area => <option key={area}>{area}</option>)}
+      </select>
+      <select aria-label="Náročnosť cvičenia" value={difficulty} onChange={e => setDifficulty(e.target.value)}>
+        <option value="">Všetky úrovne</option>{Object.entries(drillDifficultyLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+      </select>
+    </div></PageToolbar>
     {error && <p className="error" role="alert">{error}</p>}
-    <div className="drill-grid">{items.filter(item => (item.title + " " + item.objective + " " + item.equipment).toLowerCase().includes(query.toLowerCase())).map(item => <article className="card drill-card" key={item.id}>
-      <div className="toolbar"><BookOpen /><strong className="grow">{item.title}</strong><span className="badge">{item.duration_minutes} min</span></div>
-      {item.objective && <p>{item.objective}</p>}{item.equipment && <span className="meta">Pomôcky: {item.equipment}</span>}
-    </article>)}</div>
-    {items.length === 0 && <Empty icon={BookOpen}>Knižnica cvičení je zatiaľ prázdna. Cvičenia pridáš v úpravách plánu tréningu.</Empty>}
+    <div className="drill-grid">{visible.map(item => {
+      const {category, participants, procedure, success, variants} = item.details || {};
+      return <article className="card drill-card" key={item.id}>
+        <div className="toolbar"><strong className="grow">{item.title}</strong><span className="badge">{item.duration_minutes} min</span></div>
+        <span className="meta">{[category, drillDifficultyLabels[item.difficulty], participants].filter(Boolean).join(" · ")}</span>
+        {item.objective && <p>{item.objective}</p>}
+        {item.equipment && <span className="meta">Pomôcky: {item.equipment}</span>}
+        {procedure && <details>
+          <summary>Postup a hodnotenie</summary>
+          <p><strong>Postup:</strong> {procedure}</p>
+          <p><strong>Kritérium úspechu:</strong> {success}</p>
+          <p><strong>Variant:</strong> {variants}</p>
+        </details>}
+      </article>;
+    })}</div>
+    {!error && items.length === 0 && <Empty icon={BookOpen}>Knižnica cvičení je zatiaľ prázdna. Cvičenia pridáš v úpravách plánu tréningu.</Empty>}
+    {items.length > 0 && !visible.length && <Empty icon={Search}>Žiadne cvičenie nezodpovedá filtrom.</Empty>}
   </>;
 }
 

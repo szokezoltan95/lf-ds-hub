@@ -1,6 +1,7 @@
 import base64
 import binascii
 import hashlib
+import json
 from threading import Event, Thread
 import push_service
 import permissions as access
@@ -150,6 +151,20 @@ def matches_password(password, saved):
     return hmac.compare_digest(saved, password_hash(password, saved.split(":")[0]))
 
 
+def seed_default_drills(conn):
+    catalog = json.loads((ROOT / "default_drills.json").read_text(encoding="utf-8"))
+    with conn.cursor() as cursor:
+        cursor.executemany(
+            """INSERT INTO drills (seed_key, title, objective, duration_minutes, difficulty, equipment, details)
+            SELECT %s, %s, %s, %s, %s, %s, %s
+            WHERE NOT EXISTS (SELECT 1 FROM drills WHERE lower(btrim(title)) = lower(%s))
+            ON CONFLICT (seed_key) DO NOTHING""",
+            [(entry["key"], entry["title"], entry["objective"], entry["duration_minutes"],
+              entry["difficulty"], entry["equipment"], Jsonb(entry["details"]), entry["title"])
+             for entry in catalog],
+        )
+
+
 @asynccontextmanager
 async def lifespan(_app):
     try:
@@ -160,6 +175,7 @@ async def lifespan(_app):
     with connect() as conn:
         conn.execute("SELECT pg_advisory_xact_lock(81364, 1)")
         conn.execute((ROOT / "schema.sql").read_text(), prepare=False)
+        seed_default_drills(conn)
         conn.execute((ROOT / "equipment_schema.sql").read_text(), prepare=False)
         seed_access_control(conn)
         conn.execute((ROOT / "permissions_schema.sql").read_text(), prepare=False)

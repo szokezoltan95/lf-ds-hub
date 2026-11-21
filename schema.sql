@@ -355,6 +355,9 @@ CREATE TABLE IF NOT EXISTS drills (
     created_by bigint REFERENCES members(id) ON DELETE SET NULL,
     created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE drills ADD COLUMN IF NOT EXISTS seed_key text;
+ALTER TABLE drills ADD COLUMN IF NOT EXISTS details jsonb NOT NULL DEFAULT '{}';
+CREATE UNIQUE INDEX IF NOT EXISTS drills_seed_key_idx ON drills(seed_key);
 CREATE TABLE IF NOT EXISTS training_workspace (
     training_id bigint PRIMARY KEY REFERENCES trainings(id) ON DELETE CASCADE,
     plan jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(plan)='array'),
