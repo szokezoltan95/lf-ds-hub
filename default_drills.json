@@ -448,5 +448,395 @@
       "success": "Tím navrhne jednu zmenu a spôsob, ako ju pri ďalšom tréningu vyhodnotí.",
       "variants": "Rovnakú situáciu následne zopakovať v aréne."
     }
+  },
+  {
+    "key": "parallel-lines",
+    "title": "Let po rovnobežkách",
+    "objective": "Udržať priamu dráhu pri lete tam aj späť bez otáčania dronu.",
+    "duration_minutes": 6,
+    "difficulty": "basic",
+    "equipment": "Dron, dva pásy z podlahovej pásky",
+    "details": {
+      "category": "Pilotáž",
+      "participants": "1 pilot",
+      "procedure": "Preletieť prvým koridorom vpred, presunúť sa do vedľajšieho a vrátiť sa cúvaním. Na koncoch zastaviť.",
+      "success": "Tri okruhy bez opustenia koridorov a bez otočenia dronu.",
+      "variants": "Začať širokými koridormi, potom ich zúžiť."
+    }
+  },
+  {
+    "key": "diagonal-transfers",
+    "title": "Diagonálne presuny",
+    "objective": "Kombinovať pozdĺžny a bočný pohyb v jednej priamej dráhe.",
+    "duration_minutes": 7,
+    "difficulty": "intermediate",
+    "equipment": "Dron, štyri podlahové značky",
+    "details": {
+      "category": "Pilotáž",
+      "participants": "1 pilot",
+      "procedure": "Preletieť po prvej diagonále štvorca, presunúť sa po hrane a preletieť po druhej diagonále. Smer čela dronu držať rovnaký.",
+      "success": "Štyri z piatich diagonál skončia stabilným visením nad určenou značkou.",
+      "variants": "Doplniť koridor okolo diagonály alebo zmeniť východiskovú orientáciu dronu."
+    }
+  },
+  {
+    "key": "vertical-staircase",
+    "title": "Schody vo vzduchu",
+    "objective": "Oddeliť začiatok a koniec stúpania od vodorovného pohybu.",
+    "duration_minutes": 7,
+    "difficulty": "intermediate",
+    "equipment": "Dron, tri podlahové značky, výškové referencie mimo letovej dráhy",
+    "details": {
+      "category": "Pilotáž",
+      "participants": "1 pilot",
+      "procedure": "Na každej značke zmeniť výšku a medzi značkami ju držať. Pri návrate postupovať v opačnom poradí.",
+      "success": "Dva okruhy s každou zmenou výšky nad určenou značkou.",
+      "variants": "Po zvládnutí prepojiť stúpanie a presun do plynulej šikmej dráhy."
+    }
+  },
+  {
+    "key": "speed-zones",
+    "title": "Pomalá a rýchla zóna",
+    "objective": "Meniť tempo letu bez straty presnosti pri prechode medzi úsekmi.",
+    "duration_minutes": 8,
+    "difficulty": "intermediate",
+    "equipment": "Dron, tri čiary na podlahe",
+    "details": {
+      "category": "Pilotáž",
+      "participants": "1 pilot",
+      "procedure": "Medzi prvými dvoma čiarami letieť svižnejšie. Pred druhou čiarou spomaliť a posledný úsek preletieť rovnomerným pomalým tempom.",
+      "success": "Štyri z piatich prejazdov so zmenou tempa pred druhou čiarou a bez zastavenia.",
+      "variants": "Striedať dĺžky úsekov alebo vymeniť poradie pomalého a svižného úseku."
+    }
+  },
+  {
+    "key": "arc-orbit",
+    "title": "Oblet bodu čelom k stredu",
+    "objective": "Zladiť otáčanie a bočný pohyb pri oblete.",
+    "duration_minutes": 8,
+    "difficulty": "intermediate",
+    "equipment": "Dron, stredová značka, referenčné body po obvode",
+    "details": {
+      "category": "Pilotáž",
+      "participants": "1 pilot",
+      "procedure": "Obletieť značku po polkruhu a čelo dronu priebežne smerovať do stredu. Precvičiť obe strany.",
+      "success": "Dva plynulé polkruhy na každú stranu v dohodnutom páse vzdialenosti.",
+      "variants": "Najprv letieť po štvrtinách so zastavením, potom spojiť celý kruh."
+    }
+  },
+  {
+    "key": "climb-and-turn",
+    "title": "Zákruta so zmenou výšky",
+    "objective": "Spojiť zmenu smeru letu so stúpaním alebo klesaním.",
+    "duration_minutes": 8,
+    "difficulty": "advanced",
+    "equipment": "Dron, tri podlahové značky a výškové referencie",
+    "details": {
+      "category": "Pilotáž",
+      "participants": "1 pilot",
+      "procedure": "Vletieť do širokej zákruty v nižšej výške a vyletieť z nej vo vyššej. Pri návrate zopakovať v opačnom smere s klesaním.",
+      "success": "Tri čisté zákruty na každú stranu so stabilnou dráhou po výlete.",
+      "variants": "Najprv držať rovnakú výšku, potom pridať výškovú zmenu."
+    }
+  },
+  {
+    "key": "target-sequence",
+    "title": "Presun na vyvolanú značku",
+    "objective": "Rýchlo nájsť cieľ a presne nad ním zastaviť.",
+    "duration_minutes": 7,
+    "difficulty": "basic",
+    "equipment": "Dron, štyri farebné alebo očíslované značky",
+    "details": {
+      "category": "Orientácia a presnosť",
+      "participants": "1 pilot + tréner",
+      "procedure": "Tréner označí ďalší cieľ až po zastavení nad aktuálnou značkou. Pilot letí na nový cieľ a stabilizuje sa.",
+      "success": "Päť zo šiestich správnych presunov s aspoň dvojsekundovým zastavením.",
+      "variants": "Najprv použiť dve značky, neskôr meniť aj požadovanú orientáciu dronu v cieli."
+    }
+  },
+  {
+    "key": "reverse-slalom",
+    "title": "Slalom cúvaním",
+    "objective": "Precvičiť bočné korekcie pri lete dozadu.",
+    "duration_minutes": 8,
+    "difficulty": "intermediate",
+    "equipment": "Dron, tri mäkké značky",
+    "details": {
+      "category": "Orientácia a presnosť",
+      "participants": "1 pilot",
+      "procedure": "Zarovnať dron čelom vpred a trasu preletieť cúvaním. Pred zmenou strany znížiť rýchlosť a udržať výšku.",
+      "success": "Dva čisté prelety bez dotyku značiek alebo otočenia dronu.",
+      "variants": "Začať dvoma značkami s veľkým odstupom."
+    }
+  },
+  {
+    "key": "u-turn-lane",
+    "title": "Obrat do susednej dráhy",
+    "objective": "Kontrolovať šírku obratu a včas zarovnať výlet.",
+    "duration_minutes": 8,
+    "difficulty": "intermediate",
+    "equipment": "Dron, paralelné koridory, vyznačená zóna obratu",
+    "details": {
+      "category": "Orientácia a presnosť",
+      "participants": "1 pilot",
+      "procedure": "Letieť jedným koridorom, v jeho koncovej zóne spraviť plynulý obrat o 180° a vrátiť sa susednou dráhou.",
+      "success": "Štyri z piatich obratov s výletom do správneho koridoru.",
+      "variants": "Striedať ľavý a pravý obrat, potom mierne zúžiť zónu."
+    }
+  },
+  {
+    "key": "low-high-gates",
+    "title": "Dve bránky v rôznej výške",
+    "objective": "Pripraviť výšku pre ďalší cieľ bez náhlej korekcie tesne pred ním.",
+    "duration_minutes": 9,
+    "difficulty": "intermediate",
+    "equipment": "Dron, dve vhodne rozmiestnené tréningové bránky",
+    "details": {
+      "category": "Orientácia a presnosť",
+      "participants": "1 pilot",
+      "procedure": "Po prvej bránke stabilizovať vodorovnú dráhu, zmeniť výšku v medzipriestore a zarovnať sa na druhú.",
+      "success": "Tri zo štyroch dvojíc preletov sú čisté.",
+      "variants": "Začať väčším rozostupom a postupne skúsiť opačné poradie bránok."
+    }
+  },
+  {
+    "key": "offset-corridor",
+    "title": "Odsadený koridor",
+    "objective": "Spojiť presné bočné korekcie a súvislý let.",
+    "duration_minutes": 9,
+    "difficulty": "advanced",
+    "equipment": "Dron, tri dvojice mäkkých značiek",
+    "details": {
+      "category": "Orientácia a presnosť",
+      "participants": "1 pilot",
+      "procedure": "Dvojice rozložiť postupne vľavo, vpravo a vľavo. Preletieť medzerami v poradí s rovnakou orientáciou dronu.",
+      "success": "Tri prejazdy v každom smere bez dotyku alebo vynechania medzery.",
+      "variants": "Začať s možnosťou zastaviť medzi medzerami, potom prejsť na súvislý let."
+    }
+  },
+  {
+    "key": "gate-select",
+    "title": "Výber nájazdu podľa signálu",
+    "objective": "Zvoliť stranu nájazdu až počas letu a včas sa zarovnať.",
+    "duration_minutes": 8,
+    "difficulty": "intermediate",
+    "equipment": "Dron, bránka, dve vstupné trasy",
+    "details": {
+      "category": "Bránka a útok",
+      "participants": "1 pilot + tréner",
+      "procedure": "Vzlietnuť zo stredu. Tréner na dohodnutom bode určí ľavú alebo pravú trasu. Preletieť určenou trasou a zakončiť bránkou.",
+      "success": "Štyri z piatich nájazdov po správnej trase s čistým preletom.",
+      "variants": "Signál dať na rozličných miestach s dostatočným priestorom na rozhodnutie."
+    }
+  },
+  {
+    "key": "opposite-side-approach",
+    "title": "Zmena strany pred zakončením",
+    "objective": "Vedieť prejsť z prvej nájazdovej línie na druhú pod kontrolou.",
+    "duration_minutes": 9,
+    "difficulty": "advanced",
+    "equipment": "Dron, bránka, dva nájazdové koridory, priečna značka",
+    "details": {
+      "category": "Bránka a útok",
+      "participants": "1 pilot",
+      "procedure": "Začať v jednom koridore, pred priečnou značkou prejsť do druhého, zarovnať sa a doletieť k bránke.",
+      "success": "Tri z piatich pokusov na každú stranu s čistým preletom a bez skracovania cez značku.",
+      "variants": "Najprv presun počas visenia, potom súvisle pomalým tempom."
+    }
+  },
+  {
+    "key": "attack-window",
+    "title": "Otvorené okno na prelet",
+    "objective": "Rozlíšiť moment na nájazd od momentu na vyčkanie.",
+    "duration_minutes": 10,
+    "difficulty": "advanced",
+    "equipment": "Dron, bránka, čakacia zóna, vizuálny signál",
+    "details": {
+      "category": "Bránka a útok",
+      "participants": "1 pilot + tréner",
+      "procedure": "Z čakacej zóny reagovať na signál o otvorení nájazdu. Pri zatvorenom okne držať pozíciu alebo prerušiť nájazd pred dohodnutou hranicou.",
+      "success": "V piatich zo šiestich situácií správne vyčkať, prerušiť alebo zakončiť podľa signálu.",
+      "variants": "Použiť rôzne dĺžky okna a striedať dva nájazdové smery."
+    }
+  },
+  {
+    "key": "rebound-choice",
+    "title": "Opakovaný útok po odklone",
+    "objective": "Po uzavretí prvej trasy nájsť čas a priestor na druhý nájazd.",
+    "duration_minutes": 10,
+    "difficulty": "advanced",
+    "equipment": "Dva drony, bránka, dve útočné trasy",
+    "details": {
+      "category": "Bránka a útok",
+      "participants": "2 piloti",
+      "procedure": "Obranca pohybom označí, ktorá trasa je zatvorená. Útočník odletí do voľnej zóny a rozhodne, kedy a kadiaľ skúsi ďalší nájazd.",
+      "success": "V štyroch z piatich pokusov útočník čisto preruší prvú trasu a zvolí voľnú druhú trasu.",
+      "variants": "Najprv obranca mení pozíciu iba pred nájazdom, neskôr aj medzi pokusmi."
+    }
+  },
+  {
+    "key": "staggered-lanes",
+    "title": "Súbežný let s rozostupom",
+    "objective": "Udržať bočný aj pozdĺžny odstup pri spoločnom presune.",
+    "duration_minutes": 8,
+    "difficulty": "intermediate",
+    "equipment": "Dva drony, dva oddelené koridory",
+    "details": {
+      "category": "Obrana a spolupráca",
+      "participants": "2 piloti",
+      "procedure": "Dvojica letí rovnakým smerom vlastnými koridormi, jeden pilot mierne vpredu. Na spoločný signál spomalí a zastaví.",
+      "success": "Tri presuny s udržaným poradím a bez opustenia koridorov.",
+      "variants": "Vymeniť vedúceho medzi sériami a pridať rozdielne body zastavenia."
+    }
+  },
+  {
+    "key": "defense-depth",
+    "title": "Obrana v dvoch hĺbkach",
+    "objective": "Rozdeliť prvú reakciu a krytie priestoru bližšie k bránke.",
+    "duration_minutes": 10,
+    "difficulty": "intermediate",
+    "equipment": "Tri drony, bránka, dve obranné línie",
+    "details": {
+      "category": "Obrana a spolupráca",
+      "participants": "3 piloti",
+      "procedure": "Prvý obranca reaguje zo vzdialenejšej línie, druhý zostáva hlbšie a sleduje voľný nájazd. Útočník podľa dohody skúša priamy alebo bočný prístup.",
+      "success": "Pri štyroch z piatich nájazdov zostanú obsadené obe obranné línie do konca akcie.",
+      "variants": "Najprv vopred oznámiť trasu, neskôr ju nechať na útočníka."
+    }
+  },
+  {
+    "key": "attack-support",
+    "title": "Uvoľnenie dráhy pre spoluhráča",
+    "objective": "Uvoľniť spoluhráčovi priestor a potvrdiť ho včasným povelom.",
+    "duration_minutes": 10,
+    "difficulty": "advanced",
+    "equipment": "Dva až tri drony, bránka, nájazdový a podporný koridor",
+    "details": {
+      "category": "Obrana a spolupráca",
+      "participants": "2–3 piloti",
+      "procedure": "Hráč v podpore opustí dohodnutú trasu, oznámi voľný koridor a zostane v podpornej zóne. Pilot zakončuje až po potvrdení.",
+      "success": "Pri štyroch z piatich nájazdov je trasa voľná pred vstupom zakončujúceho hráča.",
+      "variants": "Meniť stranu nájazdu medzi opakovaniami alebo pridať pomalého obrancu."
+    }
+  },
+  {
+    "key": "recover-with-cover",
+    "title": "Obnova obrany po výpadku hráča",
+    "objective": "Prerozdeliť zóny, keď jeden hráč musí opustiť pozíciu.",
+    "duration_minutes": 10,
+    "difficulty": "advanced",
+    "equipment": "Tri drony, bránka, označené zóny",
+    "details": {
+      "category": "Obrana a spolupráca",
+      "participants": "3 piloti",
+      "procedure": "Tréner určí pilota, ktorý odletí do vyhradenej zóny. Ostatní ohlásia, kto preberá krytie, a upravia svoje pozície.",
+      "success": "Štyri z piatich zmien s potvrdeným krytím bránky a bez súbežného preletu rovnakým priestorom.",
+      "variants": "Začať bez útoku, neskôr pridať samostatný riadený nájazd s ďalším pilotom."
+    }
+  },
+  {
+    "key": "two-on-two",
+    "title": "Dvaja proti dvom s výmenou strán",
+    "objective": "Preniesť podporu a krytie do rovnocennej situácie.",
+    "duration_minutes": 12,
+    "difficulty": "advanced",
+    "equipment": "Štyri drony, bránka, označené zóny",
+    "details": {
+      "category": "Herné situácie",
+      "participants": "4 piloti",
+      "procedure": "Jedna dvojica útočí, druhá bráni. V útoku určiť zakončujúceho pilota. Po každom bloku vymeniť strany a pozície.",
+      "success": "V štyroch zo šiestich pokusov obe dvojice viditeľne rozdelia úlohy a udržia odlišné dráhy.",
+      "variants": "Začať v širších zónach a bez časového limitu."
+    }
+  },
+  {
+    "key": "attack-transition",
+    "title": "Prechod z obrany do útoku",
+    "objective": "Po získaní voľnej trasy rýchlo rozdeliť nájazd, podporu a zvyšné krytie.",
+    "duration_minutes": 12,
+    "difficulty": "advanced",
+    "equipment": "Drony, bránky, vyznačené trasy",
+    "details": {
+      "category": "Herné situácie",
+      "participants": "4–6 pilotov",
+      "procedure": "Začať v obrannom rozostavení. Na signál určený pilot ohlási nájazd, druhý zaujme podporu a ostatní pokryjú dohodnuté zóny.",
+      "success": "Pri štyroch z piatich prechodov sú úlohy potvrdené pred prvým nájazdom a jedna dohodnutá obranná zóna zostane pokrytá.",
+      "variants": "Najprv bez súpera, neskôr s obrancom, ktorý vyberie jednu zatvorenú trasu."
+    }
+  },
+  {
+    "key": "post-goal-reset",
+    "title": "Preskupenie po prelete bránkou",
+    "objective": "Nadviazať po úspešnom prelete na spoločné rozostavenie.",
+    "duration_minutes": 10,
+    "difficulty": "advanced",
+    "equipment": "Drony, dve bránky, cieľové zóny",
+    "details": {
+      "category": "Herné situácie",
+      "participants": "3–5 pilotov",
+      "procedure": "Po prelete vedúci hráč ohlási návrat. Piloti po dohodnutých trasách presunú drony do zón a potvrdia pripravenosť na ďalšiu akciu.",
+      "success": "Tri po sebe idúce preskupenia bez zámeny pozícií alebo kríženia návratových trás.",
+      "variants": "Najprv určiť návratové trasy vopred, potom vyberať z dvoch možností podľa situácie."
+    }
+  },
+  {
+    "key": "game-states",
+    "title": "Hra pri vedení a pri strate",
+    "objective": "Upraviť ochotu riskovať podľa stavu skóre a zostávajúceho času.",
+    "duration_minutes": 15,
+    "difficulty": "advanced",
+    "equipment": "Drony, bránky, časomiera",
+    "details": {
+      "category": "Herné situácie",
+      "participants": "Dve zostavy podľa účasti",
+      "procedure": "Odohrať dve krátke situácie s rovnakým časom. Raz tím vedie, raz prehráva. Pred začiatkom si určí plán a po konci vyberie jedno rozhodnutie na rozbor.",
+      "success": "V každej situácii tím pomenuje voľbu, ktorú prispôsobil skóre, a rozpozná, či dodržal svoj plán.",
+      "variants": "Vymeniť východiskové skóre tesne pred začiatkom ďalšej situácie."
+    }
+  },
+  {
+    "key": "position-switch",
+    "title": "Útok striedavo z oboch strán",
+    "objective": "Zmeniť nájazdovú stranu bez rozpadu rozostavenia tímu.",
+    "duration_minutes": 12,
+    "difficulty": "advanced",
+    "equipment": "Drony, bránka, dva útočné koridory",
+    "details": {
+      "category": "Herné situácie",
+      "participants": "4–6 pilotov",
+      "procedure": "Tím skúsi nájazd z jednej strany. Keď obranca zakryje trasu, hráči ohlásia zmenu, presunú podporu a pripravia nájazd z opačnej strany.",
+      "success": "V troch zo štyroch situácií zostane počas zmeny určený hráč v krytí a nájazd prebehne z voľnej strany.",
+      "variants": "Najprv meniť stranu na signál, potom podľa pohybu obrancu."
+    }
+  },
+  {
+    "key": "maneuver-circuit",
+    "title": "Meraný okruh zručnosti",
+    "objective": "Porovnať plynulosť a presnosť na opakovateľnej trase.",
+    "duration_minutes": 12,
+    "difficulty": "intermediate",
+    "equipment": "Dron, značky, tréningová bránka, stopky",
+    "details": {
+      "category": "Hodnotenie",
+      "participants": "1 pilot + tréner",
+      "procedure": "Zostaviť trasu z presunu, obratu, preletu bránkou a pristátia. Použiť dve merané kolá s rovnakým rozložením.",
+      "success": "Zapísať čas každého kola, samostatne počet dotykov a vynechaných prvkov.",
+      "variants": "Pri porovnávaní meraní zachovať rovnakú trasu a spôsob počítania chýb."
+    }
+  },
+  {
+    "key": "team-decision-review",
+    "title": "Tímové rozhodnutia v aréne",
+    "objective": "Zistiť, či sa hráči zhodujú na úlohe pri zmene situácie.",
+    "duration_minutes": 10,
+    "difficulty": "intermediate",
+    "equipment": "Schéma arény alebo podlahové značky",
+    "details": {
+      "category": "Hodnotenie",
+      "participants": "3–5 pilotov + tréner",
+      "procedure": "Pripraviť situácie s voľnou stranou útoku, obsadenou trasou a opustenou obrannou pozíciou. Hráči bez letu ukážu, kde by stáli a čo by ohlásili.",
+      "success": "Pri každej situácii zaznamenať, či sa obsadenie zón a povely zhodujú s dohodnutým plánom.",
+      "variants": "Po rozbore zopakovať jednu situáciu s dronmi."
+    }
   }
 ]
